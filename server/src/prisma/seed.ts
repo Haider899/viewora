@@ -37,38 +37,51 @@ async function main() {
   console.log('✔ System ledger accounts verified.');
 
   // 2. Seed Users across all 5 RBAC roles
-  const passwordHash = await bcrypt.hash('VistaraSecure2026!', 10);
+  const defaultPasswordHash = await bcrypt.hash('VistaraSecure2026!', 10);
+  const innovativeAdminHash = await bcrypt.hash('Super@2026', 10);
 
   const users = [
+    {
+      email: 'admin@innovative.online',
+      fullName: 'Innovative Super Admin',
+      role: 'SUPER_ADMIN',
+      referralCode: 'INNOVATIVE-SUPER',
+      customHash: innovativeAdminHash,
+    },
     {
       email: 'admin@vistarax.com',
       fullName: 'Alexander Vance (Super Admin)',
       role: 'SUPER_ADMIN',
       referralCode: 'VISTARA-SUPER',
+      customHash: defaultPasswordHash,
     },
     {
       email: 'finance@vistarax.com',
       fullName: 'Sarah Chen (Finance Admin)',
       role: 'FINANCE_ADMIN',
       referralCode: 'VISTARA-FIN',
+      customHash: defaultPasswordHash,
     },
     {
       email: 'content@vistarax.com',
       fullName: 'Marcus Brody (Content Admin)',
       role: 'CONTENT_ADMIN',
       referralCode: 'VISTARA-CONT',
+      customHash: defaultPasswordHash,
     },
     {
       email: 'support@vistarax.com',
       fullName: 'Elena Rostova (Support Agent)',
       role: 'SUPPORT_AGENT',
       referralCode: 'VISTARA-SUPP',
+      customHash: defaultPasswordHash,
     },
     {
       email: 'user@vistarax.com',
       fullName: 'David Sterling (Active Member)',
       role: 'USER',
       referralCode: 'VISTARA-DEMO',
+      customHash: defaultPasswordHash,
     },
   ];
 
@@ -79,7 +92,7 @@ async function main() {
         data: {
           email: u.email,
           fullName: u.fullName,
-          passwordHash,
+          passwordHash: u.customHash,
           role: u.role,
           status: 'ACTIVE',
           emailVerified: true,

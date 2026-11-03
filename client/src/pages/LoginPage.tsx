@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext.js';
-import { PlaySquare, Lock, Mail, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { PlaySquare, Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 
 interface LoginProps {
   navigate: (route: string) => void;
@@ -28,21 +28,6 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
     }
   };
 
-  const handleQuickLogin = async (e: string, p: string) => {
-    setEmail(e);
-    setPassword(p);
-    setErrorMsg(null);
-    setLoading(true);
-    try {
-      await login({ email: e, password: p });
-      navigate('home');
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Quick login failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="max-w-md mx-auto px-4 py-16 space-y-6">
       <div className="text-center space-y-2">
@@ -64,7 +49,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
             <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="email"
-              placeholder="user@vistarax.com"
+              placeholder="admin@innovative.online"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
@@ -117,36 +102,6 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
           </button>
         </div>
       </form>
-
-      {/* Quick Demo Access Bar */}
-      <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-3">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block text-center">
-          Instant Evaluation Logins
-        </span>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <button
-            type="button"
-            onClick={() => handleQuickLogin('admin@vistarax.com', 'VistaraSecure2026!')}
-            className="p-2.5 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 font-bold text-center transition-colors shadow-2xs"
-          >
-            Super Admin
-          </button>
-          <button
-            type="button"
-            onClick={() => handleQuickLogin('finance@vistarax.com', 'VistaraSecure2026!')}
-            className="p-2.5 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 font-bold text-center transition-colors shadow-2xs"
-          >
-            Finance Admin
-          </button>
-          <button
-            type="button"
-            onClick={() => handleQuickLogin('user@vistarax.com', 'VistaraSecure2026!')}
-            className="p-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 font-bold text-center transition-colors col-span-2 shadow-2xs"
-          >
-            Active Member (David Sterling)
-          </button>
-        </div>
-      </div>
     </div>
   );
 };
