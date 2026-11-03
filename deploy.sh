@@ -77,6 +77,7 @@ if [ ! -f ".env" ]; then
   sed -i "s|JWT_REFRESH_SECRET=.*|JWT_REFRESH_SECRET=$JWT_REFRESH|g" .env
   sed -i "s|NODE_ENV=.*|NODE_ENV=production|g" .env
   sed -i "s|PORT=.*|PORT=5050|g" .env
+  sed -i "s|CORS_ORIGIN=.*|CORS_ORIGIN=http://viewora.itibusinesssuite.online,https://viewora.itibusinesssuite.online,http://72.62.76.176,http://localhost:5173|g" .env
 fi
 
 npm install --production=false
@@ -101,6 +102,10 @@ fi
 npm install
 npm run build
 
+# Ensure web root permissions for Nginx
+chmod -R 755 "$APP_DIR"
+chown -R www-data:www-data "$APP_DIR/client/dist"
+
 # 8. Configure Nginx Reverse Proxy
 echo -e "\n${BLUE}[7/8] Configuring Nginx web server & reverse proxy...${NC}"
 NGINX_CONF="/etc/nginx/sites-available/viewora"
@@ -110,7 +115,7 @@ server {
     listen 80 default_server;
     listen [::]:80 default_server;
 
-    server_name _ 72.62.76.176 viewora.*;
+    server_name viewora.itibusinesssuite.online 72.62.76.176 _;
 
     client_max_body_size 50M;
 
@@ -147,6 +152,7 @@ EOF
 
 # Enable site and remove default
 rm -f /etc/nginx/sites-enabled/default
+rm -f /etc/nginx/sites-available/default
 ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/viewora
 
 nginx -t
@@ -173,3 +179,4 @@ echo -e ""
 echo -e "${PURPLE}To add free SSL HTTPS certificate later when your domain is pointed:${NC}"
 echo -e "  ${YELLOW}certbot --nginx -d yourdomain.com${NC}"
 echo -e "${GREEN}==================================================================${NC}"
+
