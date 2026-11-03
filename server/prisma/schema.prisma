@@ -1,0 +1,418 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// -------------------------------------------------------------
+// USER & AUTHENTICATION
+// -------------------------------------------------------------
+model User {
+  id                    String    @id @default(uuid())
+  email                 String    @unique
+  passwordHash          String
+  fullName              String
+  phone                 String?
+  role                  String    @default("USER") // SUPER_ADMIN, FINANCE_ADMIN, CONTENT_ADMIN, SUPPORT_AGENT, USER
+  status                String    @default("ACTIVE") // ACTIVE, SUSPENDED, PENDING_VERIFICATION
+  emailVerified         Boolean   @default(false)
+  emailVerificationToken String?
+  passwordResetToken    String?
+  passwordResetExpires  DateTime?
+  referralCode          String    @unique
+  referredById          String?
+  referredBy            User?     @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals             User[]    @relation("UserReferrals")
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relational mappings
+  verifications         UserVerification[]
+  packagePurchases      PackagePurchase[]
+  videoSessions         VideoSession[]
+  rewardClaims          RewardClaim[]
+  walletAccounts        WalletAccount[]
+  depositRequests       DepositRequest[]
+  withdrawalRequests    WithdrawalRequest[]
+  auditLogs             AuditLog[]            @relation("UserAuditLogs")
+  referralCommissions   ReferralCommission[]  @relation("BeneficiaryCommissions")
+  sourceCommissions     ReferralCommission[]  @relation("SourceUserCommissions")
+  notifications         Notification[]
+  supportConversations  SupportConversation[]
+  assignedSupportTickets SupportConversation[] @relation("AssignedSupportAgent")
+  assignedVideos        Video[]               @relation("AssignedVideos")
+
+  @@index([role])
+  @@index([status])
+  @@index([referredById])
+}
+
+model UserVerification {
+  id             String    @id @default(uuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentType   String    // CNIC, PASSPORT, DRIVERS_LICENSE
+  documentNumber String
+  documentFront  String?   // URL or file reference
+  documentBack   String?
+  status         String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectionReason String?
+  verifiedById   String?
+  verifiedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// -------------------------------------------------------------
+// PACKAGE MANAGEMENT
+// -------------------------------------------------------------
+model Package {
+  id              String            @id @default(uuid())
+  name            String            @unique // Starter, Basic, Premium, VIP
+  priceCents      Int               // Price in USD cents ($20 = 2000)
+  currency        String            @default("USD") // USD or PKR
+  videoLimit      Int               // Video limit (2, 6, 15, 60)
+  description     String?
+  badge           String?           // Popular, Best Value, etc.
+  features        String            // JSON encoded array of string features
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  purchases       PackagePurchase[]
+}
+
+model PackagePurchase {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId       String
+  package         Package         @relation(fields: [packageId], references: [id])
+  packageName     String          // Historical snapshot
+  priceCentsPaid  Int             // Historical snapshot
+  currency        String          @default("USD")
+  videoLimitGranted Int           // Historical snapshot
+  status          String          @default("ACTIVE") // ACTIVE, EXPIRED, CANCELLED
+  purchasedAt     DateTime        @default(now())
+  expiresAt       DateTime?
+
+  revenueEvents   RevenueEvent[]
+
+  @@index([userId])
+  @@index([packageId])
+}
+
+// -------------------------------------------------------------
+// VIDEO LIBRARY & ENGAGEMENT
+// -------------------------------------------------------------
+model Video {
+  id              String          @id @default(uuid())
+  title           String
+  description     String
+  thumbnailUrl    String
+  videoUrl        String          // Secure source or stream URL
+  durationSeconds Int
+  category        String          // Technology, Finance, Business, Creative, Health
+  minPackageTier  String          @default("Starter") // Starter, Basic, Premium, VIP
+  orderIndex      Int             @default(0)
+  isPublished     Boolean         @default(true)
+  rewardEligible  Boolean         @default(true)
+  rewardAmountCents Int           @default(50) // e.g. $0.50 cents reward when policy is enabled
+  assignedUserId  String?
+  assignedUser    User?           @relation("AssignedVideos", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  sessions        VideoSession[]
+  rewardClaims    RewardClaim[]
+
+  @@index([category])
+  @@index([minPackageTier])
+  @@index([isPublished])
+  @@index([assignedUserId])
+}
+
+model VideoSession {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoId         String
+  video           Video           @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  sessionToken    String          @unique
+  watchSeconds    Int             @default(0)
+  completed       Boolean         @default(false)
+  lastHeartbeat   DateTime        @default(now())
+  startedAt       DateTime        @default(now())
+  completedAt     DateTime?
+
+  rewardClaims    RewardClaim[]
+
+  @@index([userId, videoId])
+}
+
+model RewardClaim {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoId         String
+  video           Video           @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  videoSessionId  String
+  videoSession    VideoSession    @relation(fields: [videoSessionId], references: [id], onDelete: Cascade)
+  amountCents     Int
+  currency        String          @default("USD")
+  status          String          @default("CLAIMED") // CLAIMED, REVERSED
+  claimedAt       DateTime        @default(now())
+
+  @@unique([userId, videoId]) // Strict anti-fraud: exactly 1 claim per user per video
+  @@index([userId])
+  @@index([videoId])
+}
+
+// -------------------------------------------------------------
+// DOUBLE-ENTRY WALLET & FINANCIAL LEDGER
+// -------------------------------------------------------------
+model WalletAccount {
+  id              String          @id @default(uuid())
+  userId          String?         // Null for system-level accounts
+  user            User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountType     String          // USER_AVAILABLE, USER_RESERVED, SYSTEM_CASH_EASYPAISA, SYSTEM_CASH_JAZZCASH, SYSTEM_CASH_CRYPTO, SYSTEM_REVENUE_PACKAGES, SYSTEM_EXPENSE_REWARDS, SYSTEM_EXPENSE_REFERRALS
+  currency        String          // USD or PKR
+  balanceCents    Int             @default(0) // Cached balance derived from ledger entries
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  ledgerEntries   LedgerEntry[]
+
+  @@unique([userId, accountType, currency])
+  @@index([userId])
+  @@index([accountType])
+}
+
+model LedgerTransaction {
+  id              String          @id @default(uuid())
+  reference       String          @unique // Unique business ref or idempotency key
+  transactionType String          // DEPOSIT, WITHDRAWAL_HOLD, WITHDRAWAL_SETTLE, WITHDRAWAL_RELEASE, PACKAGE_PURCHASE, REWARD_CREDIT, REFERRAL_COMMISSION, ADJUSTMENT
+  currency        String          // USD or PKR
+  description     String
+  postedById      String?         // Admin ID or SYSTEM
+  createdAt       DateTime        @default(now())
+
+  entries         LedgerEntry[]
+
+  @@index([transactionType])
+  @@index([reference])
+}
+
+model LedgerEntry {
+  id              String            @id @default(uuid())
+  transactionId   String
+  transaction     LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  accountId       String
+  account         WalletAccount     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  entryType       String            // DEBIT or CREDIT
+  amountCents     Int               // Always positive integer in minor units
+  createdAt       DateTime          @default(now())
+
+  @@index([transactionId])
+  @@index([accountId])
+}
+
+// -------------------------------------------------------------
+// PAYMENTS & WITHDRAWALS
+// -------------------------------------------------------------
+model PaymentMethod {
+  id              String            @id @default(uuid())
+  code            String            @unique // EASYPAISA, JAZZCASH, CRYPTO_USDT, BANK_TRANSFER
+  name            String
+  currency        String            // PKR or USD
+  instructions    String            // Account numbers, QR instructions, wallet addresses
+  accountTitle    String?
+  accountNumber   String?
+  qrCodeUrl       String?
+  minAmountCents  Int               @default(500)
+  maxAmountCents  Int               @default(5000000)
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  deposits        DepositRequest[]
+}
+
+model DepositRequest {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentMethodId String
+  paymentMethod   PaymentMethod   @relation(fields: [paymentMethodId], references: [id])
+  amountCents     Int
+  currency        String          // USD or PKR
+  transactionRef  String          // Transaction ID or TxHash submitted by user
+  proofImageUrl   String?
+  senderPhone     String?
+  senderName      String?
+  status          String          @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectionReason String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  ledgerTxId      String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([transactionRef])
+}
+
+model WithdrawalRequest {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amountCents     Int
+  currency        String          // USD or PKR
+  payoutMethod    String          // EASYPAISA, JAZZCASH, CRYPTO_USDT, BANK_TRANSFER
+  accountTitle    String
+  accountNumber   String
+  status          String          @default("PENDING") // PENDING, UNDER_REVIEW, APPROVED, PROCESSING, COMPLETED, REJECTED, CANCELLED
+  payoutRef       String?         // Actual bank / chain tx hash recorded by finance admin
+  rejectionReason String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  completedAt     DateTime?
+  holdLedgerTxId  String?
+  settleLedgerTxId String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// -------------------------------------------------------------
+// REFERRAL & COMMISSION
+// -------------------------------------------------------------
+model RevenueEvent {
+  id              String                @id @default(uuid())
+  sourcePurchaseId String
+  purchase        PackagePurchase       @relation(fields: [sourcePurchaseId], references: [id], onDelete: Cascade)
+  amountCents     Int
+  currency        String
+  createdAt       DateTime              @default(now())
+
+  commissions     ReferralCommission[]
+}
+
+model ReferralCommission {
+  id              String          @id @default(uuid())
+  beneficiaryId   String
+  beneficiary     User            @relation("BeneficiaryCommissions", fields: [beneficiaryId], references: [id], onDelete: Cascade)
+  sourceUserId    String
+  sourceUser      User            @relation("SourceUserCommissions", fields: [sourceUserId], references: [id], onDelete: Cascade)
+  revenueEventId  String
+  revenueEvent    RevenueEvent    @relation(fields: [revenueEventId], references: [id], onDelete: Cascade)
+  commissionCents Int
+  currency        String
+  ratePercent     Float           // e.g. 5.0%
+  status          String          @default("CREDITED") // CREDITED, REVERSED
+  ledgerTxId      String?
+  createdAt       DateTime        @default(now())
+
+  @@index([beneficiaryId])
+  @@index([sourceUserId])
+}
+
+// -------------------------------------------------------------
+// SYSTEM SETTINGS, AUDIT & NOTIFICATIONS
+// -------------------------------------------------------------
+model ExchangeRateRecord {
+  id              String          @id @default(uuid())
+  baseCurrency    String          @default("USD")
+  targetCurrency  String          @default("PKR")
+  rate            Float           // e.g. 280.00
+  effectiveAt     DateTime        @default(now())
+  createdById     String?
+}
+
+model AuditLog {
+  id              String          @id @default(uuid())
+  userId          String?
+  user            User?           @relation("UserAuditLogs", fields: [userId], references: [id], onDelete: SetNull)
+  action          String          // e.g. DEPOSIT_APPROVED, WITHDRAWAL_PROCESSED, USER_SUSPENDED
+  resourceType    String          // DepositRequest, WithdrawalRequest, User, Package
+  resourceId      String?
+  details         String?         // JSON details
+  ipAddress       String?
+  createdAt       DateTime        @default(now())
+
+  @@index([userId])
+  @@index([action])
+}
+
+model SystemSetting {
+  id              String          @id @default(uuid())
+  key             String          @unique
+  value           String
+  description     String?
+  updatedAt       DateTime        @updatedAt
+}
+
+model Notification {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title           String
+  message         String
+  type            String          @default("INFO") // INFO, SUCCESS, WARNING, DANGER
+  isRead          Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+
+  @@index([userId])
+}
+
+// -------------------------------------------------------------
+// LIVE CHAT & CUSTOMER SUPPORT
+// -------------------------------------------------------------
+model SupportConversation {
+  id              String            @id @default(uuid())
+  userId          String?
+  user            User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  guestName       String?
+  guestEmail      String?
+  subject         String            @default("Customer Support & Inquiries")
+  status          String            @default("BOT") // BOT, WAITING_FOR_AGENT, AGENT_ACTIVE, RESOLVED
+  priority        String            @default("NORMAL") // LOW, NORMAL, HIGH
+  assignedToId    String?
+  assignedTo      User?             @relation("AssignedSupportAgent", fields: [assignedToId], references: [id], onDelete: SetNull)
+  lastMessageAt   DateTime          @default(now())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  messages        SupportMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([assignedToId])
+  @@index([lastMessageAt])
+}
+
+model SupportMessage {
+  id              String              @id @default(uuid())
+  conversationId  String
+  conversation    SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderType      String              // USER, BOT, AGENT
+  senderId        String?             // User ID if sent by authenticated user or admin agent
+  senderName      String
+  message         String
+  attachmentUrl   String?             // Base64 data URL or file link
+  attachmentName  String?
+  createdAt       DateTime            @default(now())
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+

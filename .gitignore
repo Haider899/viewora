@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Production builds
+dist/
+client/dist/
+build/
+*/build/
+
+# Local Environment Variables & Secrets
+.env
+.env*.local
+server/.env
+*.env
+!.env.example
+!*/.env.example
+
+# Local SQLite Database & Storage
+*.db
+*.db-journal
+*.sqlite
+dev.db
+server/prisma/dev.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# System & IDE artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
