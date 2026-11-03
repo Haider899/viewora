@@ -190,6 +190,8 @@ export class WithdrawalService {
         };
       }
 
+      const payoutRef = payload.payoutRef.trim();
+
       // Settle the funds: Settle Reserved balance against System Cash
       return await prisma.$transaction(async (tx) => {
         const reservedAccount = await LedgerService.getOrCreateAccount(tx, AccountType.USER_RESERVED, cur, withdrawal.userId);
@@ -206,7 +208,7 @@ export class WithdrawalService {
             reference: settleRef,
             transactionType: LedgerTransactionType.WITHDRAWAL_SETTLE,
             currency: cur,
-            description: `Settled withdrawal payout: ${(withdrawal.amountCents / 100).toFixed(2)} ${cur} (Ref: ${payload.payoutRef})`,
+            description: `Settled withdrawal payout: ${(withdrawal.amountCents / 100).toFixed(2)} ${cur} (Ref: ${payoutRef})`,
             postedById: adminId,
             entries: [
               {
@@ -228,7 +230,7 @@ export class WithdrawalService {
           where: { id: withdrawalId },
           data: {
             status: WithdrawalStatus.COMPLETED,
-            payoutRef: payload.payoutRef.trim(),
+            payoutRef: payoutRef,
             settleLedgerTxId: settleLedgerTx.id,
             completedAt: new Date(),
             reviewedById: adminId,

@@ -142,7 +142,7 @@ export class AuthService {
 
   private static generateToken(payload: JWTPayload): string {
     return jwt.sign(payload, env.JWT_ACCESS_SECRET, {
-      expiresIn: env.JWT_ACCESS_EXPIRES_IN,
+      expiresIn: env.JWT_ACCESS_EXPIRES_IN as any,
     });
   }
 }
