@@ -6,7 +6,7 @@ interface AuthContextType {
   user: User | null;
   wallet: WalletSummary | null;
   loading: boolean;
-  login: (credentials: { email: string; password: string }) => Promise<boolean>;
+  login: (credentials: { email: string; password: string }) => Promise<User>;
   register: (data: { email: string; password: string; fullName: string; phone?: string; referralCode?: string }) => Promise<boolean>;
   logout: () => void;
   refreshUser: () => Promise<void>;
@@ -63,13 +63,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshUser();
   }, []);
 
-  const login = async (credentials: { email: string; password: string }): Promise<boolean> => {
+  const login = async (credentials: { email: string; password: string }): Promise<User> => {
     const res = await api.login(credentials);
     if (res.success && res.data) {
       api.setToken(res.data.token);
       setUser(res.data.user);
       await refreshWallet();
-      return true;
+      return res.data.user;
     }
     throw new Error(res.error?.message || 'Login failed.');
   };
