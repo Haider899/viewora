@@ -241,10 +241,31 @@ Aap apna sawal ya receipt screenshot yahan attach kar ke share kar dein.`,
       },
     });
 
+    // Find available support agents (least-loaded round-robin, max 10 agents)
+    const availableAgents = await prisma.user.findMany({
+      where: {
+        role: { in: ['SUPPORT_AGENT', 'SUPER_ADMIN'] },
+        status: 'ACTIVE',
+      },
+      include: {
+        assignedSupportTickets: {
+          where: { status: { in: ['WAITING_FOR_AGENT', 'AGENT_ACTIVE'] } },
+        },
+      },
+    });
+
+    let assignedAgentId = convo.assignedToId;
+    if (!assignedAgentId && availableAgents.length > 0) {
+      // Sort ascending by active tickets count (least-loaded round-robin)
+      availableAgents.sort((a, b) => a.assignedSupportTickets.length - b.assignedSupportTickets.length);
+      assignedAgentId = availableAgents[0].id;
+    }
+
     const updated = await prisma.supportConversation.update({
       where: { id: params.conversationId },
       data: {
         status: 'WAITING_FOR_AGENT',
+        assignedToId: assignedAgentId,
         lastMessageAt: new Date(),
       },
       include: {
@@ -260,10 +281,91 @@ Aap apna sawal ya receipt screenshot yahan attach kar ke share kar dein.`,
       },
     });
 
+    // Notify assigned agent
+    if (assignedAgentId) {
+      await prisma.notification.create({
+        data: {
+          userId: assignedAgentId,
+          title: '🛎️ New Customer Support Chat Assigned',
+          message: `New support inquiry from ${convo.guestName || 'Registered User'}. Please review and respond.`,
+          type: 'INFO',
+        },
+      });
+    }
+
     return {
       conversation: updated,
       botMessage: botConfirmation,
     };
+  }
+
+  /**
+   * Internal Escalation to Super Admin (Section 12.6)
+   */
+  public static async escalateToAdmin(params: {
+    conversationId: string;
+    agentId: string;
+    reason: string;
+  }) {
+    const convo = await prisma.supportConversation.findUnique({
+      where: { id: params.conversationId },
+    });
+
+    if (!convo) {
+      throw { statusCode: 404, code: 'NOT_FOUND', message: 'Conversation not found.' };
+    }
+
+    const agent = await prisma.user.findUnique({
+      where: { id: params.agentId },
+    });
+
+    // Create system note in the conversation
+    await prisma.supportMessage.create({
+      data: {
+        conversationId: params.conversationId,
+        senderType: 'BOT',
+        senderName: 'System Escalation',
+        message: `🚨 **Internal Escalation to Platform Admin**:\nEscalated by staff member: ${agent?.fullName || 'Agent'}\nReason: ${params.reason}`,
+      },
+    });
+
+    const superAdmin = await prisma.user.findFirst({
+      where: { role: 'SUPER_ADMIN' },
+    });
+
+    const updated = await prisma.supportConversation.update({
+      where: { id: params.conversationId },
+      data: {
+        status: 'ESCALATED_TO_ADMIN',
+        priority: 'HIGH',
+        assignedToId: superAdmin?.id || convo.assignedToId,
+        lastMessageAt: new Date(),
+      },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' },
+        },
+        user: {
+          select: { id: true, fullName: true, email: true, role: true },
+        },
+        assignedTo: {
+          select: { id: true, fullName: true, role: true },
+        },
+      },
+    });
+
+    if (superAdmin) {
+      await prisma.notification.create({
+        data: {
+          userId: superAdmin.id,
+          title: '🚨 Support Ticket Escalated',
+          message: `Ticket #${convo.id.slice(0, 8)} has been escalated for review by ${agent?.fullName}. Reason: ${params.reason}`,
+          type: 'DANGER',
+        },
+      });
+    }
+
+    return updated;
   }
 
   /**

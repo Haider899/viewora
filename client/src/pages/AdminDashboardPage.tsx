@@ -19,6 +19,7 @@ import {
   ArrowUpRight,
   Settings,
   AlertTriangle,
+  AlertCircle,
   RefreshCw,
   Search,
   Filter,
@@ -471,6 +472,19 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       }
     } catch {
       setActionError('Error updating ticket status.');
+    }
+  };
+
+  const handleEscalateToAdmin = async (id: string, reason: string) => {
+    try {
+      const res = await api.adminEscalateSupportToSuperAdmin(id, reason);
+      if (res.success && res.data) {
+        setSelectedConvo(res.data);
+        setActionSuccess('Ticket escalated to Super Admin successfully.');
+        loadSupportConversations();
+      }
+    } catch {
+      setActionError('Error escalating ticket.');
     }
   };
 
@@ -1499,14 +1513,32 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         >
                           <option value="WAITING_FOR_AGENT">⚠️ Waiting for Agent</option>
                           <option value="AGENT_ACTIVE">👨‍💼 Agent Active</option>
+                          <option value="ESCALATED_TO_ADMIN">🚨 Escalated to Admin</option>
                           <option value="BOT">🤖 Bot Mode</option>
                           <option value="RESOLVED">✅ Mark Resolved</option>
                         </select>
 
+                        {selectedConvo.status !== 'ESCALATED_TO_ADMIN' && selectedConvo.status !== 'RESOLVED' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const reason = window.prompt('Enter reason for escalating this ticket to Super Admin:');
+                              if (reason && reason.trim()) {
+                                handleEscalateToAdmin(selectedConvo.id, reason.trim());
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-colors flex items-center gap-1 shadow-2xs cursor-pointer"
+                            title="Escalate issue to Super Admin"
+                          >
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            Escalate to Admin
+                          </button>
+                        )}
+
                         {selectedConvo.status !== 'RESOLVED' && (
                           <button
                             onClick={() => handleUpdateSupportStatus(selectedConvo.id, 'RESOLVED')}
-                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors flex items-center gap-1"
+                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             Resolve

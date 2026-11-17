@@ -130,7 +130,8 @@ export class LedgerService {
         let balanceDelta = 0;
         if (
           account.accountType === AccountType.USER_AVAILABLE ||
-          account.accountType === AccountType.USER_RESERVED
+          account.accountType === AccountType.USER_RESERVED ||
+          account.accountType === AccountType.USER_REFERRAL
         ) {
           // User balance: CREDIT is positive (funds added), DEBIT is negative (funds deducted)
           balanceDelta = entry.entryType === EntryType.CREDIT ? entry.amountCents : -entry.amountCents;
@@ -146,10 +147,11 @@ export class LedgerService {
 
         const newBalance = account.balanceCents + balanceDelta;
         
-        // Prevent user available balance from going negative
+        // Prevent user available/referral balance from going negative
         if (
           (account.accountType === AccountType.USER_AVAILABLE ||
-           account.accountType === AccountType.USER_RESERVED) &&
+           account.accountType === AccountType.USER_RESERVED ||
+           account.accountType === AccountType.USER_REFERRAL) &&
           newBalance < 0
         ) {
           throw new Error(
@@ -184,8 +186,8 @@ export class LedgerService {
     });
 
     const summary = {
-      USD: { availableCents: 0, reservedCents: 0, totalCents: 0 },
-      PKR: { availableCents: 0, reservedCents: 0, totalCents: 0 },
+      USD: { availableCents: 0, reservedCents: 0, referralCents: 0, totalCents: 0 },
+      PKR: { availableCents: 0, reservedCents: 0, referralCents: 0, totalCents: 0 },
     };
 
     for (const acc of accounts) {
@@ -195,12 +197,14 @@ export class LedgerService {
           summary[cur].availableCents = acc.balanceCents;
         } else if (acc.accountType === AccountType.USER_RESERVED) {
           summary[cur].reservedCents = acc.balanceCents;
+        } else if (acc.accountType === AccountType.USER_REFERRAL) {
+          summary[cur].referralCents = acc.balanceCents;
         }
       }
     }
 
-    summary.USD.totalCents = summary.USD.availableCents + summary.USD.reservedCents;
-    summary.PKR.totalCents = summary.PKR.availableCents + summary.PKR.reservedCents;
+    summary.USD.totalCents = summary.USD.availableCents + summary.USD.reservedCents + summary.USD.referralCents;
+    summary.PKR.totalCents = summary.PKR.availableCents + summary.PKR.reservedCents + summary.PKR.referralCents;
 
     return summary;
   }

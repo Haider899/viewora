@@ -100,12 +100,13 @@ async function main() {
         },
       });
 
-      // Initialize USD and PKR available and reserved accounts for each user
+      // Initialize USD and PKR available, reserved, and referral accounts for each user
       for (const cur of ['USD', 'PKR']) {
         await prisma.walletAccount.createMany({
           data: [
             { userId: createdUser.id, accountType: 'USER_AVAILABLE', currency: cur, balanceCents: 0 },
             { userId: createdUser.id, accountType: 'USER_RESERVED', currency: cur, balanceCents: 0 },
+            { userId: createdUser.id, accountType: 'USER_REFERRAL', currency: cur, balanceCents: 0 },
           ],
         });
       }
@@ -238,45 +239,125 @@ async function main() {
   }
   console.log('✔ Payment methods (EasyPaisa, JazzCash, USDT, Bank Wire) seeded.');
 
-  // 5. Seed 60 Videos across 6 categories (Phase 6)
-  const categories = [
-    { name: 'AI & Systems Architecture', count: 10, tier: 'Starter' },
-    { name: 'Quantitative Finance & Ledgering', count: 10, tier: 'Basic' },
-    { name: 'Full-Stack Software Engineering', count: 10, tier: 'Basic' },
-    { name: 'Venture Creation & Scaling', count: 10, tier: 'Premium' },
-    { name: 'Cybersecurity & Cryptography', count: 10, tier: 'Premium' },
-    { name: 'Executive Leadership & Strategy', count: 10, tier: 'VIP' },
+  // 5. Seed Initial 10 Masterclass Videos (Section 4.1: Expandable by Admin)
+  const initialVideos = [
+    {
+      title: 'Foundations of Modern Digital Systems',
+      description: 'Core concepts of distributed web systems, API gateways, and asynchronous workflows.',
+      category: 'AI & Systems Architecture',
+      tier: 'Starter',
+      duration: 900,
+      rewardCents: 50,
+      thumbnail: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80',
+    },
+    {
+      title: 'Cloud Infrastructure & Microservices',
+      description: 'Architecting resilient containerized deployments with horizontal auto-scaling and monitoring.',
+      category: 'AI & Systems Architecture',
+      tier: 'Starter',
+      duration: 1080,
+      rewardCents: 50,
+      thumbnail: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80',
+    },
+    {
+      title: 'Financial Ledgering & Double-Entry Principles',
+      description: 'Immutable bookkeeping, balance sheet invariant verification, and audit-compliant reporting.',
+      category: 'Quantitative Finance & Ledgering',
+      tier: 'Basic',
+      duration: 1200,
+      rewardCents: 75,
+      thumbnail: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=800&q=80',
+    },
+    {
+      title: 'Full-Stack Performance Optimization & Caching',
+      description: 'Advanced caching strategies, query indexing, and frontend rendering pipeline tuning.',
+      category: 'Full-Stack Software Engineering',
+      tier: 'Basic',
+      duration: 1320,
+      rewardCents: 75,
+      thumbnail: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=800&q=80',
+    },
+    {
+      title: 'Protocol Engineering & State Validation',
+      description: 'Idempotency patterns, distributed state consensus, and cryptographic message signing.',
+      category: 'Full-Stack Software Engineering',
+      tier: 'Basic',
+      duration: 1440,
+      rewardCents: 75,
+      thumbnail: 'https://images.unsplash.com/photo-1504639725590-34d0984388bd?auto=format&fit=crop&w=800&q=80',
+    },
+    {
+      title: 'Quantitative Risk Modeling & Capital Allocations',
+      description: 'Mathematical frameworks for portfolio risk management, drawdown mitigation, and stress testing.',
+      category: 'Quantitative Finance & Ledgering',
+      tier: 'Premium',
+      duration: 1500,
+      rewardCents: 100,
+      thumbnail: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=800&q=80',
+    },
+    {
+      title: 'Enterprise Threat Modeling & Zero-Trust Defense',
+      description: 'Defense-in-depth methodologies, credential isolation, and proactive incident response.',
+      category: 'Cybersecurity & Cryptography',
+      tier: 'Premium',
+      duration: 1680,
+      rewardCents: 100,
+      thumbnail: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=800&q=80',
+    },
+    {
+      title: 'High-Throughput Data Streaming & Event Pipelines',
+      description: 'Kafka and pub/sub patterns for processing millions of telemetry events in real time.',
+      category: 'Venture Creation & Scaling',
+      tier: 'Premium',
+      duration: 1800,
+      rewardCents: 100,
+      thumbnail: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
+    },
+    {
+      title: 'Strategic Venture Architecture & Institutional Governance',
+      description: 'Structuring international corporate entities, regulatory compliance, and investor reporting.',
+      category: 'Executive Leadership & Strategy',
+      tier: 'VIP',
+      duration: 1920,
+      rewardCents: 150,
+      thumbnail: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=800&q=80',
+    },
+    {
+      title: 'Global Growth Scaling & Executive Strategy',
+      description: 'Organizational design, international expansion frameworks, and multi-market leadership.',
+      category: 'Executive Leadership & Strategy',
+      tier: 'VIP',
+      duration: 2100,
+      rewardCents: 150,
+      thumbnail: 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=800&q=80',
+    },
   ];
 
   const existingVideosCount = await prisma.video.count();
-  if (existingVideosCount < 60) {
-    let globalIndex = 1;
-    for (const cat of categories) {
-      for (let i = 1; i <= cat.count; i++) {
-        const title = `${cat.name}: Masterclass Vol. ${i}`;
-        const description = `In-depth exploration of core principles, production architectures, case studies, and advanced strategies in ${cat.name}. Module ${i} of ${cat.count}.`;
-        const durationSeconds = 900 + (globalIndex * 45) % 1800; // between 15 and 45 minutes
-        
-        await prisma.video.create({
-          data: {
-            title,
-            description,
-            thumbnailUrl: `https://images.unsplash.com/photo-${1518770660439 + globalIndex * 1234}?auto=format&fit=crop&w=800&q=80`,
-            videoUrl: `https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4`,
-            durationSeconds,
-            category: cat.name,
-            minPackageTier: cat.tier,
-            orderIndex: globalIndex,
-            isPublished: true,
-            rewardEligible: true,
-            rewardAmountCents: 50, // $0.50 reward
-          },
-        });
-        globalIndex++;
-      }
+  if (existingVideosCount === 0) {
+    let idx = 1;
+    for (const v of initialVideos) {
+      await prisma.video.create({
+        data: {
+          title: v.title,
+          description: v.description,
+          thumbnailUrl: v.thumbnail,
+          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+          durationSeconds: v.duration,
+          category: v.category,
+          minPackageTier: v.tier,
+          orderIndex: idx,
+          isPublished: true,
+          rewardEligible: true,
+          rewardAmountCents: v.rewardCents,
+        },
+      });
+      idx++;
     }
+    console.log(`✔ Initial 10 masterclass videos seeded successfully.`);
+  } else {
+    console.log(`✔ Video library already initialized with ${existingVideosCount} videos.`);
   }
-  console.log(`✔ Video library verified with 60 catalog items.`);
 
   // 6. Seed System Settings & Initial Exchange Rate
   await prisma.exchangeRateRecord.create({

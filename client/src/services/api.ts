@@ -185,6 +185,17 @@ class ApiClient {
     return this.request<any>('/referrals/summary');
   }
 
+  async getReferralRankProgress() {
+    return this.request<any>('/referrals/rank-progress');
+  }
+
+  async transferReferralToMainBalance(amountCents: number) {
+    return this.request<any>('/referrals/transfer-to-account', {
+      method: 'POST',
+      body: JSON.stringify({ amountCents }),
+    });
+  }
+
   // Admin APIs
   async getAdminKpis() {
     return this.request<any>('/admin/kpis');
@@ -320,6 +331,13 @@ class ApiClient {
     return this.request<any>(`/admin/support/conversations/${conversationId}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status, assignedToId }),
+    });
+  }
+
+  async adminEscalateSupportToSuperAdmin(conversationId: string, reason: string) {
+    return this.request<any>(`/admin/support/conversations/${conversationId}/escalate-to-admin`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     });
   }
 

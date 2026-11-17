@@ -35,7 +35,7 @@ async function main() {
 
   // Ensure wallet accounts exist
   for (const cur of ['USD', 'PKR']) {
-    for (const accType of ['USER_AVAILABLE', 'USER_RESERVED']) {
+    for (const accType of ['USER_AVAILABLE', 'USER_RESERVED', 'USER_REFERRAL']) {
       const exists = await prisma.walletAccount.findFirst({
         where: { userId: user.id, accountType: accType, currency: cur },
       });

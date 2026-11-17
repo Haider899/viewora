@@ -26,6 +26,7 @@ model User {
   referredById          String?
   referredBy            User?     @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
   referrals             User[]    @relation("UserReferrals")
+  isQualifiedReferral   Boolean   @default(false)
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -40,6 +41,7 @@ model User {
   auditLogs             AuditLog[]            @relation("UserAuditLogs")
   referralCommissions   ReferralCommission[]  @relation("BeneficiaryCommissions")
   sourceCommissions     ReferralCommission[]  @relation("SourceUserCommissions")
+  milestoneClaims       ReferralMilestoneClaim[]
   notifications         Notification[]
   supportConversations  SupportConversation[]
   assignedSupportTickets SupportConversation[] @relation("AssignedSupportAgent")
@@ -324,6 +326,21 @@ model ReferralCommission {
 
   @@index([beneficiaryId])
   @@index([sourceUserId])
+}
+
+model ReferralMilestoneClaim {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rankName          String    // GOLD, PLATINUM, DIAMOND, RANK_4, RANK_5
+  qualifiedCount    Int       // 5, 10, 100, etc.
+  rewardAmountCents Int       // 2000 ($20), 10000 ($100), etc.
+  currency          String    @default("USD")
+  ledgerTxId        String?
+  claimedAt         DateTime  @default(now())
+
+  @@unique([userId, rankName])
+  @@index([userId])
 }
 
 // -------------------------------------------------------------

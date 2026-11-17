@@ -118,6 +118,11 @@ router.patch(
   validateRequest(adminStatusSchema),
   SupportController.adminUpdateStatus
 );
+router.post(
+  '/support/conversations/:id/escalate-to-admin',
+  requireRole(UserRole.SUPER_ADMIN, UserRole.SUPPORT_AGENT),
+  SupportController.adminEscalateToSuperAdmin
+);
 
 // Video Management & User Assignments (Super Admin & Content Admin)
 router.get(

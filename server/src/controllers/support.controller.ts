@@ -220,4 +220,22 @@ export class SupportController {
       next(error);
     }
   }
+
+  public static async adminEscalateToSuperAdmin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { reason } = req.body;
+      const updated = await SupportService.escalateToAdmin({
+        conversationId: req.params.id,
+        agentId: req.user!.userId,
+        reason: reason || 'Internal escalation to platform administrator.',
+      });
+
+      res.status(200).json({
+        success: true,
+        data: updated,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

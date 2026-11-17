@@ -134,36 +134,12 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
           </div>
         )}
 
-        {/* Currency Display Switcher */}
+        {/* Standard Currency Badge (USD Only) */}
         <div className="flex items-center justify-center gap-2 pt-2">
-          <span className="text-xs font-semibold text-slate-500">Show Prices In:</span>
-          <div className="inline-flex p-1 rounded-xl bg-slate-100 border border-slate-200">
-            <button
-              type="button"
-              onClick={() => setCurrencyView('PKR')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                currencyView === 'PKR'
-                  ? 'bg-white text-emerald-700 shadow-2xs border border-slate-200/80'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              PKR (Rs.)
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrencyView('USD')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                currencyView === 'USD'
-                  ? 'bg-white text-emerald-700 shadow-2xs border border-slate-200/80'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              USD ($)
-            </button>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-600">
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>Platform Standard Currency: <strong>USD ($)</strong></span>
           </div>
-          <span className="text-[10px] text-slate-400 font-mono ml-1">
-            (1 USD = {exchangeRate} PKR)
-          </span>
         </div>
       </div>
 

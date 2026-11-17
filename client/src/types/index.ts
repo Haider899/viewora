@@ -75,13 +75,36 @@ export interface WalletSummary {
   USD: {
     availableCents: number;
     reservedCents: number;
+    referralCents: number;
     totalCents: number;
   };
   PKR: {
     availableCents: number;
     reservedCents: number;
+    referralCents: number;
     totalCents: number;
   };
+}
+
+export interface ReferralMilestoneClaim {
+  id: string;
+  userId: string;
+  rankName: string;
+  qualifiedCount: number;
+  rewardAmountCents: number;
+  currency: string;
+  claimedAt: string;
+}
+
+export interface ReferralRankProgress {
+  currentRank: string;
+  nextRank: string;
+  totalReferrals: number;
+  qualifiedReferrals: number;
+  targetQualified: number;
+  remainingToNext: number;
+  nextRewardUSD: number;
+  milestoneClaims: ReferralMilestoneClaim[];
 }
 
 export interface LedgerEntryItem {
@@ -223,7 +246,7 @@ export interface SupportConversation {
   guestName?: string | null;
   guestEmail?: string | null;
   subject: string;
-  status: 'BOT' | 'WAITING_FOR_AGENT' | 'AGENT_ACTIVE' | 'RESOLVED';
+  status: 'BOT' | 'WAITING_FOR_AGENT' | 'AGENT_ACTIVE' | 'ESCALATED_TO_ADMIN' | 'RESOLVED';
   priority: 'LOW' | 'NORMAL' | 'HIGH';
   assignedToId?: string | null;
   lastMessageAt: string;
