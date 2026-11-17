@@ -107,6 +107,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   // Action Modals & State
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [agentPresence, setAgentPresence] = useState<'ONLINE' | 'BUSY' | 'OFFLINE'>('ONLINE');
 
   // Rejection modal
   const [rejectModal, setRejectModal] = useState<{ type: 'deposit' | 'withdrawal'; id: string } | null>(null);
@@ -488,6 +489,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
+  const handlePresenceChange = async (status: 'ONLINE' | 'BUSY' | 'OFFLINE') => {
+    setAgentPresence(status);
+    try {
+      await api.updateAgentAvailability(status);
+      setActionSuccess(`Presence status updated to ${status}.`);
+    } catch {
+      setActionError('Failed to update presence status.');
+    }
+  };
+
   const handleAdminFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -640,6 +651,83 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       }
     } catch (err: any) {
       setActionError('Failed to update status.');
+    }
+  };
+
+  const handleAdjustLevel = async (userId: string) => {
+    const level = window.prompt('Enter new Account Level (NEW_USER, LEVEL_1, LEVEL_2, LEVEL_3, LEVEL_4, LEVEL_5):');
+    if (!level) return;
+    const reason = window.prompt('Enter reason for level adjustment:') || 'Administrative override';
+    try {
+      const res = await api.manualAdjustUserLevel(userId, level.trim().toUpperCase(), reason);
+      if (res.success) {
+        setActionSuccess('Account level adjusted successfully.');
+        loadUsers();
+      } else {
+        setActionError(res.error?.message || 'Failed to adjust level.');
+      }
+    } catch (err: any) {
+      setActionError(err.message || 'Error adjusting level.');
+    }
+  };
+
+  const handleLockAccount = async (userId: string, isCurrentlyLocked: boolean) => {
+    if (isCurrentlyLocked) {
+      const reason = window.prompt('Enter reason for early unlock:') || 'Administrative unlock';
+      try {
+        const res = await api.unlockUserAccount(userId, reason);
+        if (res.success) {
+          setActionSuccess('Account unlocked successfully.');
+          loadUsers();
+        }
+      } catch (err: any) {
+        setActionError(err.message || 'Error unlocking account.');
+      }
+      return;
+    }
+
+    const durationStr = window.prompt('Select Lock Duration preset (enter: 60, 100, or 360 days):', '60');
+    if (!durationStr) return;
+    const durationDays = parseInt(durationStr);
+    const reason = window.prompt('Enter reason for locking account:') || 'Security policy compliance';
+    try {
+      const res = await api.lockUserAccount(userId, durationDays, reason);
+      if (res.success) {
+        setActionSuccess(`Account locked for ${durationDays} days.`);
+        loadUsers();
+      }
+    } catch (err: any) {
+      setActionError(err.message || 'Error locking account.');
+    }
+  };
+
+  const handleChangeRole = async (userId: string, currentRole: string) => {
+    const newRole = window.prompt('Enter role (USER, SUPPORT_AGENT, CONTENT_ADMIN, FINANCE_ADMIN, SUPER_ADMIN):', currentRole);
+    if (!newRole || newRole.trim().toUpperCase() === currentRole) return;
+    try {
+      const res = await api.updateUserRole(userId, newRole.trim().toUpperCase(), 'Role update via admin console');
+      if (res.success) {
+        setActionSuccess(`User role updated to ${newRole}`);
+        loadUsers();
+      } else {
+        setActionError(res.error?.message || 'Failed to update role.');
+      }
+    } catch (err: any) {
+      setActionError(err.message || 'Error updating role (Max 10 support agents limit).');
+    }
+  };
+
+  const handleTriggerDailyBonus = async () => {
+    if (!window.confirm('Execute daily level bonus processing batch for all active users?')) return;
+    try {
+      const res = await api.triggerDailyBonusBatch();
+      if (res.success) {
+        setActionSuccess(`Daily bonus executed: ${res.data.totalUsersPaid} users credited with $${res.data.totalAmountUSD}.`);
+      } else {
+        setActionError(res.error?.message || 'Daily bonus already executed for today.');
+      }
+    } catch (err: any) {
+      setActionError(err.message || 'Error processing daily bonus.');
     }
   };
 
@@ -1074,6 +1162,18 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 >
                   <Search className="w-4 h-4" />
                 </button>
+
+                {user?.role === 'SUPER_ADMIN' && (
+                  <button
+                    type="button"
+                    onClick={handleTriggerDailyBonus}
+                    className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs shrink-0 cursor-pointer"
+                    title="Process daily level rewards batch for all eligible active users (Section 5.1)"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Run Daily Bonus Batch</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1083,63 +1183,115 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                   <tr>
                     <th className="py-3 px-6">Full Name / Email</th>
                     <th className="py-3 px-6">Role</th>
-                    <th className="py-3 px-6">Status</th>
+                    <th className="py-3 px-6">Account Level</th>
+                    <th className="py-3 px-6">Status / Lock</th>
                     <th className="py-3 px-6">Active Package</th>
-                    <th className="py-3 px-6 text-right">Actions</th>
+                    <th className="py-3 px-6 text-right">Administrative Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {usersList.map((u) => (
-                    <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-4 px-6">
-                        <div className="font-bold text-slate-900">{u.fullName}</div>
-                        <div className="text-[10px] text-slate-500">{u.email}</div>
-                      </td>
+                  {usersList.map((u) => {
+                    const isLocked = u.accountLockedUntil && new Date(u.accountLockedUntil) > new Date();
 
-                      <td className="py-4 px-6">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                          {u.role}
-                        </span>
-                      </td>
+                    return (
+                      <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-4 px-6">
+                          <div className="font-bold text-slate-900">{u.fullName}</div>
+                          <div className="text-[10px] text-slate-500">{u.email}</div>
+                        </td>
 
-                      <td className="py-4 px-6">
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                            u.status === 'ACTIVE'
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-rose-50 text-rose-700 border border-rose-200'
-                          }`}
-                        >
-                          {u.status}
-                        </span>
-                      </td>
-
-                      <td className="py-4 px-6">
-                        {u.packagePurchases && u.packagePurchases.length > 0 ? (
-                          <span className="text-[11px] font-bold text-emerald-700">
-                            {u.packagePurchases[0].packageName}
+                        <td className="py-4 px-6">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                            {u.role}
                           </span>
-                        ) : (
-                          <span className="text-[10px] text-slate-400">None</span>
-                        )}
-                      </td>
+                        </td>
 
-                      <td className="py-4 px-6 text-right">
-                        {user?.role === 'SUPER_ADMIN' && u.id !== user.id && (
-                          <button
-                            onClick={() => handleToggleUserStatus(u.id, u.status)}
-                            className={`px-3 py-1 rounded-lg text-xs font-semibold ${
-                              u.status === 'ACTIVE'
-                                ? 'bg-slate-100 hover:bg-rose-50 text-rose-600 border border-slate-200'
-                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            }`}
-                          >
-                            {u.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="py-4 px-6">
+                          <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            {u.accountLevel || 'NEW_USER'}
+                          </span>
+                        </td>
+
+                        <td className="py-4 px-6 space-y-1">
+                          <div>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                u.status === 'ACTIVE'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}
+                            >
+                              {u.status}
+                            </span>
+                          </div>
+                          {isLocked && (
+                            <div className="text-[9px] font-mono text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-block">
+                              Locked till {new Date(u.accountLockedUntil!).toLocaleDateString()}
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="py-4 px-6">
+                          {u.packagePurchases && u.packagePurchases.length > 0 ? (
+                            <span className="text-[11px] font-bold text-emerald-700">
+                              {u.packagePurchases[0].packageName}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">None</span>
+                          )}
+                        </td>
+
+                        <td className="py-4 px-6 text-right space-x-1.5 whitespace-nowrap">
+                          {user?.role === 'SUPER_ADMIN' && u.id !== user.id && (
+                            <>
+                              {/* Adjust Level */}
+                              <button
+                                onClick={() => handleAdjustLevel(u.id)}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 cursor-pointer"
+                                title="Adjust Account Level (Section 3)"
+                              >
+                                Level
+                              </button>
+
+                              {/* Lock / Unlock */}
+                              <button
+                                onClick={() => handleLockAccount(u.id, isLocked)}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                                  isLocked
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                }`}
+                                title="Account Lock Presets (60/100/360 Days) (Section 11)"
+                              >
+                                {isLocked ? 'Unlock' : 'Lock'}
+                              </button>
+
+                              {/* Change Role with 10 Agents limit */}
+                              <button
+                                onClick={() => handleChangeRole(u.id, u.role)}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 cursor-pointer"
+                                title="Update Staff Role (Max 10 Support Agents)"
+                              >
+                                Role
+                              </button>
+
+                              {/* Suspend / Reactivate */}
+                              <button
+                                onClick={() => handleToggleUserStatus(u.id, u.status)}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
+                                  u.status === 'ACTIVE'
+                                    ? 'bg-slate-100 hover:bg-rose-50 text-rose-600 border border-slate-200'
+                                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                }`}
+                              >
+                                {u.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1375,6 +1527,47 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                 </button>
+
+                {/* Agent Presence Status (Section 12.4) */}
+                <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 px-1 hidden sm:inline">Status:</span>
+                  <button
+                    type="button"
+                    onClick={() => handlePresenceChange('ONLINE')}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                      agentPresence === 'ONLINE'
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-300"></span>
+                    Online
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePresenceChange('BUSY')}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                      agentPresence === 'BUSY'
+                        ? 'bg-amber-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-300"></span>
+                    Busy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePresenceChange('OFFLINE')}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                      agentPresence === 'OFFLINE'
+                        ? 'bg-slate-700 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                    Offline
+                  </button>
+                </div>
               </div>
             </div>
 

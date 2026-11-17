@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import api from '../services/api.js';
+import { CompanyDocument } from '../types/index.js';
 import {
   Play,
   ShieldCheck,
@@ -14,6 +16,10 @@ import {
   Award,
   Globe,
   Sparkles,
+  FileText,
+  ExternalLink,
+  X,
+  Eye,
 } from 'lucide-react';
 
 interface HomePageProps {
@@ -22,6 +28,16 @@ interface HomePageProps {
 
 export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [documents, setDocuments] = useState<CompanyDocument[]>([]);
+  const [selectedDoc, setSelectedDoc] = useState<CompanyDocument | null>(null);
+
+  useEffect(() => {
+    api.getPublicDocuments().then((res) => {
+      if (res.success && res.data) {
+        setDocuments(res.data);
+      }
+    }).catch(() => {});
+  }, []);
 
   const faqs = [
     {
@@ -222,6 +238,100 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
           ))}
         </div>
       </section>
+
+      {/* Verified Corporate Documents & Licenses (Section 2.1) */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center mb-10 space-y-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-700">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            Verified Transparency & Governance
+          </div>
+          <h3 className="text-3xl font-extrabold text-slate-900">
+            Company Credentials & Regulatory Licenses
+          </h3>
+          <p className="text-xs text-slate-500 max-w-2xl mx-auto">
+            Official commercial registrations, certified digital media advertising authorizations, and independent double-entry ledger audit reports.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {documents.map((doc) => (
+            <div
+              key={doc.id}
+              className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4"
+            >
+              <div className="space-y-3">
+                <div className="w-10 h-10 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700">
+                  <FileText className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-extrabold text-slate-900">{doc.title}</h4>
+                  <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">
+                    {doc.description || 'Official verified platform document.'}
+                  </p>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 text-[10px] space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Authority:</span>
+                    <span className="font-semibold text-slate-700">{doc.issuingAuthority || 'Corporate Registry'}</span>
+                  </div>
+                  {doc.licenseNumber && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">License/Reg #:</span>
+                      <span className="font-mono font-bold text-emerald-700">{doc.licenseNumber}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedDoc(doc)}
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5 text-slate-500" />
+                <span>Inspect Document</span>
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Document Inspection Modal */}
+      {selectedDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setSelectedDoc(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase font-bold text-emerald-600 tracking-wider">
+                Official Credential Verification
+              </span>
+              <h3 className="text-lg font-bold text-slate-900">{selectedDoc.title}</h3>
+              <p className="text-xs text-slate-500">{selectedDoc.description}</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 overflow-hidden bg-slate-100 flex items-center justify-center min-h-[260px]">
+              <img
+                src={selectedDoc.fileUrl}
+                alt={selectedDoc.title}
+                className="max-h-[380px] w-full object-cover rounded-xl"
+              />
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs flex justify-between items-center font-mono">
+              <span className="text-slate-500">License #: {selectedDoc.licenseNumber || 'VERIFIED-REG'}</span>
+              <span className="text-emerald-700 font-bold">✓ Audit Certified</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

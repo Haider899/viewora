@@ -8,6 +8,7 @@ import withdrawalRoutes from './withdrawal.routes.js';
 import referralRoutes from './referral.routes.js';
 import adminRoutes from './admin.routes.js';
 import supportRoutes from './support.routes.js';
+import { CompanyDocumentService } from '../services/companyDocument.service.js';
 
 const router = Router();
 
@@ -20,6 +21,16 @@ router.use('/withdrawals', withdrawalRoutes);
 router.use('/referrals', referralRoutes);
 router.use('/admin', adminRoutes);
 router.use('/support', supportRoutes);
+
+// Public Verified Corporate Documents & Licenses (Section 2.1)
+router.get('/documents', async (req, res, next) => {
+  try {
+    const docs = await CompanyDocumentService.getPublicDocuments();
+    res.json({ success: true, data: docs });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Health check endpoint
 router.get('/health', (req, res) => {

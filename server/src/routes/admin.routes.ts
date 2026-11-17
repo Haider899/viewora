@@ -19,6 +19,9 @@ import {
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { validateRequest } from '../middleware/validate.js';
 import { UserRole } from '../types/index.js';
+import { CompanyDocumentService } from '../services/companyDocument.service.js';
+import { AccountLevelService } from '../services/accountLevel.service.js';
+import { AdminService } from '../services/admin.service.js';
 
 const router = Router();
 
@@ -147,6 +150,137 @@ router.delete(
   requireRole(UserRole.SUPER_ADMIN, UserRole.CONTENT_ADMIN),
   AdminVideoController.deleteVideo
 );
+
+// -------------------------------------------------------------
+// COMPANY DOCUMENTS & PUBLIC CREDENTIALS (SECTION 2.1)
+// -------------------------------------------------------------
+router.get('/documents', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const docs = await CompanyDocumentService.getAllDocumentsAdmin();
+    res.json({ success: true, data: docs });
+  } catch (err) { next(err); }
+});
+
+router.post('/documents', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const doc = await CompanyDocumentService.createDocument(req.body);
+    res.json({ success: true, data: doc });
+  } catch (err) { next(err); }
+});
+
+router.put('/documents/:id', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const doc = await CompanyDocumentService.updateDocument(req.params.id, req.body);
+    res.json({ success: true, data: doc });
+  } catch (err) { next(err); }
+});
+
+router.delete('/documents/:id', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const doc = await CompanyDocumentService.deleteDocument(req.params.id);
+    res.json({ success: true, data: doc });
+  } catch (err) { next(err); }
+});
+
+// -------------------------------------------------------------
+// ACCOUNT LEVEL CONFIGURATION & MANUAL ADJUSTMENT (SECTION 3)
+// -------------------------------------------------------------
+router.get('/levels', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const levels = await AccountLevelService.getAllLevels();
+    res.json({ success: true, data: levels });
+  } catch (err) { next(err); }
+});
+
+router.put('/levels/:levelKey', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const updated = await AccountLevelService.updateLevel(req.params.levelKey, req.body);
+    res.json({ success: true, data: updated });
+  } catch (err) { next(err); }
+});
+
+router.post('/users/:id/level', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const { newLevel, reason } = req.body;
+    const result = await AccountLevelService.manualAdjustUserLevel(
+      req.params.id,
+      newLevel,
+      reason || 'Manual Admin Adjustment',
+      req.user!.userId
+    );
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+// -------------------------------------------------------------
+// ACCOUNT LOCK / UNLOCK PRESETS (SECTION 11: 60, 100, 360 DAYS)
+// -------------------------------------------------------------
+router.post('/users/:id/lock', requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN), async (req, res, next) => {
+  try {
+    const { durationDays, reason } = req.body;
+    const result = await AccountLevelService.lockUserAccount(
+      req.params.id,
+      parseInt(durationDays) || 60,
+      reason || 'Account policy lock',
+      req.user!.userId
+    );
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+router.post('/users/:id/unlock', requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN), async (req, res, next) => {
+  try {
+    const { reason } = req.body;
+    const result = await AccountLevelService.unlockUserAccount(
+      req.params.id,
+      reason || 'Early unlock authorization',
+      req.user!.userId
+    );
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+// -------------------------------------------------------------
+// USER ROLE MANAGEMENT WITH 10 SUPPORT AGENTS CAP (SECTION 12)
+// -------------------------------------------------------------
+router.post('/users/:id/role', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const { role, reason } = req.body;
+    const result = await AdminService.updateUserRole(
+      req.user!.userId,
+      req.params.id,
+      role,
+      reason
+    );
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(err.statusCode || 400).json({
+      success: false,
+      error: { message: err.message || 'Failed to update user role' },
+    });
+  }
+});
+
+// -------------------------------------------------------------
+// AGENT AVAILABILITY STATUS (ONLINE / BUSY / OFFLINE)
+// -------------------------------------------------------------
+router.put('/support/agent-status', requireRole(UserRole.SUPER_ADMIN, UserRole.SUPPORT_AGENT), async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    const result = await AdminService.updateAgentAvailability(req.user!.userId, status);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+// -------------------------------------------------------------
+// DAILY LEVEL BONUS BATCH EXECUTION (SECTION 5.1)
+// -------------------------------------------------------------
+router.post('/bonuses/daily-batch', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const result = await AccountLevelService.processDailyLevelBonuses(req.user!.userId);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
 
 export default router;
 

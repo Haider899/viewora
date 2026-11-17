@@ -390,6 +390,92 @@ class ApiClient {
       method: 'DELETE',
     });
   }
+
+  // -----------------------------------------------------------
+  // COMPANY DOCUMENTS (SECTION 2.1)
+  // -----------------------------------------------------------
+  async getPublicDocuments() {
+    return this.request<any[]>('/documents');
+  }
+
+  async getAdminDocuments() {
+    return this.request<any[]>('/admin/documents');
+  }
+
+  async createAdminDocument(data: any) {
+    return this.request<any>('/admin/documents', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAdminDocument(id: string, data: any) {
+    return this.request<any>(`/admin/documents/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAdminDocument(id: string) {
+    return this.request<any>(`/admin/documents/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // -----------------------------------------------------------
+  // ACCOUNT LEVELS & USER LOCKS (SECTION 3 & 11)
+  // -----------------------------------------------------------
+  async getAccountLevels() {
+    return this.request<any[]>('/admin/levels');
+  }
+
+  async updateAccountLevel(levelKey: string, data: any) {
+    return this.request<any>(`/admin/levels/${levelKey}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async manualAdjustUserLevel(userId: string, newLevel: string, reason: string) {
+    return this.request<any>(`/admin/users/${userId}/level`, {
+      method: 'POST',
+      body: JSON.stringify({ newLevel, reason }),
+    });
+  }
+
+  async lockUserAccount(userId: string, durationDays: number, reason: string) {
+    return this.request<any>(`/admin/users/${userId}/lock`, {
+      method: 'POST',
+      body: JSON.stringify({ durationDays, reason }),
+    });
+  }
+
+  async unlockUserAccount(userId: string, reason: string) {
+    return this.request<any>(`/admin/users/${userId}/unlock`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  async updateUserRole(userId: string, role: string, reason?: string) {
+    return this.request<any>(`/admin/users/${userId}/role`, {
+      method: 'POST',
+      body: JSON.stringify({ role, reason }),
+    });
+  }
+
+  async updateAgentAvailability(status: 'ONLINE' | 'BUSY' | 'OFFLINE') {
+    return this.request<any>('/admin/support/agent-status', {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async triggerDailyBonusBatch() {
+    return this.request<any>('/admin/bonuses/daily-batch', {
+      method: 'POST',
+    });
+  }
 }
 
 export const api = new ApiClient();

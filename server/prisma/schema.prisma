@@ -27,6 +27,9 @@ model User {
   referredBy            User?     @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
   referrals             User[]    @relation("UserReferrals")
   isQualifiedReferral   Boolean   @default(false)
+  accountLevel          String    @default("NEW_USER") // NEW_USER, LEVEL_1, LEVEL_2, LEVEL_3, LEVEL_4, LEVEL_5
+  accountLockedUntil    DateTime? // Section 11 Account Lock duration
+  agentAvailability     String    @default("ONLINE") // ONLINE, BUSY, OFFLINE (for Support Agents)
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -42,6 +45,8 @@ model User {
   referralCommissions   ReferralCommission[]  @relation("BeneficiaryCommissions")
   sourceCommissions     ReferralCommission[]  @relation("SourceUserCommissions")
   milestoneClaims       ReferralMilestoneClaim[]
+  levelHistories        AccountLevelHistory[]
+  lockHistories         AccountLockHistory[]
   notifications         Notification[]
   supportConversations  SupportConversation[]
   assignedSupportTickets SupportConversation[] @relation("AssignedSupportAgent")
@@ -431,5 +436,84 @@ model SupportMessage {
 
   @@index([conversationId])
   @@index([createdAt])
+}
+
+// -------------------------------------------------------------
+// COMPANY DOCUMENTS & PUBLIC CREDENTIALS (SECTION 2.1)
+// -------------------------------------------------------------
+model CompanyDocument {
+  id                String    @id @default(uuid())
+  title             String    // "Certificate of Incorporation", "Digital Media Advertising License"
+  documentType      String    // INCORPORATION_CERTIFICATE, BUSINESS_LICENSE, TAX_REGISTRATION, AUDIT_REPORT
+  fileUrl           String    // Base64 data URL or external asset link
+  description       String?
+  issuingAuthority   String?  // "Registrar of Companies / State Licensing Commission"
+  licenseNumber     String?
+  isPublic          Boolean   @default(true)
+  orderIndex        Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+// -------------------------------------------------------------
+// ACCOUNT LEVEL SYSTEM (SECTION 3)
+// -------------------------------------------------------------
+model AccountLevelConfig {
+  id                  String    @id @default(uuid())
+  levelKey            String    @unique // NEW_USER, LEVEL_1, LEVEL_2, LEVEL_3, LEVEL_4, LEVEL_5
+  name                String    // "New User", "Level 1 (Novice)", "Level 2 (Active Creator)", etc.
+  minQualificationUSD Int       // in cents: 0, 5000 ($50), 10000 ($100), 50000 ($500), 200000 ($2000), 500000 ($5000)
+  maxQualificationUSD Int?      // in cents: 49900 ($499), etc.
+  videoLimit          Int       // 0, 2, 6, 15, 30, 60
+  dailyBonusRateBps   Int       @default(0) // Basis points (e.g. 50 = 0.50% daily advertising reward when policy enabled)
+  badge               String?
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model AccountLevelHistory {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  oldLevel        String
+  newLevel        String
+  reason          String    // "Deposit Qualification", "Manual Admin Adjustment", "Purchase"
+  adjustedById    String?   // Admin ID or SYSTEM
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// -------------------------------------------------------------
+// ACCOUNT LOCK / UNLOCK SYSTEM (SECTION 11)
+// -------------------------------------------------------------
+model AccountLockHistory {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action          String    // LOCKED, UNLOCKED
+  durationDays    Int?      // 60, 100, 360
+  lockedUntil     DateTime?
+  reason          String
+  performedById   String?   // Admin ID
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// -------------------------------------------------------------
+// DAILY LEVEL BONUS BATCHES (SECTION 5.1)
+// -------------------------------------------------------------
+model DailyBonusBatch {
+  id              String    @id @default(uuid())
+  batchDate       String    @unique // YYYY-MM-DD
+  totalUsersPaid  Int       @default(0)
+  totalAmountCents Int      @default(0)
+  currency        String    @default("USD")
+  status          String    @default("COMPLETED") // PENDING, COMPLETED, FAILED
+  executedById    String?   // SYSTEM or Admin ID
+  notes           String?
+  createdAt       DateTime  @default(now())
 }
 

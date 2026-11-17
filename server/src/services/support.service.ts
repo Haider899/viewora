@@ -241,11 +241,12 @@ Aap apna sawal ya receipt screenshot yahan attach kar ke share kar dein.`,
       },
     });
 
-    // Find available support agents (least-loaded round-robin, max 10 agents)
-    const availableAgents = await prisma.user.findMany({
+    // Find available support agents prioritizing ONLINE presence (least-loaded round-robin, max 10 agents)
+    let availableAgents = await prisma.user.findMany({
       where: {
         role: { in: ['SUPPORT_AGENT', 'SUPER_ADMIN'] },
         status: 'ACTIVE',
+        agentAvailability: 'ONLINE',
       },
       include: {
         assignedSupportTickets: {
@@ -253,6 +254,20 @@ Aap apna sawal ya receipt screenshot yahan attach kar ke share kar dein.`,
         },
       },
     });
+
+    if (availableAgents.length === 0) {
+      availableAgents = await prisma.user.findMany({
+        where: {
+          role: { in: ['SUPPORT_AGENT', 'SUPER_ADMIN'] },
+          status: 'ACTIVE',
+        },
+        include: {
+          assignedSupportTickets: {
+            where: { status: { in: ['WAITING_FOR_AGENT', 'AGENT_ACTIVE'] } },
+          },
+        },
+      });
+    }
 
     let assignedAgentId = convo.assignedToId;
     if (!assignedAgentId && availableAgents.length > 0) {

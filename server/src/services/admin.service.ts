@@ -132,6 +132,59 @@ export class AdminService {
     return updated;
   }
 
+  static async updateUserRole(adminId: string, userId: string, role: string, reason?: string) {
+    const validRoles = ['SUPER_ADMIN', 'FINANCE_ADMIN', 'CONTENT_ADMIN', 'SUPPORT_AGENT', 'USER'];
+    if (!validRoles.includes(role)) {
+      throw { statusCode: 400, code: 'INVALID_ROLE', message: 'Invalid role specified.' };
+    }
+
+    // Section 12: Strict limit of maximum 10 Customer Support Agents
+    if (role === 'SUPPORT_AGENT') {
+      const activeAgentsCount = await prisma.user.count({
+        where: { role: 'SUPPORT_AGENT', status: 'ACTIVE', id: { not: userId } },
+      });
+      if (activeAgentsCount >= 10) {
+        throw {
+          statusCode: 400,
+          code: 'SUPPORT_AGENT_LIMIT_REACHED',
+          message: 'Maximum limit reached: Only 10 Customer Support Agents are permitted as per system specification.',
+        };
+      }
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw { statusCode: 404, code: 'NOT_FOUND', message: 'User not found.' };
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { role },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'USER_ROLE_UPDATED',
+        resourceType: 'User',
+        resourceId: userId,
+        details: JSON.stringify({ previousRole: user.role, newRole: role, reason }),
+      },
+    });
+
+    return updated;
+  }
+
+  static async updateAgentAvailability(userId: string, status: string) {
+    if (!['ONLINE', 'BUSY', 'OFFLINE'].includes(status)) {
+      throw { statusCode: 400, code: 'INVALID_STATUS', message: 'Status must be ONLINE, BUSY, or OFFLINE.' };
+    }
+    return await prisma.user.update({
+      where: { id: userId },
+      data: { agentAvailability: status },
+    });
+  }
+
   static async getSystemSettings() {
     const rate = await prisma.systemSetting.findUnique({ where: { key: 'EXCHANGE_RATE_USD_PKR' } });
     if (!rate) {

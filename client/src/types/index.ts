@@ -12,7 +12,35 @@ export interface User {
   emailVerified: boolean;
   referralCode: string;
   referredById?: string;
+  accountLevel?: string;
+  accountLockedUntil?: string | null;
+  agentAvailability?: 'ONLINE' | 'BUSY' | 'OFFLINE';
   createdAt: string;
+}
+
+export interface CompanyDocument {
+  id: string;
+  title: string;
+  documentType: string;
+  fileUrl: string;
+  description?: string;
+  issuingAuthority?: string;
+  licenseNumber?: string;
+  isPublic: boolean;
+  orderIndex: number;
+  createdAt: string;
+}
+
+export interface AccountLevelConfig {
+  id: string;
+  levelKey: string;
+  name: string;
+  minQualificationUSD: number;
+  maxQualificationUSD?: number | null;
+  videoLimit: number;
+  dailyBonusRateBps: number;
+  badge?: string;
+  isActive: boolean;
 }
 
 export interface Package {
