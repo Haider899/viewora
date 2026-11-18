@@ -426,12 +426,15 @@ export class AdminService {
       recentLedgerEntries: (userTransactions.entries || []).map((e: any) => ({
         id: e.id,
         entryType: e.entryType,
-        amountUSD: e.amountCents / 100,
-        balanceAfterUSD: e.balanceAfterCents / 100,
+        amountUSD: (e.account?.currency === 'USD' ? e.amountCents : Math.round(e.amountCents / 280)) / 100,
+        rawAmount: e.amountCents / 100,
+        currency: e.account?.currency || 'USD',
+        accountType: e.account?.type || 'AVAILABLE',
+        balanceAfterUSD: e.balanceAfterCents != null ? e.balanceAfterCents / 100 : null,
         createdAt: e.createdAt,
-        reference: e.transaction?.reference,
-        transactionType: e.transaction?.transactionType,
-        description: e.transaction?.description,
+        reference: e.transaction?.reference || 'SYSTEM_TX',
+        transactionType: e.transaction?.transactionType || 'ADJUSTMENT',
+        description: e.transaction?.description || 'Double-entry ledger transfer',
       })),
     };
   }

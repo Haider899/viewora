@@ -3311,21 +3311,26 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         <tr>
                           <th className="py-2.5 px-3">Timestamp</th>
                           <th className="py-2.5 px-3">Reference</th>
+                          <th className="py-2.5 px-3">Sub-Wallet</th>
                           <th className="py-2.5 px-3">Type</th>
-                          <th className="py-2.5 px-3">Debit/Credit</th>
+                          <th className="py-2.5 px-3">Direction</th>
                           <th className="py-2.5 px-3">Amount</th>
-                          <th className="py-2.5 px-3">Balance After</th>
                           <th className="py-2.5 px-3 font-sans">Description</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-slate-700 text-[11px]">
-                        {dossierData.recentLedgerEntries.length === 0 ? (
+                        {(!dossierData.recentLedgerEntries || dossierData.recentLedgerEntries.length === 0) ? (
                           <tr><td colSpan={7} className="py-6 text-center text-slate-400 font-sans">No ledger entries posted</td></tr>
                         ) : (
                           dossierData.recentLedgerEntries.map((e: any) => (
                             <tr key={e.id} className="hover:bg-slate-50">
                               <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{new Date(e.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                               <td className="py-2.5 px-3 text-purple-700 font-bold">{e.reference || '-'}</td>
+                              <td className="py-2.5 px-3 font-sans">
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                                  {e.accountType || 'AVAILABLE'}
+                                </span>
+                              </td>
                               <td className="py-2.5 px-3 font-sans font-bold text-[10px] text-slate-600">{e.transactionType || '-'}</td>
                               <td className="py-2.5 px-3">
                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -3335,10 +3340,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                                 </span>
                               </td>
                               <td className={`py-2.5 px-3 font-bold ${e.entryType === 'CREDIT' ? 'text-emerald-700' : 'text-slate-900'}`}>
-                                {e.entryType === 'CREDIT' ? '+' : '-'}${e.amountUSD.toFixed(2)}
+                                {e.entryType === 'CREDIT' ? '+' : '-'}${Number(e.amountUSD || 0).toFixed(2)}
                               </td>
-                              <td className="py-2.5 px-3 font-bold text-slate-900">${e.balanceAfterUSD.toFixed(2)}</td>
-                              <td className="py-2.5 px-3 font-sans text-slate-600 text-[11px] max-w-xs truncate">{e.description}</td>
+                              <td className="py-2.5 px-3 font-sans text-slate-600 text-[11px] max-w-xs truncate">{e.description || '-'}</td>
                             </tr>
                           ))
                         )}
