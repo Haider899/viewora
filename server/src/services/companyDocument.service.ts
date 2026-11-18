@@ -58,20 +58,36 @@ export class CompanyDocumentService {
     });
   }
 
-  static async createDocument(data: {
-    title: string;
-    documentType: string;
-    fileUrl: string;
-    description?: string;
-    issuingAuthority?: string;
-    licenseNumber?: string;
-    isPublic?: boolean;
-    orderIndex?: number;
-  }) {
+  static async createDocument(rawData: any) {
+    const data: any = {
+      title: rawData.title,
+      documentType: rawData.documentType || 'REGISTRATION',
+      fileUrl: rawData.fileUrl,
+      isPublic: rawData.isPublic !== undefined ? Boolean(rawData.isPublic) : true,
+    };
+    if (rawData.issuingAuthority || rawData.issuer) {
+      data.issuingAuthority = rawData.issuingAuthority || rawData.issuer;
+    }
+    if (rawData.description) data.description = rawData.description;
+    if (rawData.licenseNumber) data.licenseNumber = rawData.licenseNumber;
+    if (rawData.orderIndex !== undefined) data.orderIndex = Number(rawData.orderIndex) || 0;
+
     return await prisma.companyDocument.create({ data });
   }
 
-  static async updateDocument(id: string, data: any) {
+  static async updateDocument(id: string, rawData: any) {
+    const data: any = {};
+    if (rawData.title !== undefined) data.title = rawData.title;
+    if (rawData.documentType !== undefined) data.documentType = rawData.documentType;
+    if (rawData.fileUrl !== undefined) data.fileUrl = rawData.fileUrl;
+    if (rawData.isPublic !== undefined) data.isPublic = Boolean(rawData.isPublic);
+    if (rawData.issuingAuthority !== undefined || rawData.issuer !== undefined) {
+      data.issuingAuthority = rawData.issuingAuthority || rawData.issuer;
+    }
+    if (rawData.description !== undefined) data.description = rawData.description;
+    if (rawData.licenseNumber !== undefined) data.licenseNumber = rawData.licenseNumber;
+    if (rawData.orderIndex !== undefined) data.orderIndex = Number(rawData.orderIndex) || 0;
+
     return await prisma.companyDocument.update({
       where: { id },
       data,

@@ -50,6 +50,7 @@ import {
   Sparkles,
   Video as VideoIcon,
   Lock,
+  Upload,
 } from 'lucide-react';
 import { extractYouTubeId, getYouTubeEmbedUrl, getYouTubeThumbnail } from '../utils/youtube.js';
 
@@ -228,6 +229,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const [docFormUrl, setDocFormUrl] = useState('');
   const [docFormIssuer, setDocFormIssuer] = useState('');
   const [docFormIsPublic, setDocFormIsPublic] = useState(true);
+  const [docFileName, setDocFileName] = useState('');
+  const [docFileSize, setDocFileSize] = useState('');
+  const [docFileBase64, setDocFileBase64] = useState('');
   const [savingDocument, setSavingDocument] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
 
@@ -539,6 +543,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     setDocFormUrl('');
     setDocFormIssuer('Corporate Affairs Commission / Registrar');
     setDocFormIsPublic(true);
+    setDocFileName('');
+    setDocFileSize('');
+    setDocFileBase64('');
     setDocumentModalOpen(true);
   };
 
@@ -547,17 +554,71 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     setDocFormTitle(doc.title);
     setDocFormType(doc.documentType);
     setDocFormUrl(doc.fileUrl);
-    setDocFormIssuer(doc.issuer || '');
+    setDocFormIssuer(doc.issuingAuthority || doc.issuer || '');
     setDocFormIsPublic(doc.isPublic);
+    setDocFileName('');
+    setDocFileSize('');
+    setDocFileBase64('');
     setDocumentModalOpen(true);
+  };
+
+  const handleDocFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      setActionError('File size should be less than 10 MB.');
+      return;
+    }
+
+    setDocFileName(file.name);
+    setDocFileSize((file.size / 1024).toFixed(1) + ' KB');
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      setDocFileBase64(result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleInspectDocument = (url: string, title?: string) => {
+    if (!url) return;
+    if (url.startsWith('data:')) {
+      try {
+        const arr = url.split(',');
+        const mime = arr[0].match(/:(.*?);/)?.[1] || 'application/octet-stream';
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, '_blank');
+        return;
+      } catch {
+        window.open(url, '_blank');
+        return;
+      }
+    }
+    window.open(url, '_blank');
   };
 
   const handleSaveDocument = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!docFormTitle.trim() || !docFormUrl.trim()) {
-      setActionError('Document title and file URL are required.');
+    const finalFileUrl = docFileBase64 || docFormUrl.trim();
+
+    if (!docFormTitle.trim()) {
+      setActionError('Document title is required.');
       return;
     }
+    if (!finalFileUrl) {
+      setActionError('Please upload a document file (PDF or Image) or provide a valid resource URL.');
+      return;
+    }
+
     setSavingDocument(true);
     setActionSuccess(null);
     setActionError(null);
@@ -565,7 +626,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       const payload = {
         title: docFormTitle.trim(),
         documentType: docFormType,
-        fileUrl: docFormUrl.trim(),
+        fileUrl: finalFileUrl,
+        issuingAuthority: docFormIssuer.trim() || undefined,
         issuer: docFormIssuer.trim() || undefined,
         isPublic: docFormIsPublic,
       };
@@ -2621,7 +2683,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                             {doc.documentType?.replace('_', ' ')}
                           </span>
                         </td>
-                        <td className="py-4 px-6 text-slate-600">{doc.issuer || 'Official Registrar'}</td>
+                        <td className="py-4 px-6 text-slate-600">{doc.issuingAuthority || doc.issuer || 'Official Registrar'}</td>
                         <td className="py-4 px-6">
                           {doc.isPublic ? (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -2635,15 +2697,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                           )}
                         </td>
                         <td className="py-4 px-6">
-                          <a
-                            href={doc.fileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-purple-600 hover:text-purple-700 font-bold hover:underline"
+                          <button
+                            type="button"
+                            onClick={() => handleInspectDocument(doc.fileUrl, doc.title)}
+                            className="inline-flex items-center gap-1 text-purple-600 hover:text-purple-700 font-bold hover:underline cursor-pointer"
                           >
                             <ExternalLink className="w-3.5 h-3.5" />
                             Inspect Document
-                          </a>
+                          </button>
                         </td>
                         <td className="py-4 px-6 text-right space-x-1.5 whitespace-nowrap">
                           <button
@@ -4153,17 +4214,68 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 </div>
               </div>
 
+              {/* DIRECT DOCUMENT FILE UPLOAD (PDF or Image) */}
+              <div className="space-y-1.5">
+                <label className="block font-bold text-slate-800">
+                  Upload Document File (PDF or Image) <span className="text-purple-600 font-semibold">(Direct Upload)</span>
+                </label>
+                {docFileName ? (
+                  <div className="flex items-center justify-between p-3.5 rounded-2xl bg-purple-50/80 border border-purple-200">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-purple-950 block max-w-xs truncate">{docFileName}</span>
+                        <span className="text-[10px] text-purple-700">{docFileSize} • Ready to upload</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDocFileName('');
+                        setDocFileSize('');
+                        setDocFileBase64('');
+                      }}
+                      className="p-1.5 rounded-lg text-purple-500 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Remove file"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <label
+                    htmlFor="doc-file-upload-input"
+                    className="flex flex-col items-center justify-center p-5 border-2 border-dashed border-slate-300 hover:border-purple-400 bg-slate-50 hover:bg-purple-50/30 rounded-2xl cursor-pointer transition-all group"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-700">Click to upload Certificate / License file</span>
+                    <span className="text-[10px] text-slate-400 mt-0.5">Supports PDF, PNG, JPG, WEBP (Up to 10 MB)</span>
+                    <input
+                      id="doc-file-upload-input"
+                      type="file"
+                      accept=".pdf,image/*"
+                      onChange={handleDocFileChange}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
+
+              {/* OPTIONAL EXTERNAL URL */}
               <div className="space-y-1">
                 <label className="block font-bold text-slate-800">
-                  Document / Certificate URL (PDF or Image) <span className="text-rose-500">*</span>
+                  Or External Asset URL <span className="text-slate-400 font-normal">(Optional if file is uploaded above)</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="https://... or /documents/license.pdf"
-                  value={docFormUrl}
+                  placeholder={docFileName ? "File attached above (URL optional)" : "https://... or external hosted file link"}
+                  value={docFileName ? '' : docFormUrl}
+                  disabled={Boolean(docFileName)}
                   onChange={(e) => setDocFormUrl(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-purple-500"
-                  required
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-purple-500 disabled:opacity-60 disabled:bg-slate-100"
                 />
               </div>
 

@@ -318,11 +318,19 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
             </div>
 
             <div className="rounded-2xl border border-slate-200 overflow-hidden bg-slate-100 flex items-center justify-center min-h-[260px]">
-              <img
-                src={selectedDoc.fileUrl}
-                alt={selectedDoc.title}
-                className="max-h-[380px] w-full object-cover rounded-xl"
-              />
+              {selectedDoc.fileUrl?.startsWith('data:application/pdf') || selectedDoc.fileUrl?.toLowerCase().includes('.pdf') ? (
+                <iframe
+                  src={selectedDoc.fileUrl}
+                  title={selectedDoc.title}
+                  className="w-full h-[450px] rounded-xl border-0"
+                />
+              ) : (
+                <img
+                  src={selectedDoc.fileUrl}
+                  alt={selectedDoc.title}
+                  className="max-h-[380px] w-full object-cover rounded-xl"
+                />
+              )}
             </div>
 
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs flex justify-between items-center font-mono">
