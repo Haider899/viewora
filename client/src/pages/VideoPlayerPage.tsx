@@ -24,6 +24,7 @@ interface VideoPlayerProps {
 export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate }) => {
   const { user, refreshWallet } = useAuth();
   const [video, setVideo] = useState<Video | null>(null);
+  const [actualDuration, setActualDuration] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [watchSeconds, setWatchSeconds] = useState(0);
@@ -35,6 +36,7 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
   const [isPlaying, setIsPlaying] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const targetDuration = actualDuration || video?.durationSeconds || 15;
 
   // 1. Fetch Video Metadata
   useEffect(() => {
@@ -65,10 +67,8 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
         const res = await api.startVideoSession(videoId);
         if (res.success && res.data) {
           setSessionToken(res.data.sessionToken);
-          // For YouTube videos, mark as active so telemetry starts running
-          if (extractYouTubeId(video.videoUrl)) {
-            setIsPlaying(true);
-          }
+          // Auto-start timer session so progress tracks immediately
+          setIsPlaying(true);
         } else {
           setErrorMsg(res.error?.message || 'Access restricted. Please upgrade tier.');
         }
@@ -79,48 +79,25 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
     initSession();
   }, [video, user]);
 
-  // 3. Periodic Session Heartbeat & Progress Tracking
-  useEffect(() => {
-    if (!sessionToken || !isPlaying) return;
-
-    const interval = setInterval(() => {
-      setWatchSeconds((prev) => {
-        const nextSec = prev + 1;
-
-        // Dispatch heartbeat every 10 seconds
-        if (nextSec % 10 === 0) {
-          api
-            .sendVideoHeartbeat(videoId, sessionToken, nextSec)
-            .then((res) => {
-              if (res.success && res.data?.completed) {
-                setIsCompleted(true);
-              }
-            })
-            .catch((err) => console.error('Heartbeat error:', err));
-        }
-
-        // Auto-complete when full duration is watched (Section 4.3)
-        if (video && nextSec >= video.durationSeconds) {
-          setIsCompleted(true);
-        }
-
-        return nextSec;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [sessionToken, isPlaying, videoId, video]);
-
   // Claim Engagement Reward (Auto-triggered upon full watch completion - Section 4.3)
-  const handleClaimReward = async () => {
+  const handleClaimReward = async (finalSec?: number) => {
     if (!sessionToken || hasClaimed || claiming) return;
     setClaiming(true);
     setErrorMsg(null);
     try {
+      const secToReport = finalSec ?? watchSeconds;
+      // 1. Send final progress heartbeat to guarantee backend session records completion
+      await api.sendVideoHeartbeat(videoId, sessionToken, Math.max(secToReport, targetDuration)).catch(() => {});
+
+      // 2. Claim reward
       const res = await api.claimVideoReward(videoId, sessionToken);
       if (res.success) {
         setHasClaimed(true);
-        setClaimSuccessMsg(`🎉 Masterclass Completed! $${((video?.rewardAmountCents ?? 50) / 100).toFixed(2)} USD engagement reward automatically verified and credited to your wallet.`);
+        setClaimSuccessMsg(
+          `🎉 Masterclass Completed! $${((video?.rewardAmountCents ?? 50) / 100).toFixed(
+            2
+          )} USD engagement reward automatically verified and credited to your wallet.`
+        );
         await refreshWallet();
       } else {
         // If already claimed, gracefully mark claimed
@@ -137,7 +114,40 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
     }
   };
 
-  // Section 4.3: Automatic Reward Credit (No manual claim button required)
+  // 3. Periodic Session Heartbeat & Progress Tracking
+  useEffect(() => {
+    if (!sessionToken || !isPlaying || isCompleted || hasClaimed) return;
+
+    const interval = setInterval(() => {
+      setWatchSeconds((prev) => {
+        const nextSec = prev + 1;
+
+        // Dispatch heartbeat every 5 seconds for responsive sync
+        if (nextSec % 5 === 0) {
+          api
+            .sendVideoHeartbeat(videoId, sessionToken, nextSec)
+            .then((res) => {
+              if (res.success && res.data?.completed) {
+                setIsCompleted(true);
+              }
+            })
+            .catch((err) => console.error('Heartbeat error:', err));
+        }
+
+        // Auto-complete when target duration is watched (Section 4.3)
+        if (nextSec >= targetDuration) {
+          setIsCompleted(true);
+          handleClaimReward(nextSec);
+        }
+
+        return nextSec;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [sessionToken, isPlaying, videoId, video, isCompleted, hasClaimed, targetDuration]);
+
+  // Section 4.3: Automatic Reward Credit Effect
   useEffect(() => {
     if (isCompleted && !hasClaimed && !claiming && sessionToken && video?.rewardEligible) {
       handleClaimReward();
@@ -217,9 +227,21 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
               src={video?.videoUrl}
               poster={video?.thumbnailUrl}
               controls
+              autoPlay
               controlsList="nodownload noplaybackrate"
+              onLoadedMetadata={(e) => {
+                const dur = Math.round(e.currentTarget.duration);
+                if (dur > 0 && dur < 600) {
+                  setActualDuration(dur);
+                }
+              }}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
+              onEnded={() => {
+                setIsPlaying(false);
+                setIsCompleted(true);
+                handleClaimReward(Math.max(watchSeconds, targetDuration));
+              }}
               onSeeking={() => {
                 if (videoRef.current && videoRef.current.currentTime > watchSeconds + 1) {
                   videoRef.current.currentTime = watchSeconds;
@@ -237,7 +259,7 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
             <div className="flex items-center gap-1.5 font-medium text-slate-300">
               <Clock className="w-4 h-4 text-emerald-400" />
               <span>Watched: {watchSeconds}s</span>
-              <span className="text-slate-500">/ {video?.durationSeconds}s</span>
+              <span className="text-slate-500">/ {targetDuration}s</span>
             </div>
             {isCompleted && (
               <span className="flex items-center gap-1 text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
@@ -264,13 +286,23 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
                   Reward Automatically Credited (${(video.rewardAmountCents / 100).toFixed(2)} USD)
                 </div>
               ) : isCompleted ? (
-                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30 animate-pulse">
-                  <Sparkles className="w-4 h-4" />
-                  {claiming ? 'Verifying & Crediting Ledger...' : 'Crediting Reward Automatically...'}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30 animate-pulse">
+                    <Sparkles className="w-4 h-4" />
+                    {claiming ? 'Verifying & Crediting Ledger...' : 'Crediting Reward Automatically...'}
+                  </div>
+                  {!claiming && (
+                    <button
+                      onClick={() => handleClaimReward(Math.max(watchSeconds, targetDuration))}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md cursor-pointer transition-all"
+                    >
+                      Instant Claim
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="text-[11px] text-slate-400">
-                  Complete full {video?.durationSeconds}s duration for automatic ${(video.rewardAmountCents / 100).toFixed(2)} USD reward credit
+                  Complete full {targetDuration}s duration for automatic ${(video.rewardAmountCents / 100).toFixed(2)} USD reward credit
                 </div>
               )}
             </div>

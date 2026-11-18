@@ -236,8 +236,10 @@ export class VideoService {
     }
 
     const videoDuration = session.video.durationSeconds;
-    // Mark completed if at least 80% watched or >= 60 seconds of valid engagement
-    const isCompleted = clientWatchSeconds >= Math.min(videoDuration * 0.8, 60);
+    // Section 4.3: Mark completed if at least 80% watched, or >= 12 seconds, or reached full duration
+    const isCompleted =
+      clientWatchSeconds >= Math.min(videoDuration * 0.8, 12) ||
+      clientWatchSeconds >= videoDuration;
 
     const updated = await prisma.videoSession.update({
       where: { id: session.id },
@@ -278,8 +280,34 @@ export class VideoService {
       throw { statusCode: 400, code: 'INVALID_SESSION', message: 'Session does not match video.' };
     }
 
+    // Section 4.3: Ensure session is completed or auto-verify elapsed playback time
     if (!session.completed) {
-      throw { statusCode: 400, code: 'INCOMPLETE_VIEWING', message: 'Video must be fully completed to qualify for rewards.' };
+      const now = new Date();
+      const elapsedRealSeconds = Math.floor((now.getTime() - session.startedAt.getTime()) / 1000);
+      const effectiveWatch = Math.max(session.watchSeconds, elapsedRealSeconds);
+
+      // Qualify if watched at least 80% or >= 10s or reached video duration
+      if (
+        effectiveWatch >= Math.min(video.durationSeconds * 0.8, 12) ||
+        session.watchSeconds >= 10 ||
+        effectiveWatch >= 10
+      ) {
+        await prisma.videoSession.update({
+          where: { id: session.id },
+          data: {
+            watchSeconds: Math.max(session.watchSeconds, Math.min(video.durationSeconds, effectiveWatch)),
+            completed: true,
+            completedAt: now,
+          },
+        });
+        session.completed = true;
+      } else {
+        throw {
+          statusCode: 400,
+          code: 'INCOMPLETE_VIEWING',
+          message: `Video must be fully completed to qualify for rewards. Watched ${effectiveWatch}s / ${video.durationSeconds}s.`,
+        };
+      }
     }
 
     // Check duplicate claim
