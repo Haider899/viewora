@@ -85,6 +85,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const [sendingAdminReply, setSendingAdminReply] = useState(false);
   const [waitingSupportCount, setWaitingSupportCount] = useState(0);
 
+  // Live Notification Badges (polled continuously)
+  const [pendingDepositsCount, setPendingDepositsCount] = useState(0);
+  const [pendingWithdrawalsCount, setPendingWithdrawalsCount] = useState(0);
+
   // KPI Data
   const [kpis, setKpis] = useState<AdminKpiData | null>(null);
   const [loadingKpis, setLoadingKpis] = useState(true);
@@ -192,12 +196,39 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
+  const refreshNotificationBadges = async () => {
+    try {
+      const [depRes, wdrRes, supRes] = await Promise.allSettled([
+        api.getAdminDeposits('PENDING'),
+        api.getAdminWithdrawals('PENDING'),
+        api.getAdminSupportConversations({ status: 'ALL' }),
+      ]);
+
+      if (depRes.status === 'fulfilled' && depRes.value.success && depRes.value.data) {
+        setPendingDepositsCount(depRes.value.data.length);
+      }
+      if (wdrRes.status === 'fulfilled' && wdrRes.value.success && wdrRes.value.data) {
+        const pending = Array.isArray(wdrRes.value.data)
+          ? wdrRes.value.data.filter((w: any) => w.status === 'PENDING').length
+          : 0;
+        setPendingWithdrawalsCount(pending);
+      }
+      if (supRes.status === 'fulfilled' && supRes.value.success && supRes.value.data) {
+        const waiting = supRes.value.data.filter((c: any) => c.status === 'WAITING_FOR_AGENT').length;
+        setWaitingSupportCount(waiting);
+      }
+    } catch {
+      // background poller silent error
+    }
+  };
+
   const loadDeposits = async () => {
     setLoadingDeposits(true);
     try {
       const res = await api.getAdminDeposits('PENDING');
       if (res.success && res.data) {
         setPendingDeposits(res.data);
+        setPendingDepositsCount(res.data.length);
       }
     } catch (err) {
       console.error(err);
@@ -212,6 +243,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       const res = await api.getAdminWithdrawals();
       if (res.success && res.data) {
         setPendingWithdrawals(res.data);
+        const pending = res.data.filter((w: any) => w.status === 'PENDING').length;
+        setPendingWithdrawalsCount(pending);
       }
     } catch (err) {
       console.error(err);
@@ -267,8 +300,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  const loadSupportConversations = async () => {
-    setLoadingSupport(true);
+  const loadSupportConversations = async (silent = false) => {
+    if (!silent) setLoadingSupport(true);
     try {
       const res = await api.getAdminSupportConversations({
         status: supportFilter,
@@ -285,7 +318,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     } catch (err) {
       console.error(err);
     } finally {
-      setLoadingSupport(false);
+      if (!silent) setLoadingSupport(false);
     }
   };
 
@@ -567,14 +600,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  // Initial badge check
+  // Initial badge check & recurring live counter polling
   useEffect(() => {
-    api.getAdminSupportConversations({ status: 'ALL' }).then((res) => {
-      if (res.success && res.data) {
-        const waiting = res.data.filter((c: any) => c.status === 'WAITING_FOR_AGENT').length;
-        setWaitingSupportCount(waiting);
-      }
-    }).catch(() => {});
+    refreshNotificationBadges();
+    const badgeInterval = setInterval(refreshNotificationBadges, 4000);
+    return () => clearInterval(badgeInterval);
   }, []);
 
   useEffect(() => {
@@ -605,7 +635,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     if (activeTab === 'support') {
       loadSupportConversations();
       const interval = setInterval(() => {
-        loadSupportConversations();
+        loadSupportConversations(true);
         if (selectedConvoId) {
           api.getAdminSupportConversation(selectedConvoId).then((res) => {
             if (res.success && res.data) setSelectedConvo(res.data);
@@ -762,6 +792,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       if (res.success) {
         setActionSuccess('Deposit approved and atomic ledger credit posted successfully!');
         loadDeposits();
+        refreshNotificationBadges();
       } else {
         setActionError(res.error?.message || 'Approval failed.');
       }
@@ -781,6 +812,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         if (res.success) {
           setActionSuccess('Deposit rejected.');
           loadDeposits();
+          refreshNotificationBadges();
         } else {
           setActionError(res.error?.message || 'Action failed.');
         }
@@ -791,6 +823,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         if (res.success) {
           setActionSuccess('Withdrawal rejected. Reserved hold balance returned to user.');
           loadWithdrawals();
+          refreshNotificationBadges();
         } else {
           setActionError(res.error?.message || 'Action failed.');
         }
@@ -814,6 +847,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       if (res.success) {
         setActionSuccess('Withdrawal marked as completed with confirmed external payout reference.');
         loadWithdrawals();
+        refreshNotificationBadges();
         setCompleteModal(null);
         setPayoutRefInput('');
       } else {
@@ -976,9 +1010,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           >
             <CreditCard className="w-4 h-4" />
             Deposit Verification
-            {pendingDeposits.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black">
-                {pendingDeposits.length}
+            {pendingDepositsCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
+                {pendingDepositsCount}
               </span>
             )}
           </button>
@@ -992,6 +1026,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           >
             <ArrowUpRight className="w-4 h-4" />
             Withdrawal Settlements
+            {pendingWithdrawalsCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
+                {pendingWithdrawalsCount}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('users')}
@@ -1730,7 +1769,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 </div>
 
                 <button
-                  onClick={loadSupportConversations}
+                  onClick={() => loadSupportConversations()}
                   className="p-2 rounded-xl text-slate-600 hover:bg-slate-100 border border-slate-200"
                   title="Refresh Tickets"
                 >
@@ -1797,7 +1836,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 </div>
 
                 <div className="flex-1 overflow-y-auto pt-3 space-y-2.5">
-                  {loadingSupport ? (
+                  {loadingSupport && supportConversations.length === 0 ? (
                     <div className="h-40 flex items-center justify-center text-slate-400">
                       <div className="w-6 h-6 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />
                     </div>
