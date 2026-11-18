@@ -99,8 +99,8 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
             .catch((err) => console.error('Heartbeat error:', err));
         }
 
-        // Auto-complete locally if watched >= 80% or 60s
-        if (video && (nextSec >= video.durationSeconds * 0.8 || nextSec >= 60)) {
+        // Auto-complete when full duration is watched (Section 4.3)
+        if (video && nextSec >= video.durationSeconds) {
           setIsCompleted(true);
         }
 
@@ -111,19 +111,24 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
     return () => clearInterval(interval);
   }, [sessionToken, isPlaying, videoId, video]);
 
-  // Claim Engagement Reward
+  // Claim Engagement Reward (Auto-triggered upon full watch completion - Section 4.3)
   const handleClaimReward = async () => {
-    if (!sessionToken) return;
+    if (!sessionToken || hasClaimed || claiming) return;
     setClaiming(true);
     setErrorMsg(null);
     try {
       const res = await api.claimVideoReward(videoId, sessionToken);
       if (res.success) {
         setHasClaimed(true);
-        setClaimSuccessMsg('Reward successfully verified and credited to your available balance!');
+        setClaimSuccessMsg(`🎉 Masterclass Completed! $${((video?.rewardAmountCents ?? 50) / 100).toFixed(2)} USD engagement reward automatically verified and credited to your wallet.`);
         await refreshWallet();
       } else {
-        setErrorMsg(res.error?.message || 'Failed to claim reward.');
+        // If already claimed, gracefully mark claimed
+        if (res.error?.message?.includes('already claimed')) {
+          setHasClaimed(true);
+        } else {
+          setErrorMsg(res.error?.message || 'Failed to verify reward.');
+        }
       }
     } catch (err: any) {
       setErrorMsg('Error processing reward claim.');
@@ -131,6 +136,13 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
       setClaiming(false);
     }
   };
+
+  // Section 4.3: Automatic Reward Credit (No manual claim button required)
+  useEffect(() => {
+    if (isCompleted && !hasClaimed && !claiming && sessionToken && video?.rewardEligible) {
+      handleClaimReward();
+    }
+  }, [isCompleted, hasClaimed, claiming, sessionToken, video]);
 
   if (loading) {
     return (
@@ -205,8 +217,15 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
               src={video?.videoUrl}
               poster={video?.thumbnailUrl}
               controls
+              controlsList="nodownload noplaybackrate"
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
+              onSeeking={() => {
+                if (videoRef.current && videoRef.current.currentTime > watchSeconds + 1) {
+                  videoRef.current.currentTime = watchSeconds;
+                }
+              }}
+              onContextMenu={(e) => e.preventDefault()}
               className="w-full h-full object-contain"
             />
           )}
@@ -223,39 +242,35 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
             {isCompleted && (
               <span className="flex items-center gap-1 text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Session Engagement Verified
+                Full Watch Verified
               </span>
             )}
             {youtubeEmbedUrl && !isPlaying && (
               <button
                 onClick={() => setIsPlaying(true)}
-                className="text-[10px] font-semibold text-emerald-400 underline"
+                className="text-[10px] font-semibold text-emerald-400 underline cursor-pointer"
               >
                 Start Telemetry Tracking
               </button>
             )}
           </div>
 
-          {/* Reward Claim Button */}
+          {/* Automatic Reward Status (Section 4.3) */}
           {video?.rewardEligible && (
             <div>
               {hasClaimed ? (
                 <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30">
                   <CheckCircle2 className="w-4 h-4" />
-                  Completion Reward Claimed (${(video.rewardAmountCents / 100).toFixed(2)})
+                  Reward Automatically Credited (${(video.rewardAmountCents / 100).toFixed(2)} USD)
                 </div>
               ) : isCompleted ? (
-                <button
-                  onClick={handleClaimReward}
-                  disabled={claiming}
-                  className="px-4 py-1.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md flex items-center gap-1.5 transition-all"
-                >
-                  <Award className="w-4 h-4" />
-                  {claiming ? 'Verifying Claim...' : `Claim $${(video.rewardAmountCents / 100).toFixed(2)} Reward`}
-                </button>
+                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30 animate-pulse">
+                  <Sparkles className="w-4 h-4" />
+                  {claiming ? 'Verifying & Crediting Ledger...' : 'Crediting Reward Automatically...'}
+                </div>
               ) : (
                 <div className="text-[11px] text-slate-400">
-                  Stream 80% to qualify for ${(video.rewardAmountCents / 100).toFixed(2)} reward
+                  Complete full {video?.durationSeconds}s duration for automatic ${(video.rewardAmountCents / 100).toFixed(2)} USD reward credit
                 </div>
               )}
             </div>

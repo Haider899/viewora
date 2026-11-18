@@ -41,6 +41,8 @@ import {
   Send,
   Inbox,
   FileText,
+  FileCheck,
+  Layers,
   Image as ImageIcon,
   Plus,
   Trash2,
@@ -56,7 +58,18 @@ interface AdminDashboardProps {
 
 export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'kpis' | 'deposits' | 'withdrawals' | 'users' | 'gateways' | 'settings' | 'support' | 'videos'>('kpis');
+  const [activeTab, setActiveTab] = useState<
+    | 'kpis'
+    | 'deposits'
+    | 'withdrawals'
+    | 'users'
+    | 'gateways'
+    | 'settings'
+    | 'support'
+    | 'videos'
+    | 'documents'
+    | 'levels'
+  >('kpis');
 
   // Live Support Desk State
   const [supportConversations, setSupportConversations] = useState<SupportConversation[]>([]);
@@ -138,6 +151,32 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const [formAssignedUserId, setFormAssignedUserId] = useState('');
   const [savingVideo, setSavingVideo] = useState(false);
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
+
+  // Company Documents Management (Section 2.1)
+  const [documentsList, setDocumentsList] = useState<any[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [documentModalOpen, setDocumentModalOpen] = useState(false);
+  const [editingDocument, setEditingDocument] = useState<any | null>(null);
+  const [docFormTitle, setDocFormTitle] = useState('');
+  const [docFormType, setDocFormType] = useState('BUSINESS_LICENSE');
+  const [docFormUrl, setDocFormUrl] = useState('');
+  const [docFormIssuer, setDocFormIssuer] = useState('');
+  const [docFormIsPublic, setDocFormIsPublic] = useState(true);
+  const [savingDocument, setSavingDocument] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+
+  // Account Levels & Daily Bonus (Sections 3, 5.1 & 11)
+  const [levelsList, setLevelsList] = useState<any[]>([]);
+  const [loadingLevels, setLoadingLevels] = useState(false);
+  const [editingLevel, setEditingLevel] = useState<any | null>(null);
+  const [levelModalOpen, setLevelModalOpen] = useState(false);
+  const [levelFormName, setLevelFormName] = useState('');
+  const [levelFormMinUSD, setLevelFormMinUSD] = useState(0);
+  const [levelFormMaxUSD, setLevelFormMaxUSD] = useState(0);
+  const [levelFormVideoLimit, setLevelFormVideoLimit] = useState(10);
+  const [levelFormBonusBps, setLevelFormBonusBps] = useState(0);
+  const [savingLevel, setSavingLevel] = useState(false);
+  const [triggeringBonusBatch, setTriggeringBonusBatch] = useState(false);
 
   const loadKpis = async () => {
     setLoadingKpis(true);
@@ -384,6 +423,150 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
+  const loadDocuments = async () => {
+    setLoadingDocuments(true);
+    try {
+      const res = await api.getAdminDocuments();
+      if (res.success && res.data) {
+        setDocumentsList(res.data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingDocuments(false);
+    }
+  };
+
+  const openAddDocModal = () => {
+    setEditingDocument(null);
+    setDocFormTitle('');
+    setDocFormType('BUSINESS_LICENSE');
+    setDocFormUrl('');
+    setDocFormIssuer('Corporate Affairs Commission / Registrar');
+    setDocFormIsPublic(true);
+    setDocumentModalOpen(true);
+  };
+
+  const openEditDocModal = (doc: any) => {
+    setEditingDocument(doc);
+    setDocFormTitle(doc.title);
+    setDocFormType(doc.documentType);
+    setDocFormUrl(doc.fileUrl);
+    setDocFormIssuer(doc.issuer || '');
+    setDocFormIsPublic(doc.isPublic);
+    setDocumentModalOpen(true);
+  };
+
+  const handleSaveDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!docFormTitle.trim() || !docFormUrl.trim()) {
+      setActionError('Document title and file URL are required.');
+      return;
+    }
+    setSavingDocument(true);
+    setActionSuccess(null);
+    setActionError(null);
+    try {
+      const payload = {
+        title: docFormTitle.trim(),
+        documentType: docFormType,
+        fileUrl: docFormUrl.trim(),
+        issuer: docFormIssuer.trim() || undefined,
+        isPublic: docFormIsPublic,
+      };
+      let res;
+      if (editingDocument) {
+        res = await api.updateAdminDocument(editingDocument.id, payload);
+      } else {
+        res = await api.createAdminDocument(payload);
+      }
+      if (res.success) {
+        setActionSuccess(res.message || 'Document successfully saved.');
+        setDocumentModalOpen(false);
+        loadDocuments();
+      } else {
+        setActionError(res.error?.message || 'Failed to save document.');
+      }
+    } catch {
+      setActionError('Error saving document.');
+    } finally {
+      setSavingDocument(false);
+    }
+  };
+
+  const handleDeleteDocument = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this company document?')) return;
+    setDeletingDocId(id);
+    setActionSuccess(null);
+    setActionError(null);
+    try {
+      const res = await api.deleteAdminDocument(id);
+      if (res.success) {
+        setActionSuccess('Document removed successfully.');
+        loadDocuments();
+      } else {
+        setActionError(res.error?.message || 'Failed to delete document.');
+      }
+    } catch {
+      setActionError('Error deleting document.');
+    } finally {
+      setDeletingDocId(null);
+    }
+  };
+
+  const loadLevels = async () => {
+    setLoadingLevels(true);
+    try {
+      const res = await api.getAccountLevels();
+      if (res.success && res.data) {
+        setLevelsList(res.data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingLevels(false);
+    }
+  };
+
+  const openEditLevelModal = (lvl: any) => {
+    setEditingLevel(lvl);
+    setLevelFormName(lvl.displayName || lvl.levelKey);
+    setLevelFormMinUSD((lvl.minAmountCents || 0) / 100);
+    setLevelFormMaxUSD(lvl.maxAmountCents ? lvl.maxAmountCents / 100 : 0);
+    setLevelFormVideoLimit(lvl.dailyVideoLimit || 10);
+    setLevelFormBonusBps(lvl.dailyBonusBps || 0);
+    setLevelModalOpen(true);
+  };
+
+  const handleSaveLevel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLevel) return;
+    setSavingLevel(true);
+    setActionSuccess(null);
+    setActionError(null);
+    try {
+      const payload = {
+        displayName: levelFormName.trim(),
+        minAmountCents: Math.round(levelFormMinUSD * 100),
+        maxAmountCents: levelFormMaxUSD > 0 ? Math.round(levelFormMaxUSD * 100) : null,
+        dailyVideoLimit: Number(levelFormVideoLimit),
+        dailyBonusBps: Number(levelFormBonusBps),
+      };
+      const res = await api.updateAccountLevel(editingLevel.levelKey, payload);
+      if (res.success) {
+        setActionSuccess(`Level tier ${editingLevel.levelKey} updated successfully.`);
+        setLevelModalOpen(false);
+        loadLevels();
+      } else {
+        setActionError(res.error?.message || 'Failed to update level.');
+      }
+    } catch {
+      setActionError('Error updating level.');
+    } finally {
+      setSavingLevel(false);
+    }
+  };
+
   // Initial badge check
   useEffect(() => {
     api.getAdminSupportConversations({ status: 'ALL' }).then((res) => {
@@ -405,6 +588,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     else if (activeTab === 'videos') {
       loadAdminVideos();
       loadDropdownUsers();
+    } else if (activeTab === 'documents') {
+      loadDocuments();
+    } else if (activeTab === 'levels') {
+      loadLevels();
     }
   }, [activeTab]);
 
@@ -865,6 +1052,28 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           >
             <PlaySquare className="w-4 h-4" />
             Videos & Assignments
+          </button>
+          <button
+            onClick={() => setActiveTab('documents')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+              activeTab === 'documents'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <FileCheck className="w-4 h-4" />
+            Company Documents
+          </button>
+          <button
+            onClick={() => setActiveTab('levels')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+              activeTab === 'levels'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            Account Levels & Daily Bonus
           </button>
         </div>
       </header>
@@ -2141,6 +2350,234 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
             )}
           </div>
         )}
+
+        {/* TAB: COMPANY DOCUMENTS (SECTION 2.1) */}
+        {activeTab === 'documents' && (
+          <div className="rounded-3xl bg-white border border-slate-200/90 shadow-xs overflow-hidden space-y-6 p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <FileCheck className="w-5 h-5 text-purple-600" />
+                  <h3 className="text-base font-bold text-slate-900">
+                    Company Documents & Regulatory Credentials (Section 2.1)
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Upload, update, and manage official corporate registration certificates and business licenses displayed on the public landing page.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={openAddDocModal}
+                className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all flex items-center gap-2 shadow-sm cursor-pointer shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                Upload New Credential
+              </button>
+            </div>
+
+            {loadingDocuments ? (
+              <div className="py-12 text-center text-xs text-slate-400">Loading documents...</div>
+            ) : documentsList.length === 0 ? (
+              <div className="py-12 text-center text-xs text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-8 space-y-3">
+                <FileText className="w-8 h-8 text-slate-300 mx-auto" />
+                <p>No corporate documents uploaded yet. Click above to add your registration certificate or business license.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-6">Document Title</th>
+                      <th className="py-3 px-6">Classification</th>
+                      <th className="py-3 px-6">Issuing Authority</th>
+                      <th className="py-3 px-6">Landing Page Visibility</th>
+                      <th className="py-3 px-6">Resource Link</th>
+                      <th className="py-3 px-6 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {documentsList.map((doc: any) => (
+                      <tr key={doc.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-4 px-6 font-bold text-slate-900">{doc.title}</td>
+                        <td className="py-4 px-6">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase">
+                            {doc.documentType?.replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td className="py-4 px-6 text-slate-600">{doc.issuer || 'Official Registrar'}</td>
+                        <td className="py-4 px-6">
+                          {doc.isPublic ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              Public on Landing Page
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                              Internal / Hidden
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-4 px-6">
+                          <a
+                            href={doc.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-purple-600 hover:text-purple-700 font-bold hover:underline"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            Inspect Document
+                          </a>
+                        </td>
+                        <td className="py-4 px-6 text-right space-x-1.5 whitespace-nowrap">
+                          <button
+                            onClick={() => openEditDocModal(doc)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-purple-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                            title="Edit Document"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteDocument(doc.id)}
+                            disabled={deletingDocId === doc.id}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Delete Document"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Legal Notice */}
+            <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200 text-[11px] text-amber-900 flex items-start gap-3">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">SRS Section 2.1 Compliance: </span>
+                Only verified and authentic business licenses may be presented to the public within their actual legal scope. General company registration does not represent authorization for financial custody or guaranteed returns.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: ACCOUNT LEVELS & DAILY BONUS (SECTIONS 3, 5.1 & 11) */}
+        {activeTab === 'levels' && (
+          <div className="rounded-3xl bg-white border border-slate-200/90 shadow-xs overflow-hidden space-y-6 p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-5 h-5 text-purple-600" />
+                  <h3 className="text-base font-bold text-slate-900">
+                    Account Levels & Daily Bonus System (Sections 3 & 5.1)
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Configure the 6 account classification tiers, video access quotas, approved daily bonus rates, and execute daily reward batches.
+                </p>
+              </div>
+
+              {user?.role === 'SUPER_ADMIN' && (
+                <button
+                  type="button"
+                  onClick={handleTriggerDailyBonus}
+                  disabled={triggeringBonusBatch}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white text-xs font-bold transition-all flex items-center gap-2 shadow-sm cursor-pointer shrink-0"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-300" />
+                  {triggeringBonusBatch ? 'Calculating & Posting Ledger...' : 'Run Daily Bonus Batch (8:00 PM)'}
+                </button>
+              )}
+            </div>
+
+            {loadingLevels ? (
+              <div className="py-12 text-center text-xs text-slate-400">Loading account level tiers...</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-6">Classification Tier</th>
+                      <th className="py-3 px-6">Display Name</th>
+                      <th className="py-3 px-6">Qualification Range (USD)</th>
+                      <th className="py-3 px-6">Daily Video Limit</th>
+                      <th className="py-3 px-6">Approved Daily Bonus Rate</th>
+                      <th className="py-3 px-6">Status</th>
+                      <th className="py-3 px-6 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {levelsList.map((lvl: any) => {
+                      const minUSD = ((lvl.minAmountCents || 0) / 100).toFixed(2);
+                      const maxUSD = lvl.maxAmountCents ? `$${((lvl.maxAmountCents || 0) / 100).toFixed(2)}` : 'No Cap';
+                      const bonusPercent = ((lvl.dailyBonusBps || 0) / 100).toFixed(2);
+
+                      return (
+                        <tr key={lvl.id || lvl.levelKey} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-4 px-6">
+                            <span className="font-mono font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">
+                              {lvl.levelKey}
+                            </span>
+                          </td>
+                          <td className="py-4 px-6 font-bold text-indigo-900">{lvl.displayName}</td>
+                          <td className="py-4 px-6 font-mono font-semibold text-slate-800">
+                            ${minUSD} – {maxUSD}
+                          </td>
+                          <td className="py-4 px-6 font-bold text-slate-700">
+                            {lvl.dailyVideoLimit} videos/day
+                          </td>
+                          <td className="py-4 px-6 font-bold text-emerald-700">
+                            {bonusPercent}% ({lvl.dailyBonusBps || 0} bps)
+                          </td>
+                          <td className="py-4 px-6">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              Active
+                            </span>
+                          </td>
+                          <td className="py-4 px-6 text-right whitespace-nowrap">
+                            <button
+                              onClick={() => openEditLevelModal(lvl)}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-purple-700 transition-colors cursor-pointer"
+                            >
+                              Edit Tier
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* SRS Presets Showcase */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs font-bold text-slate-900">Account Lock Presets (Section 11)</span>
+                </div>
+                <p className="text-[11px] text-slate-600">
+                  Standard lock durations supported: <strong>60 Days</strong>, <strong>100 Days</strong>, and <strong>360 Days</strong>. Early unlocks require an authorized administrative reason and are permanently preserved in the audit history.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <span className="text-xs font-bold text-slate-900">Daily Bonus Schedule (Section 5.1)</span>
+                </div>
+                <p className="text-[11px] text-slate-600">
+                  Daily Level Rewards execute automatically at <strong>8:00 PM Pakistan Time</strong> (15:00 UTC). Rewards are backed strictly by confirmed platform revenue and recorded via double-entry balancing.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* EDIT GATEWAY MODAL */}
@@ -2706,6 +3143,245 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 Close Preview
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD / EDIT COMPANY DOCUMENT MODAL (SECTION 2.1) */}
+      {documentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="w-full max-w-lg rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 space-y-5 shadow-2xl relative my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                  <FileCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {editingDocument ? 'Edit Corporate Credential' : 'Upload Corporate Credential'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Configure document details displayed in the Landing Page verified credentials section.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDocumentModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveDocument} className="space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="block font-bold text-slate-800">
+                  Document Title <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Certificate of Incorporation or Business Registration"
+                  value={docFormTitle}
+                  onChange={(e) => setDocFormTitle(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-purple-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-800">Document Type</label>
+                  <select
+                    value={docFormType}
+                    onChange={(e) => setDocFormType(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900"
+                  >
+                    <option value="BUSINESS_LICENSE">Business License</option>
+                    <option value="REGISTRATION">Registration Certificate</option>
+                    <option value="TAX_CERTIFICATE">Tax Certificate</option>
+                    <option value="COMPLIANCE">Compliance Certificate</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-800">Issuing Entity</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. State Registrar"
+                    value={docFormIssuer}
+                    onChange={(e) => setDocFormIssuer(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block font-bold text-slate-800">
+                  Document / Certificate URL (PDF or Image) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://... or /documents/license.pdf"
+                  value={docFormUrl}
+                  onChange={(e) => setDocFormUrl(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-purple-500"
+                  required
+                />
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-slate-900 block">Public Landing Page Display</span>
+                  <span className="text-[10px] text-slate-500">Show this credential on the public website for visitor inspection.</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={docFormIsPublic}
+                  onChange={(e) => setDocFormIsPublic(e.target.checked)}
+                  className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setDocumentModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingDocument}
+                  className="flex-1 py-2.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  {savingDocument ? 'Saving...' : editingDocument ? 'Update Credential' : 'Save Credential'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT ACCOUNT LEVEL MODAL (SECTION 3) */}
+      {levelModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="w-full max-w-lg rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 space-y-5 shadow-2xl relative my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Edit Account Level Tier: {editingLevel?.levelKey}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Adjust qualification ranges, video limits, and approved daily reward percentage.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLevelModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveLevel} className="space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="block font-bold text-slate-800">Display Name</label>
+                <input
+                  type="text"
+                  value={levelFormName}
+                  onChange={(e) => setLevelFormName(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-purple-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-800">Minimum Qualifying Amount ($ USD)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={levelFormMinUSD}
+                    onChange={(e) => setLevelFormMinUSD(parseFloat(e.target.value) || 0)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-800">Maximum Qualifying Amount ($ USD)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0 for No Cap"
+                    value={levelFormMaxUSD}
+                    onChange={(e) => setLevelFormMaxUSD(parseFloat(e.target.value) || 0)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900"
+                  />
+                  <span className="text-[10px] text-slate-400">Leave 0 for uncapped</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-800">Daily Video Access Limit</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={levelFormVideoLimit}
+                    onChange={(e) => setLevelFormVideoLimit(parseInt(e.target.value) || 1)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-800">Daily Bonus Rate (Basis Points)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="10000"
+                    value={levelFormBonusBps}
+                    onChange={(e) => setLevelFormBonusBps(parseInt(e.target.value) || 0)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900"
+                    required
+                  />
+                  <span className="text-[10px] text-emerald-600 font-bold">
+                    = {((levelFormBonusBps || 0) / 100).toFixed(2)}% per day
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setLevelModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingLevel}
+                  className="flex-1 py-2.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  {savingLevel ? 'Updating...' : 'Save Configuration'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
