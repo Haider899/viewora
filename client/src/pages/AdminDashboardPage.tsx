@@ -49,6 +49,7 @@ import {
   Play,
   Sparkles,
   Video as VideoIcon,
+  Lock,
 } from 'lucide-react';
 import { extractYouTubeId, getYouTubeEmbedUrl, getYouTubeThumbnail } from '../utils/youtube.js';
 
@@ -139,6 +140,42 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const [dossierData, setDossierData] = useState<any | null>(null);
   const [loadingDossier, setLoadingDossier] = useState(false);
   const [dossierTab, setDossierTab] = useState<'overview' | 'deposits' | 'withdrawals' | 'videos' | 'referrals' | 'ledger'>('overview');
+
+  // Interactive UI Modals for User Management & Support (Replaces browser prompts)
+  const [adjustLevelModal, setAdjustLevelModal] = useState<{
+    userId: string;
+    userName: string;
+    currentLevel: string;
+  } | null>(null);
+  const [selectedNewLevel, setSelectedNewLevel] = useState('LEVEL_1');
+  const [levelAdjustReason, setLevelAdjustReason] = useState('Administrative qualification');
+  const [savingLevelAdjust, setSavingLevelAdjust] = useState(false);
+
+  const [lockAccountModal, setLockAccountModal] = useState<{
+    userId: string;
+    userName: string;
+    isLocked: boolean;
+    lockedUntil?: string | null;
+  } | null>(null);
+  const [lockDurationDays, setLockDurationDays] = useState(60);
+  const [lockReason, setLockReason] = useState('Security policy compliance');
+  const [savingLockAction, setSavingLockAction] = useState(false);
+
+  const [changeRoleModal, setChangeRoleModal] = useState<{
+    userId: string;
+    userName: string;
+    currentRole: string;
+  } | null>(null);
+  const [selectedNewRole, setSelectedNewRole] = useState('USER');
+  const [roleReason, setRoleReason] = useState('Role update via administrative console');
+  const [savingRoleChange, setSavingRoleChange] = useState(false);
+
+  const [escalateModal, setEscalateModal] = useState<{
+    convoId: string;
+    userName: string;
+  } | null>(null);
+  const [escalateReason, setEscalateReason] = useState('Customer requested senior platform admin escalation');
+  const [savingEscalation, setSavingEscalation] = useState(false);
 
   const openUserDossier = async (userId: string) => {
     setDossierUserId(userId);
@@ -900,66 +937,157 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  const handleAdjustLevel = async (userId: string) => {
-    const level = window.prompt('Enter new Account Level (NEW_USER, LEVEL_1, LEVEL_2, LEVEL_3, LEVEL_4, LEVEL_5):');
-    if (!level) return;
-    const reason = window.prompt('Enter reason for level adjustment:') || 'Administrative override';
+  // Level Modal Handlers (Replaces window.prompt)
+  const handleOpenAdjustLevelModal = (u: any) => {
+    setAdjustLevelModal({
+      userId: u.id,
+      userName: u.fullName || u.email,
+      currentLevel: u.accountLevel || 'NEW_USER',
+    });
+    setSelectedNewLevel(u.accountLevel || 'LEVEL_1');
+    setLevelAdjustReason('Administrative tier qualification');
+  };
+
+  const handleConfirmAdjustLevel = async () => {
+    if (!adjustLevelModal) return;
+    setSavingLevelAdjust(true);
+    setActionSuccess(null);
+    setActionError(null);
     try {
-      const res = await api.manualAdjustUserLevel(userId, level.trim().toUpperCase(), reason);
+      const res = await api.manualAdjustUserLevel(
+        adjustLevelModal.userId,
+        selectedNewLevel,
+        levelAdjustReason.trim() || 'Administrative override'
+      );
       if (res.success) {
-        setActionSuccess('Account level adjusted successfully.');
+        setActionSuccess(`Account level for ${adjustLevelModal.userName} changed to ${selectedNewLevel}.`);
+        setAdjustLevelModal(null);
         loadUsers();
       } else {
         setActionError(res.error?.message || 'Failed to adjust level.');
       }
     } catch (err: any) {
       setActionError(err.message || 'Error adjusting level.');
+    } finally {
+      setSavingLevelAdjust(false);
     }
   };
 
-  const handleLockAccount = async (userId: string, isCurrentlyLocked: boolean) => {
-    if (isCurrentlyLocked) {
-      const reason = window.prompt('Enter reason for early unlock:') || 'Administrative unlock';
-      try {
-        const res = await api.unlockUserAccount(userId, reason);
-        if (res.success) {
-          setActionSuccess('Account unlocked successfully.');
-          loadUsers();
-        }
-      } catch (err: any) {
-        setActionError(err.message || 'Error unlocking account.');
-      }
-      return;
-    }
+  // Lock Modal Handlers (Replaces window.prompt)
+  const handleOpenLockModal = (u: any, isLocked: boolean) => {
+    setLockAccountModal({
+      userId: u.id,
+      userName: u.fullName || u.email,
+      isLocked,
+      lockedUntil: u.accountLockedUntil,
+    });
+    setLockDurationDays(60);
+    setLockReason(isLocked ? 'Administrative early unlock' : 'Security policy compliance');
+  };
 
-    const durationStr = window.prompt('Select Lock Duration preset (enter: 60, 100, or 360 days):', '60');
-    if (!durationStr) return;
-    const durationDays = parseInt(durationStr);
-    const reason = window.prompt('Enter reason for locking account:') || 'Security policy compliance';
+  const handleConfirmLockAction = async () => {
+    if (!lockAccountModal) return;
+    setSavingLockAction(true);
+    setActionSuccess(null);
+    setActionError(null);
     try {
-      const res = await api.lockUserAccount(userId, durationDays, reason);
-      if (res.success) {
-        setActionSuccess(`Account locked for ${durationDays} days.`);
-        loadUsers();
+      if (lockAccountModal.isLocked) {
+        const res = await api.unlockUserAccount(
+          lockAccountModal.userId,
+          lockReason.trim() || 'Administrative early unlock'
+        );
+        if (res.success) {
+          setActionSuccess(`Account unlocked for ${lockAccountModal.userName}.`);
+          setLockAccountModal(null);
+          loadUsers();
+        } else {
+          setActionError(res.error?.message || 'Failed to unlock account.');
+        }
+      } else {
+        const res = await api.lockUserAccount(
+          lockAccountModal.userId,
+          lockDurationDays,
+          lockReason.trim() || 'Security policy compliance'
+        );
+        if (res.success) {
+          setActionSuccess(`Account locked for ${lockDurationDays} days.`);
+          setLockAccountModal(null);
+          loadUsers();
+        } else {
+          setActionError(res.error?.message || 'Failed to lock account.');
+        }
       }
     } catch (err: any) {
-      setActionError(err.message || 'Error locking account.');
+      setActionError(err.message || 'Error processing account lock action.');
+    } finally {
+      setSavingLockAction(false);
     }
   };
 
-  const handleChangeRole = async (userId: string, currentRole: string) => {
-    const newRole = window.prompt('Enter role (USER, SUPPORT_AGENT, CONTENT_ADMIN, FINANCE_ADMIN, SUPER_ADMIN):', currentRole);
-    if (!newRole || newRole.trim().toUpperCase() === currentRole) return;
+  // Role Modal Handlers (Replaces window.prompt)
+  const handleOpenChangeRoleModal = (u: any) => {
+    setChangeRoleModal({
+      userId: u.id,
+      userName: u.fullName || u.email,
+      currentRole: u.role,
+    });
+    setSelectedNewRole(u.role);
+    setRoleReason('Staff role update via administrative control panel');
+  };
+
+  const handleConfirmChangeRole = async () => {
+    if (!changeRoleModal) return;
+    setSavingRoleChange(true);
+    setActionSuccess(null);
+    setActionError(null);
     try {
-      const res = await api.updateUserRole(userId, newRole.trim().toUpperCase(), 'Role update via admin console');
+      const res = await api.updateUserRole(
+        changeRoleModal.userId,
+        selectedNewRole,
+        roleReason.trim() || 'Role update via admin console'
+      );
       if (res.success) {
-        setActionSuccess(`User role updated to ${newRole}`);
+        setActionSuccess(`Role for ${changeRoleModal.userName} updated to ${selectedNewRole}.`);
+        setChangeRoleModal(null);
         loadUsers();
       } else {
         setActionError(res.error?.message || 'Failed to update role.');
       }
     } catch (err: any) {
       setActionError(err.message || 'Error updating role (Max 10 support agents limit).');
+    } finally {
+      setSavingRoleChange(false);
+    }
+  };
+
+  // Escalate Modal Handlers (Replaces window.prompt)
+  const handleOpenEscalateModal = (convo: any) => {
+    setEscalateModal({
+      convoId: convo.id,
+      userName: convo.user?.fullName || convo.guestName || 'Customer',
+    });
+    setEscalateReason('Customer requested senior platform admin escalation');
+  };
+
+  const handleConfirmEscalate = async () => {
+    if (!escalateModal || !escalateReason.trim()) return;
+    setSavingEscalation(true);
+    setActionSuccess(null);
+    setActionError(null);
+    try {
+      const res = await api.adminEscalateSupportToSuperAdmin(escalateModal.convoId, escalateReason.trim());
+      if (res.success) {
+        setSelectedConvo(res.data);
+        setActionSuccess('Ticket escalated to Super Admin successfully.');
+        setEscalateModal(null);
+        loadSupportConversations();
+      } else {
+        setActionError(res.error?.message || 'Failed to escalate ticket.');
+      }
+    } catch {
+      setActionError('Error escalating ticket.');
+    } finally {
+      setSavingEscalation(false);
     }
   };
 
@@ -1536,7 +1664,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                             <>
                               {/* Adjust Level */}
                               <button
-                                onClick={() => handleAdjustLevel(u.id)}
+                                onClick={() => handleOpenAdjustLevelModal(u)}
                                 className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 cursor-pointer"
                                 title="Adjust Account Level (Section 3)"
                               >
@@ -1545,7 +1673,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
 
                               {/* Lock / Unlock */}
                               <button
-                                onClick={() => handleLockAccount(u.id, isLocked)}
+                                onClick={() => handleOpenLockModal(u, isLocked)}
                                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer ${
                                   isLocked
                                     ? 'bg-amber-100 text-amber-900 border-amber-300'
@@ -1558,7 +1686,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
 
                               {/* Change Role with 10 Agents limit */}
                               <button
-                                onClick={() => handleChangeRole(u.id, u.role)}
+                                onClick={() => handleOpenChangeRoleModal(u)}
                                 className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 cursor-pointer"
                                 title="Update Staff Role (Max 10 Support Agents)"
                               >
@@ -2015,12 +2143,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         {selectedConvo.status !== 'ESCALATED_TO_ADMIN' && selectedConvo.status !== 'RESOLVED' && (
                           <button
                             type="button"
-                            onClick={() => {
-                              const reason = window.prompt('Enter reason for escalating this ticket to Super Admin:');
-                              if (reason && reason.trim()) {
-                                handleEscalateToAdmin(selectedConvo.id, reason.trim());
-                              }
-                            }}
+                            onClick={() => handleOpenEscalateModal(selectedConvo)}
                             className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-colors flex items-center gap-1 shadow-2xs cursor-pointer"
                             title="Escalate issue to Super Admin"
                           >
@@ -3237,6 +3360,332 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white cursor-pointer"
               >
                 Close Dossier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADJUST ACCOUNT LEVEL MODAL (Replaces browser prompt) */}
+      {adjustLevelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 space-y-6 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Adjust Account Level</h3>
+                  <p className="text-xs text-slate-500">
+                    Modifying tier for <span className="font-bold text-slate-800">{adjustLevelModal.userName}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAdjustLevelModal(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700">Select Target Tier</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { key: 'NEW_USER', name: 'New User', min: '$0' },
+                  { key: 'LEVEL_1', name: 'Level 1 (Novice)', min: '$20' },
+                  { key: 'LEVEL_2', name: 'Level 2 (Active)', min: '$100' },
+                  { key: 'LEVEL_3', name: 'Level 3 (Creator)', min: '$500' },
+                  { key: 'LEVEL_4', name: 'Level 4 (Architect)', min: '$2,000' },
+                  { key: 'LEVEL_5', name: 'Level 5 (Elite)', min: '$5,000' },
+                ].map((lvl) => (
+                  <button
+                    key={lvl.key}
+                    type="button"
+                    onClick={() => setSelectedNewLevel(lvl.key)}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                      selectedNewLevel === lvl.key
+                        ? 'bg-indigo-50/80 border-indigo-500 ring-2 ring-indigo-500/20'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="text-xs font-bold text-slate-900 block">{lvl.name}</span>
+                    <span className="text-[10px] text-slate-500">Min Qual: {lvl.min}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Audit Justification / Override Reason</label>
+              <input
+                type="text"
+                placeholder="e.g. Deposit verified via bank manual confirmation"
+                value={levelAdjustReason}
+                onChange={(e) => setLevelAdjustReason(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setAdjustLevelModal(null)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingLevelAdjust}
+                onClick={handleConfirmAdjustLevel}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer shadow-sm"
+              >
+                {savingLevelAdjust ? 'Updating...' : 'Apply Level Adjustment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ACCOUNT LOCK / UNLOCK MODAL (Replaces browser prompt) */}
+      {lockAccountModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 space-y-6 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
+                  lockAccountModal.isLocked ? 'bg-emerald-50 border border-emerald-200 text-emerald-600' : 'bg-amber-50 border border-amber-200 text-amber-600'
+                }`}>
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {lockAccountModal.isLocked ? 'Unlock User Account' : 'Lock Account (Section 11)'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Target User: <span className="font-bold text-slate-800">{lockAccountModal.userName}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setLockAccountModal(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {lockAccountModal.isLocked ? (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-1">
+                <span className="text-xs font-bold text-amber-900 block">Account is Currently Locked</span>
+                <p className="text-[11px] text-amber-700">
+                  Locked until: {lockAccountModal.lockedUntil ? new Date(lockAccountModal.lockedUntil).toLocaleDateString() : 'Active Lock'}. Early release will restore full withdrawal and video access privileges immediately.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-700">Choose Lock Duration Preset</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { days: 60, label: '60 Days', sub: '2 Months Cycle' },
+                    { days: 100, label: '100 Days', sub: 'Engagement Lock' },
+                    { days: 360, label: '360 Days', sub: 'Full Year Lock' },
+                  ].map((p) => (
+                    <button
+                      key={p.days}
+                      type="button"
+                      onClick={() => setLockDurationDays(p.days)}
+                      className={`p-3 rounded-2xl border text-center transition-all cursor-pointer ${
+                        lockDurationDays === p.days
+                          ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-500/20'
+                          : 'bg-white border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="text-sm font-black text-slate-900 block">{p.label}</span>
+                      <span className="text-[10px] text-slate-500 block">{p.sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">
+                {lockAccountModal.isLocked ? 'Reason for Early Unlock' : 'Reason for Locking Account'}
+              </label>
+              <input
+                type="text"
+                placeholder={lockAccountModal.isLocked ? 'e.g. Administrative early unlock request' : 'e.g. Security compliance audit'}
+                value={lockReason}
+                onChange={(e) => setLockReason(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setLockAccountModal(null)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingLockAction}
+                onClick={handleConfirmLockAction}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm ${
+                  lockAccountModal.isLocked ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-amber-600 hover:bg-amber-500'
+                }`}
+              >
+                {savingLockAction ? 'Processing...' : lockAccountModal.isLocked ? 'Confirm Unlock' : `Lock for ${lockDurationDays} Days`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CHANGE ROLE MODAL (Replaces browser prompt) */}
+      {changeRoleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 space-y-6 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-purple-50 border border-purple-200 text-purple-600 flex items-center justify-center">
+                  <UserCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Change Staff / User Role</h3>
+                  <p className="text-xs text-slate-500">
+                    Modifying permissions for <span className="font-bold text-slate-800">{changeRoleModal.userName}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setChangeRoleModal(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700">Select Authorized Role</label>
+              <div className="space-y-2">
+                {[
+                  { role: 'USER', label: 'User', desc: 'Standard member (Video watching, referral, deposit/withdraw)' },
+                  { role: 'SUPPORT_AGENT', label: 'Support Agent', desc: 'Customer support desk access only (Strict 10 agents max)' },
+                  { role: 'CONTENT_ADMIN', label: 'Content Admin', desc: 'Video modules, assignments, and curriculum management' },
+                  { role: 'FINANCE_ADMIN', label: 'Finance Admin', desc: 'Deposit verification & withdrawal settlement review' },
+                  { role: 'SUPER_ADMIN', label: 'Super Admin', desc: 'Full unrestricted governance & security control' },
+                ].map((r) => (
+                  <button
+                    key={r.role}
+                    type="button"
+                    onClick={() => setSelectedNewRole(r.role)}
+                    className={`w-full p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                      selectedNewRole === r.role
+                        ? 'bg-purple-50 border-purple-500 ring-2 ring-purple-500/20'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 block">{r.label}</span>
+                      <span className="text-[10px] text-slate-500">{r.desc}</span>
+                    </div>
+                    {selectedNewRole === r.role && (
+                      <Check className="w-4 h-4 text-purple-600" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Audit Reason for Role Assignment</label>
+              <input
+                type="text"
+                placeholder="e.g. Onboarded to Customer Support team"
+                value={roleReason}
+                onChange={(e) => setRoleReason(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-purple-500"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setChangeRoleModal(null)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingRoleChange}
+                onClick={handleConfirmChangeRole}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white cursor-pointer shadow-sm"
+              >
+                {savingRoleChange ? 'Updating...' : 'Save Role Assignment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ESCALATE SUPPORT TICKET MODAL (Replaces browser prompt) */}
+      {escalateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 space-y-5 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Escalate to Super Admin</h3>
+                  <p className="text-xs text-slate-500">
+                    Ticket for <span className="font-bold text-slate-800">{escalateModal.userName}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEscalateModal(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Reason for Escalation</label>
+              <textarea
+                rows={3}
+                placeholder="e.g. Complex payment dispute requiring Super Admin transaction trace..."
+                value={escalateReason}
+                onChange={(e) => setEscalateReason(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setEscalateModal(null)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingEscalation}
+                onClick={handleConfirmEscalate}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white cursor-pointer shadow-sm"
+              >
+                {savingEscalation ? 'Escalating...' : 'Confirm Escalation'}
               </button>
             </div>
           </div>
