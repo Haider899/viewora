@@ -238,4 +238,201 @@ export class AdminService {
 
     return { logs, total, page, pageSize };
   }
+
+  /**
+   * Generates a comprehensive financial audit dossier and activity history for any user.
+   * Required for administrative review before settling withdrawals (Audio 2).
+   */
+  static async getUserFinancialDossier(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        accountLevel: true,
+        referralCode: true,
+        createdAt: true,
+        referredBy: {
+          select: { id: true, fullName: true, email: true, referralCode: true },
+        },
+      },
+    });
+
+    if (!user) {
+      throw { statusCode: 404, code: 'NOT_FOUND', message: 'User not found.' };
+    }
+
+    // 1. Double-Entry Balances Summary
+    const balanceSummary = await LedgerService.getUserWalletSummary(userId);
+    const usdSummary = balanceSummary.USD || {
+      availableCents: 0,
+      reservedCents: 0,
+      referralCents: 0,
+      totalCents: 0,
+    };
+
+    // 2. Deposits History
+    const deposits = await prisma.depositRequest.findMany({
+      where: { userId },
+      include: {
+        paymentMethod: { select: { name: true, code: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // 3. Withdrawals History
+    const withdrawals = await prisma.withdrawalRequest.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // 4. Video Watch Reward Claims
+    const videoClaims = await prisma.rewardClaim.findMany({
+      where: { userId },
+      include: {
+        video: { select: { title: true, durationSeconds: true, category: true } },
+      },
+      orderBy: { claimedAt: 'desc' },
+    });
+
+    // 5. Direct Referrals
+    const directReferrals = await prisma.user.findMany({
+      where: { referredById: userId },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        accountLevel: true,
+        status: true,
+        isQualifiedReferral: true,
+        createdAt: true,
+        depositRequests: {
+          where: { status: 'APPROVED' },
+          select: { amountCents: true, currency: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // 6. User Transactions / Ledger Entries
+    const userTransactions = await LedgerService.getUserTransactions(userId, { pageSize: 50 });
+
+    // Aggregate totals
+    const totalDepositsApprovedUSD = deposits
+      .filter((d) => d.status === 'APPROVED')
+      .reduce((sum, d) => sum + (d.currency === 'USD' ? d.amountCents : Math.round(d.amountCents / 280)), 0);
+
+    const totalWithdrawalsPaidUSD = withdrawals
+      .filter((w) => w.status === 'COMPLETED')
+      .reduce((sum, w) => sum + (w.currency === 'USD' ? w.amountCents : Math.round(w.amountCents / 280)), 0);
+
+    const pendingWithdrawalUSD = withdrawals
+      .filter((w) => w.status === 'PENDING')
+      .reduce((sum, w) => sum + (w.currency === 'USD' ? w.amountCents : Math.round(w.amountCents / 280)), 0);
+
+    const totalVideoRewardsUSD = videoClaims.reduce((sum, c) => sum + c.amountCents, 0);
+
+    const qualifiedReferralsCount = directReferrals.filter((r) => {
+      const depSum = r.depositRequests.reduce(
+        (s: number, d: { amountCents: number; currency: string }) =>
+          s + (d.currency === 'USD' ? d.amountCents : Math.round(d.amountCents / 280)),
+        0
+      );
+      return r.isQualifiedReferral || depSum >= 5000; // minimum $50 qualifying
+    }).length;
+
+    let referralRank = 'New';
+    if (qualifiedReferralsCount >= 200) referralRank = 'Rank 5';
+    else if (qualifiedReferralsCount >= 100) referralRank = 'Rank 4';
+    else if (qualifiedReferralsCount >= 40) referralRank = 'Diamond';
+    else if (qualifiedReferralsCount >= 15) referralRank = 'Platinum';
+    else if (qualifiedReferralsCount >= 5) referralRank = 'Gold';
+
+    return {
+      user: {
+        ...user,
+        referralRank,
+      },
+      balances: {
+        availableUSD: usdSummary.availableCents / 100,
+        reservedUSD: usdSummary.reservedCents / 100,
+        referralUSD: usdSummary.referralCents / 100,
+        totalUSD: usdSummary.totalCents / 100,
+      },
+      totals: {
+        totalDepositsApprovedUSD: totalDepositsApprovedUSD / 100,
+        totalWithdrawalsPaidUSD: totalWithdrawalsPaidUSD / 100,
+        totalVideoRewardsUSD: totalVideoRewardsUSD / 100,
+        pendingWithdrawalUSD: pendingWithdrawalUSD / 100,
+      },
+      deposits: deposits.map((d) => ({
+        id: d.id,
+        amountUSD: (d.currency === 'USD' ? d.amountCents : Math.round(d.amountCents / 280)) / 100,
+        rawAmount: d.amountCents / 100,
+        currency: d.currency,
+        gateway: d.paymentMethod?.name || 'Manual Gateway',
+        status: d.status,
+        transactionRef: d.transactionRef,
+        proofImageUrl: d.proofImageUrl,
+        rejectionReason: d.rejectionReason,
+        createdAt: d.createdAt,
+        reviewedAt: d.reviewedAt,
+      })),
+      withdrawals: withdrawals.map((w) => ({
+        id: w.id,
+        amountUSD: (w.currency === 'USD' ? w.amountCents : Math.round(w.amountCents / 280)) / 100,
+        rawAmount: w.amountCents / 100,
+        currency: w.currency,
+        payoutMethod: w.payoutMethod,
+        accountTitle: w.accountTitle,
+        accountNumber: w.accountNumber,
+        status: w.status,
+        payoutRef: w.payoutRef,
+        rejectionReason: w.rejectionReason,
+        createdAt: w.createdAt,
+        completedAt: w.completedAt,
+      })),
+      videoRewards: videoClaims.map((c) => ({
+        id: c.id,
+        videoId: c.videoId,
+        videoTitle: c.video?.title || 'Masterclass Module',
+        category: c.video?.category || 'General',
+        durationSeconds: c.video?.durationSeconds || 180,
+        rewardAmountUSD: c.amountCents / 100,
+        claimedAt: c.claimedAt,
+      })),
+      referrals: {
+        directCount: directReferrals.length,
+        qualifiedCount: qualifiedReferralsCount,
+        list: directReferrals.map((r) => ({
+          id: r.id,
+          fullName: r.fullName,
+          email: r.email,
+          accountLevel: r.accountLevel,
+          status: r.status,
+          createdAt: r.createdAt,
+          totalApprovedDepositUSD:
+            r.depositRequests.reduce(
+              (sum: number, d: { amountCents: number; currency: string }) =>
+                sum + (d.currency === 'USD' ? d.amountCents : Math.round(d.amountCents / 280)),
+              0
+            ) / 100,
+        })),
+      },
+      recentLedgerEntries: (userTransactions.entries || []).map((e: any) => ({
+        id: e.id,
+        entryType: e.entryType,
+        amountUSD: e.amountCents / 100,
+        balanceAfterUSD: e.balanceAfterCents / 100,
+        createdAt: e.createdAt,
+        reference: e.transaction?.reference,
+        transactionType: e.transaction?.transactionType,
+        description: e.transaction?.description,
+      })),
+    };
+  }
 }

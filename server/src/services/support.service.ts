@@ -494,6 +494,22 @@ Aap apna sawal ya receipt screenshot yahan attach kar ke share kar dein.`,
       },
     });
 
+    // Audit Log for Agent Reply (Audio 2)
+    await prisma.auditLog.create({
+      data: {
+        userId: params.agentId,
+        action: 'SUPPORT_AGENT_REPLY',
+        resourceType: 'SupportConversation',
+        resourceId: params.conversationId,
+        details: JSON.stringify({
+          agentName: params.agentName,
+          targetUserId: convo.userId,
+          messagePreview: params.message.slice(0, 150),
+          hasAttachment: !!params.attachmentUrl,
+        }),
+      },
+    }).catch(() => {});
+
     return {
       conversation: updated,
       message: agentMsg,
@@ -534,6 +550,20 @@ Aap apna sawal ya receipt screenshot yahan attach kar ke share kar dein.`,
         },
       },
     });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: params.assignedToId || null,
+        action: `SUPPORT_STATUS_${params.status}`,
+        resourceType: 'SupportConversation',
+        resourceId: params.conversationId,
+        details: JSON.stringify({
+          previousStatus: convo.status,
+          newStatus: params.status,
+          targetUserId: convo.userId,
+        }),
+      },
+    }).catch(() => {});
 
     return updated;
   }

@@ -134,6 +134,31 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const [completeModal, setCompleteModal] = useState<string | null>(null);
   const [payoutRefInput, setPayoutRefInput] = useState('');
 
+  // User Financial Dossier & Audit Trail (Audio 2)
+  const [dossierUserId, setDossierUserId] = useState<string | null>(null);
+  const [dossierData, setDossierData] = useState<any | null>(null);
+  const [loadingDossier, setLoadingDossier] = useState(false);
+  const [dossierTab, setDossierTab] = useState<'overview' | 'deposits' | 'withdrawals' | 'videos' | 'referrals' | 'ledger'>('overview');
+
+  const openUserDossier = async (userId: string) => {
+    setDossierUserId(userId);
+    setDossierData(null);
+    setLoadingDossier(true);
+    setDossierTab('overview');
+    try {
+      const res = await api.getUserFinancialDossier(userId);
+      if (res.success && res.data) {
+        setDossierData(res.data);
+      } else {
+        setActionError(res.error?.message || 'Failed to retrieve user financial dossier.');
+      }
+    } catch {
+      setActionError('Error fetching user dossier and activity logs.');
+    } finally {
+      setLoadingDossier(false);
+    }
+  };
+
   // Video Management & User Assignments State
   const [adminVideos, setAdminVideos] = useState<Video[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(false);
@@ -1356,24 +1381,32 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         </td>
 
                         <td className="py-4 px-6 text-right space-x-2">
+                          <button
+                            onClick={() => openUserDossier(w.userId)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 transition-colors inline-flex items-center gap-1 cursor-pointer"
+                            title="Audit user earnings, deposits, video rewards, and activity trail"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            Audit Trail
+                          </button>
                           {w.status !== 'COMPLETED' && w.status !== 'REJECTED' && (
                             <>
                               <button
                                 onClick={() => setCompleteModal(w.id)}
-                                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer"
                               >
                                 Settle Payout
                               </button>
                               <button
                                 onClick={() => setRejectModal({ type: 'withdrawal', id: w.id })}
-                                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-white hover:bg-rose-50 text-rose-600 border border-rose-300 transition-colors"
+                                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-white hover:bg-rose-50 text-rose-600 border border-rose-300 transition-colors cursor-pointer"
                               >
                                 Reject & Release Hold
                               </button>
                             </>
                           )}
                           {w.status === 'COMPLETED' && (
-                            <span className="text-[10px] font-mono text-emerald-700 font-semibold">
+                            <span className="text-[10px] font-mono text-emerald-700 font-semibold ml-2">
                               Tx: {w.payoutRef}
                             </span>
                           )}
@@ -1490,6 +1523,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         </td>
 
                         <td className="py-4 px-6 text-right space-x-1.5 whitespace-nowrap">
+                          {/* Financial Dossier & Activity Logs (Audio 2) */}
+                          <button
+                            onClick={() => openUserDossier(u.id)}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 cursor-pointer inline-flex items-center gap-1"
+                            title="View Complete Financial Dossier & Audit Logs"
+                          >
+                            <FileText className="w-3 h-3" />
+                            Dossier
+                          </button>
                           {user?.role === 'SUPER_ADMIN' && u.id !== user.id && (
                             <>
                               {/* Adjust Level */}
@@ -1947,6 +1989,17 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
 
                       {/* Status Selector & Resolution Controls */}
                       <div className="flex items-center gap-2">
+                        {(selectedConvo.userId || selectedConvo.user?.id) && (
+                          <button
+                            type="button"
+                            onClick={() => openUserDossier(selectedConvo.userId || selectedConvo.user!.id)}
+                            className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                            title="Audit user balance, deposits, video claims and activity trail (Audio 2)"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            User Dossier
+                          </button>
+                        )}
                         <select
                           value={selectedConvo.status}
                           onChange={(e) => handleUpdateSupportStatus(selectedConvo.id, e.target.value)}
@@ -2792,6 +2845,398 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white"
               >
                 Close Viewer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* USER FINANCIAL DOSSIER & AUDIT TRAIL MODAL (Audio 2) */}
+      {dossierUserId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-4xl max-h-[90vh] rounded-3xl bg-white border border-slate-200 shadow-2xl flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-bold text-white shadow-md">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-white">
+                      {dossierData?.user?.fullName || 'User Financial Audit Dossier'}
+                    </h3>
+                    {dossierData?.user?.accountLevel && (
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 border border-purple-400/40">
+                        {dossierData.user.accountLevel}
+                      </span>
+                    )}
+                    {dossierData?.user?.referralRank && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-200 border border-amber-400/40">
+                        {dossierData.user.referralRank} Rank
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    {dossierData?.user?.email} • {dossierData?.user?.phone || 'No phone'} • Ref Code: {dossierData?.user?.referralCode}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDossierUserId(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {loadingDossier ? (
+              <div className="p-20 text-center space-y-3">
+                <div className="w-10 h-10 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                <p className="text-xs font-semibold text-slate-500">Retrieving full ledger trails and activity logs...</p>
+              </div>
+            ) : !dossierData ? (
+              <div className="p-16 text-center text-slate-500 text-xs">
+                Unable to load user financial records.
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {/* KPI Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200/80">
+                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Available Balance</span>
+                    <span className="text-lg font-black text-emerald-950 font-mono">${dossierData.balances.availableUSD.toFixed(2)}</span>
+                    <span className="text-[10px] text-emerald-700 block mt-0.5">Ready for withdrawal</span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200/80">
+                    <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Reserved Hold</span>
+                    <span className="text-lg font-black text-amber-950 font-mono">${dossierData.balances.reservedUSD.toFixed(2)}</span>
+                    <span className="text-[10px] text-amber-700 block mt-0.5">Pending withdrawal lock</span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-purple-50/80 border border-purple-200/80">
+                    <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">Referral Wallet</span>
+                    <span className="text-lg font-black text-purple-950 font-mono">${dossierData.balances.referralUSD.toFixed(2)}</span>
+                    <span className="text-[10px] text-purple-700 block mt-0.5">Isolated commissions</span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-100 border border-slate-200">
+                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block">Total Deposits (Approved)</span>
+                    <span className="text-lg font-black text-slate-900 font-mono">${dossierData.totals.totalDepositsApprovedUSD.toFixed(2)}</span>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">{dossierData.deposits.filter((d: any) => d.status === 'APPROVED').length} Approved txs</span>
+                  </div>
+                </div>
+
+                {/* Sub-tab Navigation */}
+                <div className="flex items-center gap-1 border-b border-slate-200 pb-2">
+                  <button
+                    onClick={() => setDossierTab('overview')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      dossierTab === 'overview' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Overview & Origin
+                  </button>
+                  <button
+                    onClick={() => setDossierTab('deposits')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      dossierTab === 'deposits' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Deposits ({dossierData.deposits.length})
+                  </button>
+                  <button
+                    onClick={() => setDossierTab('withdrawals')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      dossierTab === 'withdrawals' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Withdrawals ({dossierData.withdrawals.length})
+                  </button>
+                  <button
+                    onClick={() => setDossierTab('videos')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      dossierTab === 'videos' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Video Claims ({dossierData.videoRewards.length})
+                  </button>
+                  <button
+                    onClick={() => setDossierTab('referrals')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      dossierTab === 'referrals' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Referrals ({dossierData.referrals.directCount})
+                  </button>
+                  <button
+                    onClick={() => setDossierTab('ledger')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      dossierTab === 'ledger' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Ledger Trail ({dossierData.recentLedgerEntries.length})
+                  </button>
+                </div>
+
+                {/* Sub-tab Contents */}
+                {dossierTab === 'overview' && (
+                  <div className="space-y-4 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                        <span className="font-bold text-slate-800 uppercase tracking-wider text-[10px] block">Attribution & Referral Parent</span>
+                        <div className="text-slate-700">
+                          {dossierData.user.referredBy ? (
+                            <div>
+                              <p className="font-bold text-slate-900">{dossierData.user.referredBy.fullName}</p>
+                              <p className="text-slate-500 font-mono text-[11px]">{dossierData.user.referredBy.email}</p>
+                              <p className="text-slate-400 text-[10px]">Code: {dossierData.user.referredBy.referralCode}</p>
+                            </div>
+                          ) : (
+                            <p className="text-slate-500 italic">No referral parent (Organic direct registration)</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                        <span className="font-bold text-slate-800 uppercase tracking-wider text-[10px] block">Earnings Origin Breakdown</span>
+                        <div className="space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">Video Watch Rewards:</span>
+                            <span className="font-bold font-mono text-emerald-700">${dossierData.totals.totalVideoRewardsUSD.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">Approved Deposits Total:</span>
+                            <span className="font-bold font-mono text-slate-900">${dossierData.totals.totalDepositsApprovedUSD.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">Total Settled Payouts:</span>
+                            <span className="font-bold font-mono text-purple-700">${dossierData.totals.totalWithdrawalsPaidUSD.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">Pending Withdrawal Request:</span>
+                            <span className="font-bold font-mono text-amber-700">${dossierData.totals.pendingWithdrawalUSD.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {dossierTab === 'deposits' && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Gateway</th>
+                          <th className="py-2.5 px-3">Amount</th>
+                          <th className="py-2.5 px-3">Ref ID</th>
+                          <th className="py-2.5 px-3">Proof Slip</th>
+                          <th className="py-2.5 px-3">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {dossierData.deposits.length === 0 ? (
+                          <tr><td colSpan={6} className="py-6 text-center text-slate-400">No deposits recorded</td></tr>
+                        ) : (
+                          dossierData.deposits.map((d: any) => (
+                            <tr key={d.id} className="hover:bg-slate-50">
+                              <td className="py-2.5 px-3">{new Date(d.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                              <td className="py-2.5 px-3 font-semibold">{d.gateway}</td>
+                              <td className="py-2.5 px-3 font-mono font-bold">${d.amountUSD.toFixed(2)} <span className="text-[10px] text-slate-400">({d.rawAmount} {d.currency})</span></td>
+                              <td className="py-2.5 px-3 font-mono text-[11px]">{d.transactionRef}</td>
+                              <td className="py-2.5 px-3">
+                                {d.proofImageUrl ? (
+                                  <button
+                                    onClick={() => setReceiptModal(d.proofImageUrl)}
+                                    className="px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-bold hover:bg-purple-100 cursor-pointer"
+                                  >
+                                    View Slip
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400">No image</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                  d.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                  d.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                }`}>
+                                  {d.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {dossierTab === 'withdrawals' && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Channel</th>
+                          <th className="py-2.5 px-3">Account Title / Number</th>
+                          <th className="py-2.5 px-3">Amount</th>
+                          <th className="py-2.5 px-3">Status</th>
+                          <th className="py-2.5 px-3">Payout Tx</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {dossierData.withdrawals.length === 0 ? (
+                          <tr><td colSpan={6} className="py-6 text-center text-slate-400">No withdrawals requested</td></tr>
+                        ) : (
+                          dossierData.withdrawals.map((w: any) => (
+                            <tr key={w.id} className="hover:bg-slate-50">
+                              <td className="py-2.5 px-3">{new Date(w.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                              <td className="py-2.5 px-3 font-semibold">{w.payoutMethod}</td>
+                              <td className="py-2.5 px-3">
+                                <span className="font-bold text-slate-900 block">{w.accountTitle}</span>
+                                <span className="font-mono text-[10px] text-slate-500">{w.accountNumber}</span>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono font-bold">${w.amountUSD.toFixed(2)}</td>
+                              <td className="py-2.5 px-3">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                  w.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                  w.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                }`}>
+                                  {w.status}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-[10px] text-slate-500">{w.payoutRef || '-'}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {dossierTab === 'videos' && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Date Claimed</th>
+                          <th className="py-2.5 px-3">Video Title</th>
+                          <th className="py-2.5 px-3">Category</th>
+                          <th className="py-2.5 px-3">Duration</th>
+                          <th className="py-2.5 px-3 text-right">Reward Earned</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {dossierData.videoRewards.length === 0 ? (
+                          <tr><td colSpan={5} className="py-6 text-center text-slate-400">No video watch rewards claimed yet</td></tr>
+                        ) : (
+                          dossierData.videoRewards.map((v: any) => (
+                            <tr key={v.id} className="hover:bg-slate-50">
+                              <td className="py-2.5 px-3">{new Date(v.claimedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                              <td className="py-2.5 px-3 font-bold text-slate-900">{v.videoTitle}</td>
+                              <td className="py-2.5 px-3 text-slate-600">{v.category}</td>
+                              <td className="py-2.5 px-3 font-mono text-slate-500">{v.durationSeconds}s</td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">+${v.rewardAmountUSD.toFixed(2)}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {dossierTab === 'referrals' && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Referred User</th>
+                          <th className="py-2.5 px-3">Email</th>
+                          <th className="py-2.5 px-3">Account Level</th>
+                          <th className="py-2.5 px-3">Approved Deposits</th>
+                          <th className="py-2.5 px-3">Date Joined</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {dossierData.referrals.list.length === 0 ? (
+                          <tr><td colSpan={5} className="py-6 text-center text-slate-400">No users referred yet</td></tr>
+                        ) : (
+                          dossierData.referrals.list.map((r: any) => (
+                            <tr key={r.id} className="hover:bg-slate-50">
+                              <td className="py-2.5 px-3 font-bold text-slate-900">{r.fullName}</td>
+                              <td className="py-2.5 px-3 text-slate-600">{r.email}</td>
+                              <td className="py-2.5 px-3">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  {r.accountLevel}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono font-bold text-slate-900">${r.totalApprovedDepositUSD.toFixed(2)}</td>
+                              <td className="py-2.5 px-3 text-slate-500">{new Date(r.createdAt).toLocaleDateString()}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {dossierTab === 'ledger' && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200 font-sans">
+                        <tr>
+                          <th className="py-2.5 px-3">Timestamp</th>
+                          <th className="py-2.5 px-3">Reference</th>
+                          <th className="py-2.5 px-3">Type</th>
+                          <th className="py-2.5 px-3">Debit/Credit</th>
+                          <th className="py-2.5 px-3">Amount</th>
+                          <th className="py-2.5 px-3">Balance After</th>
+                          <th className="py-2.5 px-3 font-sans">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700 text-[11px]">
+                        {dossierData.recentLedgerEntries.length === 0 ? (
+                          <tr><td colSpan={7} className="py-6 text-center text-slate-400 font-sans">No ledger entries posted</td></tr>
+                        ) : (
+                          dossierData.recentLedgerEntries.map((e: any) => (
+                            <tr key={e.id} className="hover:bg-slate-50">
+                              <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{new Date(e.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                              <td className="py-2.5 px-3 text-purple-700 font-bold">{e.reference || '-'}</td>
+                              <td className="py-2.5 px-3 font-sans font-bold text-[10px] text-slate-600">{e.transactionType || '-'}</td>
+                              <td className="py-2.5 px-3">
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                  e.entryType === 'CREDIT' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                }`}>
+                                  {e.entryType}
+                                </span>
+                              </td>
+                              <td className={`py-2.5 px-3 font-bold ${e.entryType === 'CREDIT' ? 'text-emerald-700' : 'text-slate-900'}`}>
+                                {e.entryType === 'CREDIT' ? '+' : '-'}${e.amountUSD.toFixed(2)}
+                              </td>
+                              <td className="py-2.5 px-3 font-bold text-slate-900">${e.balanceAfterUSD.toFixed(2)}</td>
+                              <td className="py-2.5 px-3 font-sans text-slate-600 text-[11px] max-w-xs truncate">{e.description}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <span className="text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                Immutable Double-Entry Ledger Telemetry & Audit Dossier
+              </span>
+              <button
+                onClick={() => setDossierUserId(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white cursor-pointer"
+              >
+                Close Dossier
               </button>
             </div>
           </div>

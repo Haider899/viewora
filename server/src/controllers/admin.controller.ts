@@ -208,4 +208,16 @@ export class AdminController {
       next(err);
     }
   }
+
+  static async getUserFinancialDossier(req: Request, res: Response, next: NextFunction) {
+    try {
+      const dossier = await AdminService.getUserFinancialDossier(req.params.userId);
+      res.json({
+        success: true,
+        data: dossier,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }

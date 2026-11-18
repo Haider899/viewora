@@ -107,7 +107,7 @@ export class PaymentService {
         throw { statusCode: 400, code: 'REASON_REQUIRED', message: 'A descriptive rejection reason is required.' };
       }
 
-      return await prisma.depositRequest.update({
+      const updated = await prisma.depositRequest.update({
         where: { id: depositId },
         data: {
           status: DepositStatus.REJECTED,
@@ -116,6 +116,23 @@ export class PaymentService {
           reviewedAt: new Date(),
         },
       });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: adminId,
+          action: 'DEPOSIT_REJECTED',
+          resourceType: 'DepositRequest',
+          resourceId: deposit.id,
+          details: JSON.stringify({
+            userId: deposit.userId,
+            amountCents: deposit.amountCents,
+            currency: deposit.currency,
+            rejectionReason: rejectionReason.trim(),
+          }),
+        },
+      });
+
+      return updated;
     }
 
     // ACTION === 'APPROVE': Execute double-entry ledger credit to user

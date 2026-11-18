@@ -7,7 +7,7 @@ export function extractYouTubeId(url?: string | null): string | null {
 
 export function getYouTubeEmbedUrl(url?: string | null): string | null {
   const id = extractYouTubeId(url);
-  return id ? `https://www.youtube.com/embed/${id}?autoplay=1&enablejsapi=1&rel=0` : null;
+  return id ? `https://www.youtube.com/embed/${id}?autoplay=1&enablejsapi=1&rel=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&playsinline=1` : null;
 }
 
 export function getYouTubeThumbnail(url?: string | null): string | null {

@@ -41,6 +41,11 @@ router.get(
   requireRole(UserRole.SUPER_ADMIN, UserRole.SUPPORT_AGENT, UserRole.FINANCE_ADMIN),
   AdminController.getUsers
 );
+router.get(
+  '/users/:userId/financial-dossier',
+  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN, UserRole.SUPPORT_AGENT),
+  AdminController.getUserFinancialDossier
+);
 router.patch(
   '/users/:id/status',
   requireRole(UserRole.SUPER_ADMIN),

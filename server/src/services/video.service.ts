@@ -45,11 +45,39 @@ export class VideoService {
       claimedVideoIds = new Set(claims.map((c) => c.videoId));
     }
 
-    const userTierRank = userActivePurchase
-      ? TIER_RANK[userActivePurchase.packageName] || 1
-      : 0;
+    let userTierRank = 0;
+    let userVideoLimit = 0;
+    let isStaff = false;
+    let userAccountLevel = 'NEW_USER';
 
-    const userVideoLimit = userActivePurchase?.videoLimitGranted || 0;
+    if (userId) {
+      const userRecord = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true, accountLevel: true },
+      });
+      if (userRecord) {
+        userAccountLevel = userRecord.accountLevel || 'NEW_USER';
+        isStaff = ['SUPER_ADMIN', 'CONTENT_ADMIN'].includes(userRecord.role);
+      }
+    }
+
+    const levelConfigs = await prisma.accountLevelConfig.findMany();
+    const levelLimits: Record<string, number> = {
+      NEW_USER: 0,
+      LEVEL_1: 2,
+      LEVEL_2: 6,
+      LEVEL_3: 15,
+      LEVEL_4: 30,
+      LEVEL_5: 60,
+    };
+    levelConfigs.forEach((cfg) => {
+      levelLimits[cfg.levelKey] = cfg.videoLimit;
+    });
+
+    const levelLimit = levelLimits[userAccountLevel] ?? 0;
+    const purchaseLimit = userActivePurchase?.videoLimitGranted || 0;
+    userVideoLimit = isStaff ? 9999 : Math.max(levelLimit, purchaseLimit);
+    userTierRank = userActivePurchase ? TIER_RANK[userActivePurchase.packageName] || 1 : (userAccountLevel !== 'NEW_USER' ? 2 : 0);
 
     const conditions: any[] = [{ isPublished: true }];
 
@@ -131,7 +159,7 @@ export class VideoService {
       // Check if user is staff (Super Admin or Content Admin)
       const userRecord = await prisma.user.findUnique({
         where: { id: userId },
-        select: { role: true },
+        select: { role: true, accountLevel: true },
       });
       const isStaff = userRecord && ['SUPER_ADMIN', 'CONTENT_ADMIN'].includes(userRecord.role);
 
@@ -146,11 +174,25 @@ export class VideoService {
           orderBy: { purchasedAt: 'desc' },
         });
 
-        const userTierRank = userActivePurchase ? TIER_RANK[userActivePurchase.packageName] || 1 : 0;
-        const requiredRank = TIER_RANK[video.minPackageTier] || 1;
-        const isWithinLimit = video.orderIndex <= (userActivePurchase?.videoLimitGranted || 0);
+        const levelConfigs = await prisma.accountLevelConfig.findMany();
+        const levelLimits: Record<string, number> = {
+          NEW_USER: 0,
+          LEVEL_1: 2,
+          LEVEL_2: 6,
+          LEVEL_3: 15,
+          LEVEL_4: 30,
+          LEVEL_5: 60,
+        };
+        levelConfigs.forEach((cfg) => {
+          levelLimits[cfg.levelKey] = cfg.videoLimit;
+        });
 
-        hasAccess = userTierRank >= requiredRank && isWithinLimit;
+        const userAccountLevel = userRecord?.accountLevel || 'NEW_USER';
+        const levelLimit = levelLimits[userAccountLevel] ?? 0;
+        const purchaseLimit = userActivePurchase?.videoLimitGranted || 0;
+        const allowedLimit = Math.max(levelLimit, purchaseLimit);
+
+        hasAccess = allowedLimit > 0 && video.orderIndex <= allowedLimit;
       }
 
       const [session, claim] = await Promise.all([

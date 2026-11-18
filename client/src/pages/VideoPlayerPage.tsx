@@ -12,6 +12,7 @@ import {
   Clock,
   AlertCircle,
   Sparkles,
+  Lock,
 } from 'lucide-react';
 
 import { extractYouTubeId, getYouTubeEmbedUrl } from '../utils/youtube.js';
@@ -176,6 +177,36 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
         >
           View Eligible Packages
         </button>
+      </div>
+    );
+  }
+
+  if (video && !video.hasAccess) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16 text-center space-y-6 bg-white p-8 rounded-3xl border border-rose-200 shadow-xs">
+        <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
+          <Lock className="w-7 h-7 text-rose-600" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="text-xl font-bold text-slate-900">Video Module Locked</h2>
+          <p className="text-xs text-slate-600 max-w-md mx-auto">
+            This masterclass requires Account Level 1 or higher with qualifying deposit. Please upgrade your Account Level or make a qualifying deposit to unlock access.
+          </p>
+        </div>
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <button
+            onClick={() => navigate('deposit')}
+            className="px-6 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all cursor-pointer"
+          >
+            Make a Deposit
+          </button>
+          <button
+            onClick={() => navigate('videos')}
+            className="px-6 py-2.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all cursor-pointer"
+          >
+            Back to Catalog
+          </button>
+        </div>
       </div>
     );
   }

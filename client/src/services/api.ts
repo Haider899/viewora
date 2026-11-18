@@ -243,6 +243,10 @@ class ApiClient {
     return this.request<any[]>(`/admin/withdrawals${qs}`);
   }
 
+  async getUserFinancialDossier(userId: string) {
+    return this.request<any>(`/admin/users/${userId}/financial-dossier`);
+  }
+
   async reviewWithdrawal(
     withdrawalId: string,
     action: 'APPROVE' | 'REJECT' | 'COMPLETE',

@@ -229,20 +229,28 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
                   </div>
 
                   {/* Center Action Overlay */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    {isUnlocked ? (
+                  {isUnlocked ? (
+                    <div className="absolute inset-0 flex items-center justify-center">
                       <button
                         onClick={() => navigate('player', { videoId: video.id })}
                         className="w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center shadow-lg transition-transform hover:scale-110"
                       >
                         <Play className="w-5 h-5 fill-current ml-0.5" />
                       </button>
-                    ) : (
-                      <div className="w-11 h-11 rounded-full bg-white/90 text-slate-500 flex items-center justify-center shadow-md">
-                        <Lock className="w-5 h-5" />
+                    </div>
+                  ) : (
+                    <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-[2px] flex flex-col items-center justify-center p-3 text-center space-y-1.5">
+                      <div className="w-10 h-10 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center shadow-md">
+                        <Lock className="w-5 h-5 text-rose-400" />
                       </div>
-                    )}
-                  </div>
+                      <span className="text-[11px] font-bold text-white tracking-wide">
+                        Video Locked
+                      </span>
+                      <span className="text-[9px] text-slate-300 max-w-[190px] leading-tight">
+                        Requires Level Up or Qualifying Deposit to access
+                      </span>
+                    </div>
+                  )}
 
                   {/* Completion Status */}
                   {video.isWatched && (
@@ -278,11 +286,12 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
                       </button>
                     ) : (
                       <button
-                        onClick={() => navigate('packages')}
-                        className="text-xs font-semibold text-slate-500 hover:text-emerald-700 flex items-center gap-1"
+                        onClick={() => navigate('deposit')}
+                        className="text-[11px] font-bold text-rose-700 hover:text-rose-800 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 transition-all hover:bg-rose-100"
+                        title="Deposit or Level Up to Unlock this video"
                       >
-                        <Lock className="w-3 h-3 text-amber-500" />
-                        Upgrade Tier
+                        <Lock className="w-3.5 h-3.5 text-rose-500" />
+                        Unlock via Deposit
                       </button>
                     )}
 

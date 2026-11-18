@@ -157,7 +157,7 @@ export class WithdrawalService {
           tx
         );
 
-        return await tx.withdrawalRequest.update({
+        const updated = await tx.withdrawalRequest.update({
           where: { id: withdrawalId },
           data: {
             status: WithdrawalStatus.REJECTED,
@@ -166,12 +166,30 @@ export class WithdrawalService {
             reviewedAt: new Date(),
           },
         });
+
+        await tx.auditLog.create({
+          data: {
+            userId: adminId,
+            action: 'WITHDRAWAL_REJECTED',
+            resourceType: 'WithdrawalRequest',
+            resourceId: withdrawalId,
+            details: JSON.stringify({
+              userId: withdrawal.userId,
+              amountCents: withdrawal.amountCents,
+              currency: cur,
+              payoutMethod: withdrawal.payoutMethod,
+              rejectionReason: payload.rejectionReason,
+            }),
+          },
+        });
+
+        return updated;
       });
     }
 
     if (action === 'APPROVE') {
       // Moves from PENDING to APPROVED / PROCESSING
-      return await prisma.withdrawalRequest.update({
+      const updated = await prisma.withdrawalRequest.update({
         where: { id: withdrawalId },
         data: {
           status: WithdrawalStatus.APPROVED,
@@ -179,6 +197,23 @@ export class WithdrawalService {
           reviewedAt: new Date(),
         },
       });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: adminId,
+          action: 'WITHDRAWAL_APPROVED',
+          resourceType: 'WithdrawalRequest',
+          resourceId: withdrawalId,
+          details: JSON.stringify({
+            userId: withdrawal.userId,
+            amountCents: withdrawal.amountCents,
+            currency: cur,
+            payoutMethod: withdrawal.payoutMethod,
+          }),
+        },
+      });
+
+      return updated;
     }
 
     if (action === 'COMPLETE') {
@@ -226,7 +261,7 @@ export class WithdrawalService {
           tx
         );
 
-        return await tx.withdrawalRequest.update({
+        const updated = await tx.withdrawalRequest.update({
           where: { id: withdrawalId },
           data: {
             status: WithdrawalStatus.COMPLETED,
@@ -237,6 +272,26 @@ export class WithdrawalService {
             reviewedAt: new Date(),
           },
         });
+
+        await tx.auditLog.create({
+          data: {
+            userId: adminId,
+            action: 'WITHDRAWAL_SETTLED',
+            resourceType: 'WithdrawalRequest',
+            resourceId: withdrawalId,
+            details: JSON.stringify({
+              userId: withdrawal.userId,
+              amountCents: withdrawal.amountCents,
+              currency: cur,
+              payoutRef,
+              accountTitle: withdrawal.accountTitle,
+              accountNumber: withdrawal.accountNumber,
+              payoutMethod: withdrawal.payoutMethod,
+            }),
+          },
+        });
+
+        return updated;
       });
     }
 
