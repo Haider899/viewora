@@ -32,12 +32,21 @@ class ApiClient {
         headers,
       });
 
-      const data = await response.json();
+      const text = await response.text();
+      let data: any = {};
+      if (text && text.trim().length > 0) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { message: text };
+        }
+      }
+
       if (!response.ok) {
         return {
           success: false,
           error: data.error || {
-            code: 'HTTP_ERROR',
+            code: `HTTP_${response.status}`,
             message: data.message || `Request failed with status ${response.status}`,
           },
         };

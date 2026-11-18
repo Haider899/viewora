@@ -36,6 +36,7 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
   const [isPlaying, setIsPlaying] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const claimLockRef = useRef(false);
   const targetDuration = actualDuration || video?.durationSeconds || 15;
 
   // 1. Fetch Video Metadata
@@ -81,7 +82,8 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
 
   // Claim Engagement Reward (Auto-triggered upon full watch completion - Section 4.3)
   const handleClaimReward = async (finalSec?: number) => {
-    if (!sessionToken || hasClaimed || claiming) return;
+    if (claimLockRef.current || !sessionToken || hasClaimed || claiming) return;
+    claimLockRef.current = true;
     setClaiming(true);
     setErrorMsg(null);
     try {
@@ -137,7 +139,6 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
         // Auto-complete when target duration is watched (Section 4.3)
         if (nextSec >= targetDuration) {
           setIsCompleted(true);
-          handleClaimReward(nextSec);
         }
 
         return nextSec;
@@ -149,10 +150,10 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
 
   // Section 4.3: Automatic Reward Credit Effect
   useEffect(() => {
-    if (isCompleted && !hasClaimed && !claiming && sessionToken && video?.rewardEligible) {
+    if (isCompleted && !hasClaimed && !claimLockRef.current && sessionToken && video?.rewardEligible) {
       handleClaimReward();
     }
-  }, [isCompleted, hasClaimed, claiming, sessionToken, video]);
+  }, [isCompleted, hasClaimed, sessionToken, video]);
 
   if (loading) {
     return (

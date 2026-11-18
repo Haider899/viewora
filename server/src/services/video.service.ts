@@ -310,28 +310,38 @@ export class VideoService {
       }
     }
 
-    // Check duplicate claim
-    const existingClaim = await prisma.rewardClaim.findUnique({
-      where: { userId_videoId: { userId, videoId } },
-    });
-    if (existingClaim) {
-      throw { statusCode: 400, code: 'ALREADY_CLAIMED', message: 'Reward for this video has already been claimed.' };
-    }
-
     const rewardAmountCents = video.rewardAmountCents;
 
     return await prisma.$transaction(async (tx) => {
-      // Create reward claim record
-      const claim = await tx.rewardClaim.create({
-        data: {
-          userId,
-          videoId,
-          videoSessionId: session.id,
-          amountCents: rewardAmountCents,
-          currency: 'USD',
-          status: 'CLAIMED',
-        },
+      // 1. Concurrency-safe check inside transaction
+      const existingInTx = await tx.rewardClaim.findUnique({
+        where: { userId_videoId: { userId, videoId } },
       });
+      if (existingInTx) {
+        return existingInTx;
+      }
+
+      // 2. Create reward claim record with P2002 duplicate protection
+      let claim;
+      try {
+        claim = await tx.rewardClaim.create({
+          data: {
+            userId,
+            videoId,
+            videoSessionId: session.id,
+            amountCents: rewardAmountCents,
+            currency: 'USD',
+            status: 'CLAIMED',
+          },
+        });
+      } catch (err: any) {
+        if (err.code === 'P2002') {
+          return await tx.rewardClaim.findUnique({
+            where: { userId_videoId: { userId, videoId } },
+          });
+        }
+        throw err;
+      }
 
       // Credit user available balance via double-entry ledger:
       // Debit: SYSTEM_EXPENSE_REWARDS
