@@ -20,13 +20,15 @@ fi
 
 # 2. Update System & Install Core Packages
 echo "⚙️ [2/6] Installing Node.js 20 LTS, Nginx, and Git..."
+export DEBIAN_FRONTEND=noninteractive
+sudo dpkg --configure -a || true
 sudo apt-get update -y
 sudo apt-get install -y curl git nginx
 
 # Install Node.js 20 LTS if not present
 if ! command -v node &> /dev/null; then
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-    sudo apt-get install -y nodejs
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
 fi
 
 # Install PM2 process manager globally
@@ -88,7 +90,7 @@ sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u $USER --hp /home/$USER || tr
 echo "⚙️ [5/6] Building Frontend Client for production..."
 cd /var/www/viewora/client
 npm install
-npm run build
+NODE_OPTIONS="--max-old-space-size=1536" npm run build
 
 # 6. Configure Nginx Reverse Proxy
 echo "⚙️ [6/6] Configuring Nginx reverse proxy..."
