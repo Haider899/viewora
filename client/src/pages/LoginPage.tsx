@@ -9,24 +9,17 @@ interface LoginProps {
 export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
   const { login, logout } = useAuth();
 
-  // If visiting future admin subdomain (e.g. admin.innovative.online or admin.viewora...), default to ADMIN
-  const isAdminSubdomain =
+  // Strictly lock to Admin Portal only on admin.* subdomain (or ?portal=admin for local dev)
+  const isAdminPortal =
     typeof window !== 'undefined' &&
-    window.location.hostname.toLowerCase().startsWith('admin.');
+    (window.location.hostname.toLowerCase().startsWith('admin.') ||
+      new URLSearchParams(window.location.search).get('portal') === 'admin');
 
-  const [portalType, setPortalType] = useState<'USER' | 'ADMIN'>(
-    isAdminSubdomain ? 'ADMIN' : 'USER'
-  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  const handlePortalSwitch = (type: 'USER' | 'ADMIN') => {
-    setPortalType(type);
-    setErrorMsg(null);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,11 +36,11 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
         'SUPPORT_AGENT',
       ].includes(loggedInUser.role);
 
-      if (portalType === 'ADMIN') {
+      if (isAdminPortal) {
         if (!isStaffOrAdmin) {
           logout();
           setErrorMsg(
-            'Access Denied: Member accounts are not authorized to sign in through the Admin Portal. Please switch to User / Member.'
+            'Access Denied: Member accounts are not authorized to sign in through the Administrator Gateway.'
           );
           return;
         }
@@ -55,7 +48,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
         if (isStaffOrAdmin) {
           logout();
           setErrorMsg(
-            'Administrative account detected. Please select the "Admin Portal" box above to sign in.'
+            'Access Denied: Please use the authorized administrative portal to sign in.'
           );
           return;
         }
@@ -75,22 +68,22 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
       <div className="text-center space-y-2">
         <div
           className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto shadow-md transition-all duration-200 ${
-            portalType === 'ADMIN'
+            isAdminPortal
               ? 'bg-gradient-to-tr from-slate-900 via-indigo-950 to-slate-800 shadow-slate-900/30'
               : 'bg-gradient-to-tr from-emerald-600 to-teal-500 shadow-emerald-500/20'
           }`}
         >
-          {portalType === 'ADMIN' ? (
+          {isAdminPortal ? (
             <ShieldCheck className="w-6 h-6 text-white stroke-[2.2]" />
           ) : (
             <UserIcon className="w-6 h-6 text-white stroke-[2.2]" />
           )}
         </div>
         <h1 className="text-2xl font-extrabold text-slate-900">
-          {portalType === 'ADMIN' ? 'Administrator Gateway' : 'Welcome Back'}
+          {isAdminPortal ? 'Administrator Gateway' : 'Welcome Back'}
         </h1>
         <p className="text-xs text-slate-500">
-          {portalType === 'ADMIN'
+          {isAdminPortal
             ? 'Restricted access portal for certified system managers and moderators.'
             : 'Sign in to access your video catalog, dual-currency wallet, and referral network.'}
         </p>
@@ -100,73 +93,16 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
         onSubmit={handleSubmit}
         className="p-7 sm:p-8 rounded-3xl bg-white border border-slate-200/90 shadow-sm space-y-5"
       >
-        {/* Role Selector Box (User vs Admin) */}
-        <div>
-          <label className="block text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">
-            Select Portal Access
-          </label>
-          <div className="grid grid-cols-2 gap-2.5 p-1.5 bg-slate-100/90 rounded-2xl border border-slate-200/80">
-            {/* User Account Box */}
-            <button
-              type="button"
-              onClick={() => handlePortalSwitch('USER')}
-              className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                portalType === 'USER'
-                  ? 'bg-white text-emerald-700 shadow-sm border border-slate-200/80 ring-1 ring-emerald-500/20'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
-              }`}
-            >
-              <UserIcon
-                className={`w-4 h-4 ${
-                  portalType === 'USER' ? 'text-emerald-600' : 'text-slate-400'
-                }`}
-              />
-              <span>User / Member</span>
-            </button>
-
-            {/* Admin Account Box */}
-            <button
-              type="button"
-              onClick={() => handlePortalSwitch('ADMIN')}
-              className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                portalType === 'ADMIN'
-                  ? 'bg-slate-900 text-white shadow-sm ring-1 ring-slate-900'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
-              }`}
-            >
-              <ShieldCheck
-                className={`w-4 h-4 ${
-                  portalType === 'ADMIN' ? 'text-indigo-400' : 'text-slate-400'
-                }`}
-              />
-              <span>Admin Portal</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Future Subdomain Indicator Banner */}
-        {portalType === 'ADMIN' && (
-          <div className="p-3 rounded-xl bg-slate-900/5 border border-slate-900/10 text-[11px] text-slate-600 flex items-center justify-between">
-            <span className="font-semibold flex items-center gap-1.5 text-slate-800">
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-              Administrative Verification
-            </span>
-            <span className="text-[10px] bg-slate-200/80 text-slate-700 px-2 py-0.5 rounded font-mono">
-              admin.* subdomain ready
-            </span>
-          </div>
-        )}
-
         <div>
           <label className="block text-xs font-bold text-slate-700 mb-1.5">
-            {portalType === 'ADMIN' ? 'Admin Email Address' : 'Email Address'}
+            {isAdminPortal ? 'Admin Email Address' : 'Email Address'}
           </label>
           <div className="relative">
             <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="email"
               placeholder={
-                portalType === 'ADMIN'
+                isAdminPortal
                   ? 'admin@innovative.online'
                   : 'user@vistarax.com'
               }
@@ -215,20 +151,20 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
           type="submit"
           disabled={loading}
           className={`w-full py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 text-xs shadow-sm cursor-pointer ${
-            portalType === 'ADMIN'
+            isAdminPortal
               ? 'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/20'
               : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
           }`}
         >
           {loading
             ? 'Authenticating...'
-            : portalType === 'ADMIN'
+            : isAdminPortal
             ? 'Sign In to Admin Portal'
             : 'Sign In'}
           <ArrowRight className="w-4 h-4" />
         </button>
 
-        {portalType === 'USER' ? (
+        {!isAdminPortal ? (
           <div className="text-center text-xs text-slate-500 pt-1">
             Don't have an account?{' '}
             <button

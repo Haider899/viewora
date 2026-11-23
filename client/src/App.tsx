@@ -46,6 +46,20 @@ function AppContent() {
     return <UserDashboardPage />;
   }
 
+  // 2.5 If visiting admin.* subdomain (or ?portal=admin) while not logged in -> Directly show dedicated Administrator Gateway
+  const isAdminSubdomain =
+    typeof window !== 'undefined' &&
+    (window.location.hostname.toLowerCase().startsWith('admin.') ||
+      new URLSearchParams(window.location.search).get('portal') === 'admin');
+
+  if (isAdminSubdomain) {
+    return (
+      <div className="min-h-screen flex flex-col justify-center bg-slate-50 text-slate-900 font-sans selection:bg-slate-900 selection:text-white">
+        <LoginPage navigate={navigate} />
+      </div>
+    );
+  }
+
   // 3. If Public Visitor (Not logged in) -> Show Marketing Landing & Auth Pages
   const renderPublicPage = () => {
     switch (currentRoute) {
