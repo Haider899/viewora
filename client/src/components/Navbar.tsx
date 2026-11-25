@@ -48,7 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, navigate }) => {
           </div>
           <div className="flex flex-col">
             <span className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-1.5">
-              Vistara<span className="text-emerald-600">X</span>
+              U-Ads
               <span className="text-[10px] uppercase font-bold tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">
                 PRO
               </span>
@@ -85,7 +85,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, navigate }) => {
         <div className="hidden md:flex items-center gap-3">
           {user ? (
             <div className="flex items-center gap-3">
-              {/* Dual-Currency Balance Pill */}
+              {/* USD Balance Pill */}
               <div
                 onClick={() => navigate(isAdminOrStaff ? 'admin' : 'wallet')}
                 className="cursor-pointer flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:border-emerald-500 transition-colors shadow-2xs"
@@ -93,11 +93,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, navigate }) => {
                 <div className="flex items-center gap-1 text-xs font-bold text-emerald-700">
                   <span className="text-slate-400">USD:</span>
                   <span>${((wallet?.USD?.availableCents ?? 0) / 100).toFixed(2)}</span>
-                </div>
-                <div className="h-3.5 w-px bg-slate-200"></div>
-                <div className="flex items-center gap-1 text-xs font-bold text-teal-700">
-                  <span className="text-slate-400">PKR:</span>
-                  <span>{((wallet?.PKR?.availableCents ?? 0) / 100).toLocaleString()}</span>
                 </div>
               </div>
 

@@ -5,57 +5,57 @@ import { AccountType, Currency, EntryType, LedgerTransactionType } from '../type
 export const DEFAULT_ACCOUNT_LEVELS = [
   {
     levelKey: 'NEW_USER',
-    name: 'New User (Initial)',
+    name: 'New User',
     minQualificationUSD: 0,
     maxQualificationUSD: 1999, // < $20
     videoLimit: 0,
     dailyBonusRateBps: 0,
-    badge: 'Starter',
+    badge: 'New',
   },
   {
     levelKey: 'LEVEL_1',
-    name: 'Level 1 (Novice Explorer)',
-    minQualificationUSD: 2000, // $20.00
+    name: 'Level 1',
+    minQualificationUSD: 2000, // $20.00 (configurable by Admin)
     maxQualificationUSD: 9999, // $99.99
     videoLimit: 2,
-    dailyBonusRateBps: 20, // 0.20% daily when legal policy is active
-    badge: 'Bronze',
+    dailyBonusRateBps: 20, // 0.20% daily bonus rate
+    badge: 'Level 1',
   },
   {
     levelKey: 'LEVEL_2',
-    name: 'Level 2 (Active Practitioner)',
+    name: 'Level 2',
     minQualificationUSD: 10000, // $100.00
     maxQualificationUSD: 49900, // $499.00
     videoLimit: 6,
     dailyBonusRateBps: 30, // 0.30%
-    badge: 'Silver',
+    badge: 'Level 2',
   },
   {
     levelKey: 'LEVEL_3',
-    name: 'Level 3 (Advanced Creator)',
+    name: 'Level 3',
     minQualificationUSD: 50000, // $500.00
     maxQualificationUSD: 199900, // $1,999.00
     videoLimit: 15,
     dailyBonusRateBps: 40, // 0.40%
-    badge: 'Gold',
+    badge: 'Level 3',
   },
   {
     levelKey: 'LEVEL_4',
-    name: 'Level 4 (Executive Architect)',
+    name: 'Level 4',
     minQualificationUSD: 200000, // $2,000.00
     maxQualificationUSD: 499900, // $4,999.00
     videoLimit: 30,
     dailyBonusRateBps: 50, // 0.50%
-    badge: 'Platinum',
+    badge: 'Level 4',
   },
   {
     levelKey: 'LEVEL_5',
-    name: 'Level 5 (Elite Sovereign)',
+    name: 'Level 5',
     minQualificationUSD: 500000, // $5,000.00
     maxQualificationUSD: 5000000, // $50,000.00
     videoLimit: 60,
     dailyBonusRateBps: 60, // 0.60%
-    badge: 'Diamond',
+    badge: 'Level 5',
   },
 ];
 

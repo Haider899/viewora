@@ -128,11 +128,14 @@ export class LedgerService {
         });
 
         let balanceDelta = 0;
-        if (
+        const isUserLiabilityAccount =
           account.accountType === AccountType.USER_AVAILABLE ||
+          account.accountType === AccountType.USER_VIDEO_REWARDS ||
+          account.accountType === AccountType.USER_OTHER_REWARDS ||
           account.accountType === AccountType.USER_RESERVED ||
-          account.accountType === AccountType.USER_REFERRAL
-        ) {
+          account.accountType === AccountType.USER_REFERRAL;
+
+        if (isUserLiabilityAccount) {
           // User balance: CREDIT is positive (funds added), DEBIT is negative (funds deducted)
           balanceDelta = entry.entryType === EntryType.CREDIT ? entry.amountCents : -entry.amountCents;
         } else if (
@@ -141,19 +144,14 @@ export class LedgerService {
           // Cash asset: DEBIT increases cash on hand, CREDIT decreases cash on hand
           balanceDelta = entry.entryType === EntryType.DEBIT ? entry.amountCents : -entry.amountCents;
         } else {
-          // Revenue/Expense accounts
+          // Revenue/Expense/Adjustment accounts
           balanceDelta = entry.entryType === EntryType.CREDIT ? entry.amountCents : -entry.amountCents;
         }
 
         const newBalance = account.balanceCents + balanceDelta;
         
-        // Prevent user available/referral balance from going negative
-        if (
-          (account.accountType === AccountType.USER_AVAILABLE ||
-           account.accountType === AccountType.USER_RESERVED ||
-           account.accountType === AccountType.USER_REFERRAL) &&
-          newBalance < 0
-        ) {
+        // Prevent user wallet balances from going negative
+        if (isUserLiabilityAccount && newBalance < 0) {
           throw new Error(
             `Insufficient funds for account ${account.id}. Current: ${account.balanceCents}, Required debit: ${entry.amountCents}.`
           );
@@ -186,8 +184,22 @@ export class LedgerService {
     });
 
     const summary = {
-      USD: { availableCents: 0, reservedCents: 0, referralCents: 0, totalCents: 0 },
-      PKR: { availableCents: 0, reservedCents: 0, referralCents: 0, totalCents: 0 },
+      USD: {
+        availableCents: 0,
+        videoRewardsCents: 0,
+        otherRewardsCents: 0,
+        reservedCents: 0,
+        referralCents: 0,
+        totalCents: 0,
+      },
+      PKR: {
+        availableCents: 0,
+        videoRewardsCents: 0,
+        otherRewardsCents: 0,
+        reservedCents: 0,
+        referralCents: 0,
+        totalCents: 0,
+      },
     };
 
     for (const acc of accounts) {
@@ -195,6 +207,10 @@ export class LedgerService {
       if (cur === Currency.USD || cur === Currency.PKR) {
         if (acc.accountType === AccountType.USER_AVAILABLE) {
           summary[cur].availableCents = acc.balanceCents;
+        } else if (acc.accountType === AccountType.USER_VIDEO_REWARDS) {
+          summary[cur].videoRewardsCents = acc.balanceCents;
+        } else if (acc.accountType === AccountType.USER_OTHER_REWARDS) {
+          summary[cur].otherRewardsCents = acc.balanceCents;
         } else if (acc.accountType === AccountType.USER_RESERVED) {
           summary[cur].reservedCents = acc.balanceCents;
         } else if (acc.accountType === AccountType.USER_REFERRAL) {
@@ -203,8 +219,18 @@ export class LedgerService {
       }
     }
 
-    summary.USD.totalCents = summary.USD.availableCents + summary.USD.reservedCents + summary.USD.referralCents;
-    summary.PKR.totalCents = summary.PKR.availableCents + summary.PKR.reservedCents + summary.PKR.referralCents;
+    summary.USD.totalCents =
+      summary.USD.availableCents +
+      summary.USD.videoRewardsCents +
+      summary.USD.otherRewardsCents +
+      summary.USD.reservedCents +
+      summary.USD.referralCents;
+    summary.PKR.totalCents =
+      summary.PKR.availableCents +
+      summary.PKR.videoRewardsCents +
+      summary.PKR.otherRewardsCents +
+      summary.PKR.reservedCents +
+      summary.PKR.referralCents;
 
     return summary;
   }

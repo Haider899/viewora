@@ -11,121 +11,85 @@ export const SUPPORT_FAQS: BotFaqItem[] = [
   {
     id: 'deposit_verification_time',
     category: 'Deposits & Payments',
-    question: 'Deposit verification mein kitna time lagta hai?',
+    question: 'How long does deposit verification take?',
     keywords: ['deposit', 'verify', 'verification', 'time', 'kitna time', 'pending', 'approval', 'approve', 'kitni der', 'kab hoga'],
     answer: `⏱️ **Deposit Verification Time**:
-Aam tor par hamari Finance Audit Team **10 se 30 minutes** ke andar aapka deposit verify kar deti hai.
+Our Finance Audit Team typically verifies manual USD deposits within **10 to 30 minutes**.
 
-Agar aapne authentic Transaction ID (EasyPaisa 3737 SMS / JazzCash 8558 SMS ya USDT TRC-20 TxHash) aur clear screenshot attach kiya hai, toh balance verify hotay hi foran aapke **Available Balance** mein credit ho jata hai.
+Once you submit an authentic Transaction ID / TxHash and upload your clear payment receipt, your USD balance is credited to your **Main Account** immediately after admin verification.
 
-Agar 30 minutes se zyada ho gaye hain toh aap screenshot yahan attach karke **"Talk to Support Agent"** par click kar sakte hain.`,
-    quickPrompts: ['Deposit kaise karna hai?', 'Withdrawal rules kya hain?', 'Talk to Support Agent'],
+If more than 30 minutes have passed, attach your receipt here and click **"Talk to Agent"** for immediate assistance.`,
+    quickPrompts: ['How do I deposit USD?', 'What are the withdrawal rules?', 'Talk to Agent'],
   },
   {
     id: 'how_to_deposit',
     category: 'Deposits & Payments',
-    question: 'EasyPaisa, JazzCash ya USDT se payment / deposit kaise karein?',
-    keywords: ['how to deposit', 'deposit kaise', 'easypaisa', 'jazzcash', 'usdt', 'bank', 'payment kaise', 'transfer', 'method'],
-    answer: `💳 **Deposit Karne Ka Tareeqa**:
-1. User Portal mein **"Deposit Funds"** page par jayein.
-2. Apna preferred payment method select karein:
-   • **EasyPaisa** (0345-8899123)
-   • **JazzCash** (0300-7766554)
-   • **USDT (TRC-20)** (TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t)
-   • **Bank Wire / IBFT**
-3. Diye gaye account number ya address par exact amount send karein.
-4. Transfer complete hone ke baad milne wala **Transaction ID / Reference Number** form mein enter karein aur receipt ka screenshot upload karein.
-5. **Submit Deposit** par click karein. Hamari team foran verify karegi!`,
-    quickPrompts: ['Deposit verification mein kitna time lagta hai?', 'Packages ki detail kya hai?', 'Talk to Support Agent'],
+    question: 'How do I deposit USD into my U-Ads wallet?',
+    keywords: ['how to deposit', 'deposit kaise', 'usdt', 'bank', 'wire', 'payment kaise', 'transfer', 'method', 'channel'],
+    answer: `💳 **How to Submit a USD Deposit**:
+1. Open **"Deposit Funds"** inside your User Dashboard.
+2. Select an active **USD Payment Channel** (such as USDT TRC-20 or USD Bank Wire).
+3. Send the exact USD amount to the listed treasury account/wallet.
+4. Enter the exact **Transaction ID / TxHash** and attach your receipt screenshot.
+5. Click **Submit Deposit for Verification** — verified by Admin within **10–30 minutes**.`,
+    quickPrompts: ['How long does deposit verification take?', 'Package details?', 'Talk to Agent'],
   },
   {
     id: 'withdrawal_process_limits',
     category: 'Withdrawals',
-    question: 'Withdrawal ka tareeqa aur minimum limit kya hai?',
+    question: 'What is the withdrawal process and minimum limit?',
     keywords: ['withdrawal', 'withdraw', 'payout', 'nikalna', 'paise nikalna', 'min withdraw', 'limit', 'minimum limit'],
-    answer: `💸 **Withdrawal Process & Minimum Limits**:
-• **Minimum Limits**:
-  - **USD**: Minimum **$10.00**
-  - **PKR**: Minimum **Rs 1,000**
-
-• **Kaise Withdraw Karein**:
-1. **"Withdrawal"** tab par click karein.
-2. Currency (USD ya PKR) aur apna payout account (EasyPaisa, JazzCash, USDT, ya Bank) select karein.
-3. Apna exact Account Title aur Number / Wallet address daalein.
-4. Request submit karte hi amount securely **Reserved** ho jati hai.
-5. Finance team verify karke **1 se 2 hours** ke andar funds aapke account mein deliver kar deti hai.`,
-    quickPrompts: ['Deposit kaise karna hai?', 'Reward kaise milta hai?', 'Talk to Support Agent'],
+    answer: `💸 **USD Withdrawal Process & Limits**:
+• **Currency:** USD Only
+• **Minimum Limit:** **$10.00 USD**
+• **How to Withdraw:**
+1. Open the **"Withdrawal Payout"** tab.
+2. Choose your payout channel and source wallet (Main Account, Video Rewards, or Referral Wallet).
+3. Enter your receiving account details and confirm.
+4. Funds move securely into **Reserved Hold** while Finance Admin reviews, approves, and completes payout with proof reference.`,
+    quickPrompts: ['How do I deposit USD?', 'How do video rewards work?', 'Talk to Agent'],
   },
   {
     id: 'packages_pricing',
     category: 'Packages & Tiers',
-    question: 'Packages ki details, pricing aur benefits kya hain?',
-    keywords: ['package', 'packages', 'tier', 'starter', 'basic', 'premium', 'vip', 'price', 'pricing', 'kharidna', 'buy package'],
-    answer: `💎 **VistaraX Membership Packages**:
-• **Starter Package ($20 / ~Rs 5,600)**:
-  - 2 Curated HD Masterclasses
-  - Eligible for video engagement cash rewards
-  - Standard support
+    question: 'What are the U-Ads access packages and limits?',
+    keywords: ['package', 'packages', 'tier', 'starter', 'basic', 'premium', 'vip', 'price', 'pricing', 'kharidna', 'buy package', 'plans'],
+    answer: `💎 **U-Ads Membership Plans (USD Only)**:
+• **Starter ($20 USD):** Unlocks 2 video campaigns + Video Rewards eligibility.
+• **Basic ($50 USD):** Unlocks 6 video campaigns + full referral rank eligibility.
+• **Premium ($100 USD):** Unlocks 15 video campaigns + priority support.
+• **VIP ($500 USD):** Unlocks up to 60 video campaigns + priority settlement review.
 
-• **Basic Package ($50 / ~Rs 14,000)**:
-  - 6 Specialized Masterclasses
-  - Priority 1080p 60fps streaming
-  - Standard referral commission tier
-
-• **Premium Package ($100 / ~Rs 28,000)**:
-  - 15 Advanced Curriculum Masterclasses
-  - 4K Ultra HD streaming & Verified Completion Certificate
-  - Dedicated priority account support
-
-• **VIP Package ($500 / ~Rs 140,000)**:
-  - Full 60-Video Masterclass catalog access
-  - Exclusive architectural breakdowns & live Q&As
-  - 24/7 VIP Concierge support
-
-*Aap apne available wallet balance se 1-click mein upgrade kar sakte hain.*`,
-    quickPrompts: ['Videos dekh kar reward kaise milta hai?', 'Referral commission kaise milti hai?', 'Talk to Support Agent'],
+*Upgrade anytime using your Main Account USD balance.*`,
+    quickPrompts: ['How do video rewards work?', 'How do referral commissions work?', 'Talk to Agent'],
   },
   {
     id: 'video_rewards_claim',
-    category: 'Masterclasses & Rewards',
-    question: 'Videos dekh kar cash reward ($0.50) kaise claim hota hai?',
+    category: 'Videos & Rewards',
+    question: 'How do video watch rewards get credited?',
     keywords: ['reward', 'video', 'videos', 'watch', 'earn', 'claim', '0.50', 'dekh kar', 'paise', 'earning'],
-    answer: `🎬 **Video Watching & Rewards Policy**:
-1. Apne package tier ke mutabiq **"Masterclasses"** catalog se koi video play karein.
-2. Video ko ghaur se dekhein — Anti-cheat telemetry system watch time track karta hai.
-3. Jaise hi aap **80% ya minimum 60 seconds** watch time complete kar lein ge, **"Claim $0.50 Reward"** button green ho jayega.
-4. Button par click karte hi reward foran aapke **Available Balance** mein credit ho jayega!
-*(Note: Har video par exactly ek dafa reward claim kiya ja sakta hai).*`,
-    quickPrompts: ['Packages ki details kya hain?', 'Withdrawal rules kya hain?', 'Talk to Support Agent'],
+    answer: `🎬 **Automatic Video Reward Verification**:
+1. Open an unlocked video from your **Video Catalog** (based on your Account Level / Package).
+2. Watch the **full actual video duration** from start to finish (pause and seeking forward are disabled).
+3. As soon as the full playback finishes, the server verifies the session and **automatically credits** the USD reward directly to your **Video Rewards Wallet**!
+*(Each video can only generate a reward once).*`,
+    quickPrompts: ['Package details?', 'What is the withdrawal process and minimum limit?', 'Talk to Agent'],
   },
   {
     id: 'referral_commission_rules',
-    category: 'Referrals & Earnings',
-    question: 'Referral link kahan milega aur 5% commission kaise milta hai?',
-    keywords: ['referral', 'invite', 'refer', 'commission', '5%', 'link', 'dost', 'earning'],
-    answer: `🤝 **Referral Commission System**:
-• **Referrals** page par aapka personal referral link aur code mojood hota hai.
-• Jab bhi koi member aapke link se sign up karke koi package purchase karta hai, toh package ki total value ka **5% Net Cash Commission** foran aapke wallet account mein jama ho jata hai.
-• Is commission par koi lock nahi hota — aap foran withdraw kar sakte hain ya khud packages purchase kar sakte hain!`,
-    quickPrompts: ['Withdrawal kaise karein?', 'Packages ki details kya hain?', 'Talk to Support Agent'],
-  },
-  {
-    id: 'account_verification_kyc',
-    category: 'Account & Security',
-    question: 'Account verification ya password reset kaise karein?',
-    keywords: ['account', 'verification', 'kyc', 'cnic', 'password', 'reset', 'login', 'security', 'profile'],
-    answer: `🔒 **Account Security & Support**:
-• Aapka account registration ke waqt se hi active hota hai.
-• High-value withdrawals ke liye profile verification zaroori ho sakti hai.
-• Agar aap password bhool gaye hain toh Login page par "Forgot Password" use karein ya hamare support agent se yahan chat karein.`,
-    quickPrompts: ['Talk to Support Agent', 'Deposit verification time?'],
+    category: 'Referrals & Ranks',
+    question: 'How do referral commissions and ranks work?',
+    keywords: ['referral', 'invite', 'refer', 'commission', '5%', 'link', 'dost', 'earning', 'rank', 'milestone'],
+    answer: `🤝 **U-Ads Referral & Rank Program**:
+• Share your personal invitation link from the **Referrals & Ranks** tab.
+• Commissions apply strictly to your referred member's **first qualifying transaction**, credited into your separate **Referral Wallet**.
+• **Position Rates:** 1st: 5%, 2nd: 7%, 3rd: 10%, 4th: 12%, 5th+: 15%.
+• **Ranks & Milestones:** Gold (1–5, +$20 at 5), Platinum (6–10, +$100 at 10), Diamond (11–100), Rank 4 (101–500), Rank 5 (501–10,000).`,
+    quickPrompts: ['What is the withdrawal process and minimum limit?', 'Package details?', 'Talk to Agent'],
   },
 ];
 
 export class SupportBotService {
-  /**
-   * Evaluates if user message indicates escalation to human agent
-   */
   public static isEscalationRequest(text: string): boolean {
     const lower = text.toLowerCase().trim();
     const escalationTriggers = [
@@ -153,9 +117,6 @@ export class SupportBotService {
     return escalationTriggers.some((trigger) => lower.includes(trigger));
   }
 
-  /**
-   * Finds matching FAQ or returns intelligent fallback
-   */
   public static matchFaq(query: string): {
     answer: string;
     matchedFaqId?: string;
@@ -164,19 +125,17 @@ export class SupportBotService {
   } {
     const lower = query.toLowerCase().trim();
 
-    // Check direct escalation intent first
     if (this.isEscalationRequest(lower)) {
       return {
         answer: `👨‍💼 **Support Team Alerted**:
-Aapki request hamari Live Support Team ko forward kardi gayi hai. Ek support agent foran aapse yahan connect karega aur reply karega.
+Your request has been forwarded to an available **U-Ads Support Agent**. A live agent will respond directly in this chat shortly.
 
-Aap apna exact masla, transaction ID, ya screenshot yahan attach karke bhej dein taake agent aate hi issue hal kar sake.`,
-        quickPrompts: ['Deposit slip attach karni hai', 'Withdrawal issue hai', 'Account query hai'],
+Feel free to share your transaction reference or attach a screenshot while waiting.`,
+        quickPrompts: ['Deposit verification issue', 'Withdrawal status check', 'Account level query'],
         suggestEscalation: true,
       };
     }
 
-    // Score all FAQs based on keyword occurrences
     let bestFaq: BotFaqItem | null = null;
     let highestScore = 0;
 
@@ -200,28 +159,27 @@ Aap apna exact masla, transaction ID, ya screenshot yahan attach karke bhej dein
       return {
         answer: bestFaq.answer,
         matchedFaqId: bestFaq.id,
-        quickPrompts: bestFaq.quickPrompts || ['Talk to Support Agent'],
+        quickPrompts: bestFaq.quickPrompts || ['Talk to Agent'],
         suggestEscalation: false,
       };
     }
 
-    // Fallback if no specific question matched
     return {
-      answer: `👋 Assalam o Alaikum! Main **Vistara AI Support Assistant** hoon.
+      answer: `👋 Welcome! I am the **U-Ads AI Support Assistant**.
 
-Aap mujh se platform ke bare mein kuch bhi pooch sakte hain:
-• **Deposits**: EasyPaisa, JazzCash, USDT verification
-• **Withdrawals**: Payout timeline & limits
-• **Packages**: Starter, Basic, Premium, VIP
-• **Rewards**: Masterclasses watch rewards ($0.50)
-• **Referrals**: 5% direct commission
+Ask me anything about:
+• **USD Deposits:** Payment channels & 10–30 minute audit verification
+• **USD Withdrawals:** Payout lifecycle & minimum $10.00 limit
+• **Access Plans:** Starter, Basic, Premium, VIP tiers
+• **Video Rewards:** Automatic USD credits on full completion
+• **Referrals & Ranks:** Tiered commissions & milestone bonuses
 
-Neeche diye gaye buttons par click karein ya agar kisi human support agent se baat karni hai toh **"Talk to Support Agent"** par click karein!`,
+Click a topic below or select **"Talk to Agent"** to connect with live support!`,
       quickPrompts: [
-        'Deposit verification mein kitna time lagta hai?',
-        'Withdrawal ka tareeqa aur limit?',
-        'Packages ki details kya hain?',
-        'Talk to Support Agent',
+        'How long does deposit verification take?',
+        'What is the withdrawal process and minimum limit?',
+        'How do video watch rewards get credited?',
+        'Talk to Agent',
       ],
       suggestEscalation: false,
     };

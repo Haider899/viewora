@@ -28,7 +28,7 @@ function AppContent() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-4">
         <div className="w-12 h-12 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-        <p className="text-xs font-semibold text-slate-500">Loading VistaraX Platform...</p>
+        <p className="text-xs font-semibold text-slate-500">Loading U-Ads Platform...</p>
       </div>
     );
   }

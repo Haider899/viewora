@@ -24,8 +24,7 @@ export class PackageController {
     try {
       const purchase = await PackageService.purchasePackageWithWallet(
         req.user!.userId,
-        req.body.packageId,
-        req.body.currency || 'USD'
+        req.body.packageId
       );
       res.json({
         success: true,

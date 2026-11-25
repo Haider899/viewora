@@ -1,6 +1,6 @@
 export type UserRole = 'SUPER_ADMIN' | 'FINANCE_ADMIN' | 'CONTENT_ADMIN' | 'SUPPORT_AGENT' | 'USER';
 export type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'PENDING_VERIFICATION';
-export type Currency = 'USD' | 'PKR';
+export type Currency = 'USD';
 
 export interface User {
   id: string;
@@ -11,6 +11,7 @@ export interface User {
   status: UserStatus;
   emailVerified: boolean;
   referralCode: string;
+  memberCode?: string;
   referredById?: string;
   accountLevel?: string;
   accountLockedUntil?: string | null;
@@ -99,19 +100,78 @@ export interface Video {
   };
 }
 
+/** USD-only wallet summary */
 export interface WalletSummary {
   USD: {
     availableCents: number;
     reservedCents: number;
     referralCents: number;
+    videoRewardsCents: number;
+    otherRewardsCents: number;
     totalCents: number;
   };
-  PKR: {
-    availableCents: number;
-    reservedCents: number;
-    referralCents: number;
-    totalCents: number;
+}
+
+export interface NotificationItem {
+  id: string;
+  userId: string;
+  title: string;
+  body: string;
+  type: string;
+  isRead: boolean;
+  relatedId?: string | null;
+  createdAt: string;
+}
+
+export interface LandingContent {
+  heroTitle?: string;
+  heroSubtitle?: string;
+  heroCtaText?: string;
+  rewardsTitle?: string;
+  rewardsSubtitle?: string;
+  packagesTitle?: string;
+  packagesSubtitle?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  contactHours?: string;
+  faqTitle?: string;
+  announcementBanner?: string;
+  announcementEnabled?: boolean;
+}
+
+export interface ReferralConfig {
+  enabled: boolean;
+  firstTransactionOnly: boolean;
+  positions: Array<{
+    level: number;
+    rateBps: number;
+  }>;
+  milestones: Array<{
+    minReferrals: number;
+    maxReferrals: number | null;
+    rankName: string;
+    rewardUSD: number;
+  }>;
+}
+
+export interface BonusSettings {
+  videoBonus: {
+    enabled: boolean;
+    defaultRewardCents: number;
   };
+  dailyBonus: {
+    enabled: boolean;
+  };
+}
+
+export interface NotificationSettings {
+  depositApproved: boolean;
+  depositRejected: boolean;
+  withdrawalApproved: boolean;
+  withdrawalRejected: boolean;
+  referralCommission: boolean;
+  videoReward: boolean;
+  systemAlert: boolean;
 }
 
 export interface ReferralMilestoneClaim {
@@ -180,8 +240,9 @@ export interface DepositRequest {
   proofImageUrl?: string;
   senderPhone?: string;
   senderName?: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  status: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
   rejectionReason?: string;
+  adminNotes?: string;
   createdAt: string;
 }
 
@@ -193,7 +254,8 @@ export interface WithdrawalRequest {
   payoutMethod: string;
   accountTitle: string;
   accountNumber: string;
-  status: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'PROCESSING' | 'COMPLETED' | 'REJECTED' | 'CANCELLED';
+  sourceWallet?: string;
+  status: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'PROCESSING' | 'PAID' | 'COMPLETED' | 'REJECTED' | 'FAILED' | 'CANCELLED';
   payoutRef?: string;
   rejectionReason?: string;
   createdAt: string;
@@ -246,12 +308,18 @@ export interface AdminKpiData {
   activeUsers: number;
   suspendedUsers: number;
   pendingDepositsCount: number;
-  pendingDepositsCents: { USD: number; PKR: number };
-  verifiedDepositsCents: { USD: number; PKR: number };
+  pendingDepositsCents: { USD: number };
+  verifiedDepositsCents: { USD: number };
   pendingWithdrawalsCount: number;
-  pendingWithdrawalsCents: { USD: number; PKR: number };
-  completedPayoutsCents: { USD: number; PKR: number };
+  pendingWithdrawalsCents: { USD: number };
+  completedPayoutsCents: { USD: number };
   totalVideosCount: number;
+  totalVideoCompletions: number;
+  totalEligibleRewardsCents: number;
+  totalReferrals: number;
+  activeSupportAgents: number;
+  onlineSupportAgents: number;
+  waitingSupportChats: number;
   totalViewsCount: number;
   ledgerIntegrity: boolean;
 }
@@ -306,3 +374,29 @@ export interface SupportFaq {
   quickPrompts?: string[];
 }
 
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  resourceType: string;
+  resourceId?: string | null;
+  details?: string | null;
+  ipAddress?: string | null;
+  createdAt: string;
+  userId?: string | null;
+  user?: {
+    id: string;
+    email: string;
+    fullName: string;
+    role: string;
+  } | null;
+}
+
+export interface AdminSupportAgent {
+  id: string;
+  fullName: string;
+  email: string;
+  role: string;
+  status: string;
+  agentAvailability: 'ONLINE' | 'BUSY' | 'OFFLINE';
+  createdAt: string;
+}

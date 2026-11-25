@@ -1,25 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api.js';
-import { CompanyDocument } from '../types/index.js';
+import { CompanyDocument, LandingContent, Video as VideoItem } from '../types/index.js';
 import {
   Play,
   ShieldCheck,
-  Zap,
   TrendingUp,
-  Layers,
   ChevronRight,
-  CheckCircle2,
-  Lock,
   ArrowRight,
-  HelpCircle,
   Video,
   Award,
-  Globe,
   Sparkles,
   FileText,
-  ExternalLink,
   X,
   Eye,
+  Mail,
+  Phone,
+  Clock,
+  Gift,
+  Users,
+  MessageSquare,
 } from 'lucide-react';
 
 interface HomePageProps {
@@ -30,118 +29,205 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [documents, setDocuments] = useState<CompanyDocument[]>([]);
   const [selectedDoc, setSelectedDoc] = useState<CompanyDocument | null>(null);
+  const [previewVideos, setPreviewVideos] = useState<VideoItem[]>([]);
+  const [content, setContent] = useState<LandingContent>({});
 
   useEffect(() => {
-    api.getPublicDocuments().then((res) => {
-      if (res.success && res.data) {
-        setDocuments(res.data);
+    Promise.allSettled([
+      api.getPublicDocuments(),
+      api.getLandingContent(),
+      api.getVideos(),
+    ]).then(([docsRes, cmsRes, vidsRes]) => {
+      if (docsRes.status === 'fulfilled' && docsRes.value.success && docsRes.value.data) {
+        setDocuments(docsRes.value.data);
       }
-    }).catch(() => {});
+      if (cmsRes.status === 'fulfilled' && cmsRes.value.success && cmsRes.value.data) {
+        setContent(cmsRes.value.data);
+      }
+      if (vidsRes.status === 'fulfilled' && vidsRes.value.success && Array.isArray(vidsRes.value.data)) {
+        setPreviewVideos(vidsRes.value.data.slice(0, 3));
+      }
+    });
   }, []);
 
   const faqs = [
     {
-      q: 'What is VistaraX?',
-      a: 'VistaraX is an enterprise-grade digital educational media platform offering up to 60 specialized masterclasses across AI, software engineering, quantitative finance, cybersecurity, and strategic management.',
+      q: 'What is U-Ads?',
+      a: 'U-Ads is a USD-based digital video engagement and rewards platform where members unlock curated video campaigns, earn verified full-watch video rewards, advance through Account Levels, and earn tiered referral commissions.',
     },
     {
-      q: 'How does the dual-currency wallet function?',
-      a: 'VistaraX maintains separate, mathematically isolated ledger accounts for USD and PKR. All transactions are recorded through an immutable double-entry ledger where every debit strictly balances against an equal credit, preventing any financial or precision drift.',
+      q: 'How do U-Ads USD wallets work?',
+      a: 'Every U-Ads account operates strictly in USD with separated, double-entry ledger wallets: Main Account Credits (for deposits and packages), Video Rewards Wallet (for automatic full-watch video credits), and Referral Wallet (for affiliate commissions & milestones).',
     },
     {
-      q: 'How are manual payments (EasyPaisa / JazzCash / USDT) verified?',
-      a: 'When you submit a deposit request, it is queued for review by our certified Finance Administration team. Staff inspect authentic banking or blockchain transaction receipts before authorizing an atomic ledger credit to your wallet.',
+      q: 'How long does deposit verification take?',
+      a: 'Deposits submitted via USDT (TRC-20) or USD International Bank Wire are reviewed by our Finance Administration desk and typically verified within 10–30 minutes once a valid transaction reference and receipt are submitted.',
     },
     {
-      q: 'Are returns or daily yields guaranteed?',
-      a: 'No. VistaraX is an educational streaming platform and is NOT an investment fund, HYIP, or deposit-return scheme. All viewing rewards and referral commissions are strictly contingent upon verified engagement and approved net-revenue events.',
+      q: 'How do video rewards get credited?',
+      a: 'Watch any unlocked video from start to finish without pausing or skipping. Upon 100% completion, the platform automatically verifies your session telemetry and credits your USD Video Rewards Wallet with no manual claim required.',
     },
     {
-      q: 'How do referral commissions work?',
-      a: 'Commissions are calculated solely on verified, eligible package purchases made by your invited referrals. Commissions are never generated on deposit transfers or arbitrary account balance top-ups.',
+      q: 'How do referral commissions and ranks work?',
+      a: 'You earn tiered USD commissions (scaling from 5% up to 15% by position) on each invited member’s first qualifying USD package transaction, plus automatic rank milestone cash rewards credited to your Referral Wallet.',
     },
   ];
 
   return (
     <div className="space-y-20 pb-20 bg-slate-50">
+      {/* Optional Admin Announcement Banner */}
+      {content.announcementEnabled && content.announcementBanner && (
+        <div className="bg-emerald-700 text-white text-center py-2.5 px-4 text-xs font-semibold">
+          {content.announcementBanner}
+        </div>
+      )}
+
       {/* Hero Section */}
-      <section className="relative pt-16 md:pt-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center">
-        {/* Soft background radial highlight */}
+      <section className="relative pt-14 md:pt-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[650px] h-[350px] bg-emerald-100/60 blur-[120px] rounded-full pointer-events-none -z-10" />
 
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold uppercase tracking-wider mb-6 shadow-2xs">
           <Sparkles className="w-4 h-4 text-emerald-600" />
-          <span>VistaraX 2.0 • Media Access & Audited Ledger Engine</span>
+          <span>U-Ads • Verified Video Campaigns & USD Ledger Engine</span>
         </div>
 
-        <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-slate-900 max-w-4xl mx-auto leading-[1.1]">
-          Master High-Value Skills with{' '}
-          <span className="text-emerald-600">Enterprise-Grade</span> Integrity.
+        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-slate-900 max-w-4xl mx-auto leading-[1.12]">
+          {content.heroTitle || (
+            <>
+              Watch Curated Video Campaigns &amp; Earn{' '}
+              <span className="text-emerald-600">Verified USD</span> Rewards.
+            </>
+          )}
         </h1>
 
-        <p className="mt-6 text-lg sm:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
-          Access an exclusive library of 60 premium masterclasses. Powered by server-verified telemetry sessions, dual-currency wallets, and an immutable double-entry ledger.
+        <p className="mt-6 text-base sm:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
+          {content.heroSubtitle ||
+            'Join U-Ads for verified full-duration video campaigns, isolated USD wallets, Account Level bonuses, and tiered referral rewards backed by an audited double-entry ledger.'}
         </p>
 
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+        <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
           <button
-            onClick={() => navigate('videos')}
-            className="px-8 py-3.5 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-md shadow-emerald-600/20 hover:scale-[1.02] flex items-center gap-2 text-sm"
+            onClick={() => navigate('register')}
+            className="px-8 py-3.5 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-md shadow-emerald-600/20 hover:scale-[1.02] flex items-center gap-2 text-sm cursor-pointer"
           >
             <Play className="w-4 h-4 fill-current" />
-            Explore Video Catalog
+            {content.heroCtaText || 'Create Free U-Ads Account'}
           </button>
           <button
             onClick={() => navigate('packages')}
-            className="px-8 py-3.5 rounded-xl font-bold bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 transition-all hover:scale-[1.02] flex items-center gap-2 text-sm shadow-2xs"
+            className="px-8 py-3.5 rounded-xl font-bold bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 transition-all hover:scale-[1.02] flex items-center gap-2 text-sm shadow-2xs cursor-pointer"
           >
-            View Access Packages
+            View USD Packages
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
 
         {/* Highlight Stats Strip */}
-        <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-5xl mx-auto">
+        <div className="mt-14 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-5xl mx-auto">
           <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs text-left">
-            <div className="text-3xl font-extrabold text-slate-900">60</div>
+            <div className="text-3xl font-extrabold text-slate-900">USD Only</div>
             <div className="text-xs font-bold text-emerald-600 mt-1 uppercase tracking-wider">
-              Masterclasses
+              Unified Currency
             </div>
-            <div className="text-xs text-slate-500 mt-0.5">Curated HD modules</div>
+            <div className="text-xs text-slate-500 mt-0.5">USDT TRC-20 &amp; Bank Wire</div>
           </div>
           <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs text-left">
-            <div className="text-3xl font-extrabold text-slate-900">100%</div>
+            <div className="text-3xl font-extrabold text-slate-900">10–30 min</div>
             <div className="text-xs font-bold text-teal-600 mt-1 uppercase tracking-wider">
-              Double-Entry
+              Fast Verification
             </div>
-            <div className="text-xs text-slate-500 mt-0.5">Balanced mathematical ledger</div>
+            <div className="text-xs text-slate-500 mt-0.5">Audited deposit processing</div>
           </div>
           <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs text-left">
-            <div className="text-3xl font-extrabold text-slate-900">USD / PKR</div>
-            <div className="text-xs font-bold text-blue-600 mt-1 uppercase tracking-wider">
-              Dual-Currency
+            <div className="text-3xl font-extrabold text-slate-900">3 Wallets</div>
+            <div className="text-xs font-bold text-indigo-600 mt-1 uppercase tracking-wider">
+              Double-Entry Ledger
             </div>
-            <div className="text-xs text-slate-500 mt-0.5">Dedicated wallet accounts</div>
+            <div className="text-xs text-slate-500 mt-0.5">Main, Video &amp; Referral USD</div>
           </div>
           <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs text-left">
-            <div className="text-3xl font-extrabold text-slate-900">5 Roles</div>
+            <div className="text-3xl font-extrabold text-slate-900">5% – 15%</div>
             <div className="text-xs font-bold text-purple-600 mt-1 uppercase tracking-wider">
-              RBAC Security
+              Referral Tiers
             </div>
-            <div className="text-xs text-slate-500 mt-0.5">Strict operational separation</div>
+            <div className="text-xs text-slate-500 mt-0.5">Plus milestone USD bonuses</div>
           </div>
         </div>
       </section>
 
-      {/* Core Architectural Pillars */}
+      {/* Video Preview Section */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div>
+            <span className="text-xs font-bold text-emerald-700 uppercase tracking-widest">
+              Video Preview
+            </span>
+            <h2 className="text-3xl font-extrabold text-slate-900 mt-1">
+              Featured Video Campaigns
+            </h2>
+            <p className="text-xs text-slate-500 mt-1 max-w-xl">
+              Preview active campaigns in the U-Ads catalog. Sign in to watch full durations and earn automatic USD credits.
+            </p>
+          </div>
+          <button
+            onClick={() => navigate('videos')}
+            className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 cursor-pointer"
+          >
+            Browse Full Catalog
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {previewVideos.length > 0 ? (
+            previewVideos.map((vid) => (
+              <div
+                key={vid.id}
+                className="rounded-3xl bg-white border border-slate-200/90 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
+              >
+                <div className="relative aspect-video bg-slate-900">
+                  <img
+                    src={vid.thumbnailUrl}
+                    alt={vid.title}
+                    className="w-full h-full object-cover opacity-90"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-transparent to-transparent" />
+                  <div className="absolute top-3 left-3 px-2.5 py-0.5 rounded-md bg-white/95 text-slate-900 text-[10px] font-bold">
+                    {vid.minPackageTier} Tier
+                  </div>
+                  {vid.rewardEligible && (
+                    <div className="absolute bottom-3 right-3 px-2.5 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold">
+                      +${(vid.rewardAmountCents / 100).toFixed(2)} USD
+                    </div>
+                  )}
+                </div>
+                <div className="p-5 space-y-2">
+                  <div className="text-[10px] font-bold uppercase text-emerald-700">{vid.category}</div>
+                  <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{vid.title}</h3>
+                  <p className="text-xs text-slate-500 line-clamp-2">{vid.description}</p>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="md:col-span-3 p-10 rounded-3xl bg-white border border-slate-200 text-center text-xs text-slate-500">
+              Sign in to explore curated U-Ads video campaigns and start earning USD rewards.
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Rewards Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-3xl mx-auto mb-14">
+        <div className="text-center max-w-3xl mx-auto mb-12">
           <h2 className="text-xs font-bold text-emerald-700 uppercase tracking-widest mb-2">
-            Enterprise Architecture
+            Rewards Ecosystem
           </h2>
           <h3 className="text-3xl sm:text-4xl font-extrabold text-slate-900">
-            Built from the ground up for transparency, security, and scalability.
+            {content.rewardsTitle || 'Three Transparent Ways to Earn USD on U-Ads'}
           </h3>
+          {content.rewardsSubtitle && (
+            <p className="text-xs text-slate-500 mt-2">{content.rewardsSubtitle}</p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -149,29 +235,29 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
             <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
               <Video className="w-6 h-6" />
             </div>
-            <h4 className="text-lg font-bold text-slate-900">Telemetry Session Verification</h4>
+            <h4 className="text-lg font-bold text-slate-900">Automatic Video Watch Rewards</h4>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Video sessions employ cryptographic nonces and time-windowed heartbeats. Client completion claims are verified against wall-clock telemetry to eliminate manipulation.
+              Complete full-duration verified video campaigns without skipping. Rewards credit automatically to your dedicated Video Rewards Wallet.
             </p>
           </div>
 
           <div className="p-8 rounded-2xl bg-white border border-slate-200/90 shadow-xs card-hover space-y-4">
             <div className="w-12 h-12 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-600">
-              <ShieldCheck className="w-6 h-6" />
+              <Award className="w-6 h-6" />
             </div>
-            <h4 className="text-lg font-bold text-slate-900">Zero-Drift Double-Entry Ledger</h4>
+            <h4 className="text-lg font-bold text-slate-900">Account Level Progression</h4>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Every balance update is computed through immutable debit-credit pairs. Monetary amounts are stored in minor currency units to eliminate floating-point rounding errors.
+              Advance through Level 1 to Level 5 based on qualifying USD activity to unlock expanded video limits and eligible daily level bonuses.
             </p>
           </div>
 
           <div className="p-8 rounded-2xl bg-white border border-slate-200/90 shadow-xs card-hover space-y-4">
-            <div className="w-12 h-12 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-center text-purple-600">
-              <TrendingUp className="w-6 h-6" />
+            <div className="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600">
+              <Users className="w-6 h-6" />
             </div>
-            <h4 className="text-lg font-bold text-slate-900">Traceable Net-Revenue Referrals</h4>
+            <h4 className="text-lg font-bold text-slate-900">Tiered Referrals &amp; Milestones</h4>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Referral commissions require explicit lineage to confirmed package purchases. Self-referrals and circular chains are mathematically blocked.
+              Earn 5% to 15% USD commission on each invited member&apos;s first qualifying package, plus automatic rank milestone rewards in your Referral Wallet.
             </p>
           </div>
         </div>
@@ -179,26 +265,30 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
 
       {/* Package Teaser Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="p-10 rounded-3xl bg-white border border-slate-200/90 shadow-sm relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8">
+        <div className="p-10 rounded-3xl bg-white border border-slate-200/90 shadow-sm flex flex-col md:flex-row items-center justify-between gap-8">
           <div className="max-w-2xl space-y-4">
             <span className="text-xs font-bold text-emerald-600 uppercase tracking-widest">
-              Configurable Access Tiers
+              USD Access Packages
             </span>
             <h3 className="text-3xl font-extrabold text-slate-900">
-              Choose the learning package matched to your trajectory.
+              {content.packagesTitle || 'Choose the USD package matched to your goals.'}
             </h3>
             <p className="text-slate-600 text-sm leading-relaxed">
-              From our Starter Tier (2 masterclasses for $20) to our VIP Tier (unrestricted access to all 60 videos for $500), unlock immediate access with flexible payment methods.
+              {content.packagesSubtitle ||
+                'From Starter ($20 USD) to VIP ($500 USD), unlock structured video access with audited double-entry ledger transparency.'}
             </p>
             <div className="pt-2">
               <button
                 onClick={() => navigate('packages')}
-                className="px-6 py-3 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-sm flex items-center gap-2 text-xs"
+                className="px-6 py-3 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-sm flex items-center gap-2 text-xs cursor-pointer"
               >
-                Compare All 4 Packages
+                Compare USD Packages
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
+          </div>
+          <div className="w-24 h-24 rounded-3xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
+            <Gift className="w-10 h-10" />
           </div>
         </div>
       </section>
@@ -207,9 +297,11 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
       <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-10">
           <h2 className="text-xs font-bold text-emerald-700 uppercase tracking-widest mb-2">
-            Questions & Answers
+            Questions &amp; Answers
           </h2>
-          <h3 className="text-3xl font-extrabold text-slate-900">Frequently Asked Questions</h3>
+          <h3 className="text-3xl font-extrabold text-slate-900">
+            {content.faqTitle || 'Frequently Asked Questions'}
+          </h3>
         </div>
 
         <div className="space-y-3">
@@ -220,7 +312,7 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
             >
               <button
                 onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                className="w-full text-left px-6 py-4 flex items-center justify-between text-slate-900 font-bold text-sm hover:text-emerald-700"
+                className="w-full text-left px-6 py-4 flex items-center justify-between text-slate-900 font-bold text-sm hover:text-emerald-700 cursor-pointer"
               >
                 <span>{faq.q}</span>
                 <ChevronRight
@@ -239,62 +331,113 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
         </div>
       </section>
 
-      {/* Verified Corporate Documents & Licenses (Section 2.1) */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-10 space-y-2">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-700">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Verified Transparency & Governance
+      {/* Verified Corporate Documents & Licenses */}
+      {documents.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-10 space-y-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-700">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Verified Transparency &amp; Governance
+            </div>
+            <h3 className="text-3xl font-extrabold text-slate-900">
+              Company Credentials &amp; Regulatory Licenses
+            </h3>
           </div>
-          <h3 className="text-3xl font-extrabold text-slate-900">
-            Company Credentials & Regulatory Licenses
-          </h3>
-          <p className="text-xs text-slate-500 max-w-2xl mx-auto">
-            Official commercial registrations, certified digital media advertising authorizations, and independent double-entry ledger audit reports.
-          </p>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {documents.map((doc) => (
-            <div
-              key={doc.id}
-              className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4"
-            >
-              <div className="space-y-3">
-                <div className="w-10 h-10 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700">
-                  <FileText className="w-5 h-5 text-emerald-600" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-extrabold text-slate-900">{doc.title}</h4>
-                  <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">
-                    {doc.description || 'Official verified platform document.'}
-                  </p>
-                </div>
-
-                <div className="pt-3 border-t border-slate-100 text-[10px] space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Authority:</span>
-                    <span className="font-semibold text-slate-700">{doc.issuingAuthority || 'Corporate Registry'}</span>
-                  </div>
-                  {doc.licenseNumber && (
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">License/Reg #:</span>
-                      <span className="font-mono font-bold text-emerald-700">{doc.licenseNumber}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setSelectedDoc(doc)}
-                className="w-full py-2.5 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {documents.map((doc) => (
+              <div
+                key={doc.id}
+                className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4"
               >
-                <Eye className="w-3.5 h-3.5 text-slate-500" />
-                <span>Inspect Document</span>
+                <div className="space-y-3">
+                  <div className="w-10 h-10 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700">
+                    <FileText className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-slate-900">{doc.title}</h4>
+                    <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">
+                      {doc.description || 'Official verified U-Ads platform document.'}
+                    </p>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100 text-[10px] space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Authority:</span>
+                      <span className="font-semibold text-slate-700">{doc.issuingAuthority || 'Corporate Registry'}</span>
+                    </div>
+                    {doc.licenseNumber && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">License/Reg #:</span>
+                        <span className="font-mono font-bold text-emerald-700">{doc.licenseNumber}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedDoc(doc)}
+                  className="w-full py-2.5 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Inspect Document</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Contact & Customer Support Section */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="p-8 sm:p-10 rounded-3xl bg-slate-900 text-white shadow-xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+          <div className="lg:col-span-7 space-y-3">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-emerald-400">
+              24/7 Customer Support
+            </span>
+            <h3 className="text-2xl sm:text-3xl font-extrabold">
+              Need assistance with deposits, packages, or your account?
+            </h3>
+            <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
+              Our U-Ads AI Assistant and dedicated human Support Specialists are available to help with USD deposit verification, withdrawals, and account level upgrades.
+            </p>
+            <div className="pt-2 flex flex-wrap gap-3">
+              <button
+                onClick={() => navigate('login')}
+                className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Sign In for Live Support Chat
               </button>
             </div>
-          ))}
+          </div>
+
+          <div className="lg:col-span-5 grid grid-cols-1 gap-3 text-xs">
+            <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-center gap-3">
+              <Mail className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div>
+                <div className="text-[10px] uppercase text-slate-400 font-bold">Support Email</div>
+                <div className="font-semibold text-white">{content.contactEmail || 'support@u-ads.com'}</div>
+              </div>
+            </div>
+            <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-center gap-3">
+              <Phone className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div>
+                <div className="text-[10px] uppercase text-slate-400 font-bold">Support Desk</div>
+                <div className="font-semibold text-white">{content.contactPhone || '+1 (800) 555-0199'}</div>
+              </div>
+            </div>
+            <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-center gap-3">
+              <Clock className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div>
+                <div className="text-[10px] uppercase text-slate-400 font-bold">Verification &amp; Hours</div>
+                <div className="font-semibold text-white">
+                  {content.contactHours || '24/7 Live Desk • Deposits verified in 10–30 min'}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -318,7 +461,8 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
             </div>
 
             <div className="rounded-2xl border border-slate-200 overflow-hidden bg-slate-100 flex items-center justify-center min-h-[260px]">
-              {selectedDoc.fileUrl?.startsWith('data:application/pdf') || selectedDoc.fileUrl?.toLowerCase().includes('.pdf') ? (
+              {selectedDoc.fileUrl?.startsWith('data:application/pdf') ||
+              selectedDoc.fileUrl?.toLowerCase().includes('.pdf') ? (
                 <iframe
                   src={selectedDoc.fileUrl}
                   title={selectedDoc.title}

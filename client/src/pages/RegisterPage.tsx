@@ -54,7 +54,7 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
         </div>
         <h1 className="text-2xl font-extrabold text-slate-900">Create Your Account</h1>
         <p className="text-xs text-slate-500">
-          Join VistaraX to stream masterclasses and manage your audited dual-currency wallet.
+          Join U-Ads to stream masterclasses and manage your audited USD wallet.
         </p>
       </div>
 
@@ -134,7 +134,7 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
             <Tag className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="e.g. VISTARA-DEMO"
+              placeholder="e.g. UADS-DEMO"
               value={referralCode}
               onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500 font-mono"

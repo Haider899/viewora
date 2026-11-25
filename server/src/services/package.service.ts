@@ -1,5 +1,7 @@
 import prisma from '../lib/prisma.js';
 import { LedgerService } from './ledger.service.js';
+import { NotificationService } from './notification.service.js';
+import { AccountLevelService } from './accountLevel.service.js';
 import { AccountType, Currency, EntryType, LedgerTransactionType } from '../types/index.js';
 import { ReferralService } from './referral.service.js';
 
@@ -34,10 +36,9 @@ export class PackageService {
   }
 
   /**
-   * Purchase a package using user's wallet available balance.
-   * Atomically executes double-entry ledger debit & credit, snapshots terms, and generates net revenue event.
+   * Purchase a package using user's USD Main Account balance.
    */
-  static async purchasePackageWithWallet(userId: string, packageId: string, payCurrency: string = 'USD') {
+  static async purchasePackageWithWallet(userId: string, packageId: string) {
     const pkg = await prisma.package.findUnique({
       where: { id: packageId },
     });
@@ -46,20 +47,10 @@ export class PackageService {
       throw { statusCode: 400, code: 'PACKAGE_UNAVAILABLE', message: 'The requested package is inactive or not found.' };
     }
 
-    // Determine exchange rate for PKR conversions
-    let exchangeRate = 280;
-    const rateSetting = await prisma.systemSetting.findUnique({ where: { key: 'EXCHANGE_RATE_USD_PKR' } });
-    if (rateSetting && !isNaN(parseFloat(rateSetting.value))) {
-      exchangeRate = parseFloat(rateSetting.value);
-    }
+    const chosenCurrency = Currency.USD;
+    const amountToDeductCents = pkg.priceCents;
 
-    const chosenCurrency = (payCurrency === 'PKR' ? 'PKR' : 'USD') as Currency;
-    const amountToDeductCents = chosenCurrency === 'PKR'
-      ? Math.round((pkg.priceCents * exchangeRate) / 100) * 100
-      : pkg.priceCents;
-
-    return await prisma.$transaction(async (tx) => {
-      // 1. Get or create user wallet account
+    const purchase = await prisma.$transaction(async (tx) => {
       const userAccount = await LedgerService.getOrCreateAccount(
         tx,
         AccountType.USER_AVAILABLE,
@@ -71,11 +62,10 @@ export class PackageService {
         throw {
           statusCode: 400,
           code: 'INSUFFICIENT_FUNDS',
-          message: `Insufficient ${chosenCurrency} balance. Required: ${(amountToDeductCents / 100).toLocaleString()} ${chosenCurrency}, Available: ${(userAccount.balanceCents / 100).toLocaleString()} ${chosenCurrency}.`,
+          message: `Insufficient USD balance. Required: $${(amountToDeductCents / 100).toFixed(2)} USD, Available: $${(userAccount.balanceCents / 100).toFixed(2)} USD.`,
         };
       }
 
-      // 2. Get system revenue account
       const systemRevAccount = await LedgerService.getOrCreateAccount(
         tx,
         AccountType.SYSTEM_REVENUE_PACKAGES,
@@ -83,14 +73,13 @@ export class PackageService {
         null
       );
 
-      // 3. Post double-entry transaction
       const reference = `PKG-BUY-${userId.slice(0, 8)}-${pkg.id.slice(0, 8)}-${Date.now()}`;
       await LedgerService.postTransaction(
         {
           reference,
           transactionType: LedgerTransactionType.PACKAGE_PURCHASE,
           currency: chosenCurrency,
-          description: `Package purchase: ${pkg.name} (${chosenCurrency === 'PKR' ? `${(amountToDeductCents / 100).toLocaleString()} PKR` : `$${(pkg.priceCents / 100).toFixed(2)} USD`})`,
+          description: `Package purchase: ${pkg.name} ($${(pkg.priceCents / 100).toFixed(2)} USD)`,
           entries: [
             {
               accountId: userAccount.id,
@@ -107,8 +96,7 @@ export class PackageService {
         tx
       );
 
-      // 4. Create immutable PackagePurchase with historical terms
-      const purchase = await tx.packagePurchase.create({
+      const newPurchase = await tx.packagePurchase.create({
         data: {
           userId,
           packageId: pkg.id,
@@ -120,16 +108,14 @@ export class PackageService {
         },
       });
 
-      // 5. Create Revenue Event for verified net revenue linkage
       const revenueEvent = await tx.revenueEvent.create({
         data: {
-          sourcePurchaseId: purchase.id,
+          sourcePurchaseId: newPurchase.id,
           amountCents: amountToDeductCents,
           currency: chosenCurrency,
         },
       });
 
-      // 6. Process referral commission if applicable
       await ReferralService.processCommissionForRevenueEvent(
         userId,
         revenueEvent.id,
@@ -138,35 +124,59 @@ export class PackageService {
         tx
       );
 
-      return purchase;
+      return newPurchase;
     });
+
+    await NotificationService.send({
+      userId,
+      eventKey: 'rewardCredited',
+      title: `${pkg.name} Plan Activated`,
+      message: `Your ${pkg.name} access plan ($${(pkg.priceCents / 100).toFixed(2)} USD) is now active! You can access up to ${pkg.videoLimit} videos.`,
+      type: 'SUCCESS',
+    });
+
+    await AccountLevelService.calculateAndUpdateUserLevel(userId).catch(() => {});
+
+    return purchase;
   }
 
-  // Admin package management
-  static async createPackage(data: {
+  // Admin package CRUD management
+  static async createPackage(adminId: string, data: {
     name: string;
     priceCents: number;
-    currency?: string;
     videoLimit: number;
     description?: string;
     badge?: string;
-    features: string[];
+    features?: string[];
+    isActive?: boolean;
   }) {
-    return await prisma.package.create({
+    const created = await prisma.package.create({
       data: {
-        name: data.name,
+        name: data.name.trim(),
         priceCents: data.priceCents,
-        currency: data.currency || 'USD',
+        currency: 'USD',
         videoLimit: data.videoLimit,
-        description: data.description,
-        badge: data.badge,
-        features: JSON.stringify(data.features),
-        isActive: true,
+        description: data.description || '',
+        badge: data.badge || null,
+        features: JSON.stringify(data.features || []),
+        isActive: data.isActive !== undefined ? data.isActive : true,
       },
     });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'CREATE_PACKAGE',
+        resourceType: 'Package',
+        resourceId: created.id,
+        details: JSON.stringify({ name: created.name, priceCents: created.priceCents, videoLimit: created.videoLimit }),
+      },
+    });
+
+    return created;
   }
 
-  static async updatePackage(id: string, data: Partial<{
+  static async updatePackage(adminId: string, id: string, data: Partial<{
     name: string;
     priceCents: number;
     videoLimit: number;
@@ -175,13 +185,55 @@ export class PackageService {
     features: string[];
     isActive: boolean;
   }>) {
-    const updateData: any = { ...data };
-    if (data.features) {
+    const updateData: any = { ...data, currency: 'USD' };
+    if (Array.isArray(data.features)) {
       updateData.features = JSON.stringify(data.features);
     }
-    return await prisma.package.update({
+
+    const updated = await prisma.package.update({
       where: { id },
       data: updateData,
     });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'UPDATE_PACKAGE',
+        resourceType: 'Package',
+        resourceId: id,
+        details: JSON.stringify(data),
+      },
+    });
+
+    return updated;
+  }
+
+  static async deletePackage(adminId: string, id: string) {
+    const purchaseCount = await prisma.packagePurchase.count({ where: { packageId: id } });
+    if (purchaseCount > 0) {
+      const deactivated = await prisma.package.update({ where: { id }, data: { isActive: false } });
+      await prisma.auditLog.create({
+        data: {
+          userId: adminId,
+          action: 'DEACTIVATE_PACKAGE',
+          resourceType: 'Package',
+          resourceId: id,
+          details: JSON.stringify({ reason: 'Existing purchases present; deactivated.' }),
+        },
+      });
+      return deactivated;
+    }
+
+    const deleted = await prisma.package.delete({ where: { id } });
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'DELETE_PACKAGE',
+        resourceType: 'Package',
+        resourceId: id,
+        details: JSON.stringify({ name: deleted.name }),
+      },
+    });
+    return deleted;
   }
 }

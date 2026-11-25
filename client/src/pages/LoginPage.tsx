@@ -85,7 +85,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
         <p className="text-xs text-slate-500">
           {isAdminPortal
             ? 'Restricted access portal for certified system managers and moderators.'
-            : 'Sign in to access your video catalog, dual-currency wallet, and referral network.'}
+            : 'Sign in to access your video catalog, USD wallets, and referral network.'}
         </p>
       </div>
 
@@ -104,7 +104,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
               placeholder={
                 isAdminPortal
                   ? 'admin@innovative.online'
-                  : 'user@vistarax.com'
+                  : 'user@u-ads.com'
               }
               value={email}
               onChange={(e) => setEmail(e.target.value)}

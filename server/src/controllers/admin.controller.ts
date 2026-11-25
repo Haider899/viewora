@@ -10,7 +10,7 @@ export const reviewDepositSchema = z.object({
 });
 
 export const reviewWithdrawalSchema = z.object({
-  action: z.enum(['APPROVE', 'REJECT', 'COMPLETE']),
+  action: z.enum(['UNDER_REVIEW', 'APPROVE', 'PROCESSING', 'PAID', 'COMPLETE', 'REJECT', 'FAILED']),
   payoutRef: z.string().optional(),
   rejectionReason: z.string().optional(),
 });
@@ -179,6 +179,19 @@ export class AdminController {
     }
   }
 
+  static async createPaymentMethod(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await PaymentService.createPaymentMethod(req.user!.userId, req.body);
+      res.status(201).json({
+        success: true,
+        data: result,
+        message: 'Payment channel created successfully.',
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   static async updatePaymentMethod(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await PaymentService.updatePaymentMethod(
@@ -196,10 +209,26 @@ export class AdminController {
     }
   }
 
+  static async deletePaymentMethod(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await PaymentService.deletePaymentMethod(req.user!.userId, req.params.id);
+      res.json({
+        success: true,
+        data: result,
+        message: 'Payment channel removed/deactivated successfully.',
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   static async getAuditLogs(req: Request, res: Response, next: NextFunction) {
     try {
       const page = req.query.page ? parseInt(req.query.page as string) : 1;
-      const logs = await AdminService.getAuditLogs(page);
+      const pageSize = req.query.pageSize ? parseInt(req.query.pageSize as string) : 50;
+      const action = req.query.action as string | undefined;
+      const search = req.query.search as string | undefined;
+      const logs = await AdminService.getAuditLogs(page, pageSize, action, search);
       res.json({
         success: true,
         data: logs,

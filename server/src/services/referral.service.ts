@@ -2,13 +2,49 @@ import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { LedgerService } from './ledger.service.js';
+import { NotificationService } from './notification.service.js';
+import { DEFAULT_REFERRAL_CONFIG } from './bootstrap.service.js';
 import { AccountType, Currency, EntryType, LedgerTransactionType } from '../types/index.js';
 
 export class ReferralService {
+  static async getReferralConfig() {
+    const row = await prisma.systemSetting.findUnique({ where: { key: 'REFERRAL_CONFIG' } });
+    if (!row) return DEFAULT_REFERRAL_CONFIG;
+    try {
+      return { ...DEFAULT_REFERRAL_CONFIG, ...JSON.parse(row.value) };
+    } catch {
+      return DEFAULT_REFERRAL_CONFIG;
+    }
+  }
+
+  static async updateReferralConfig(adminId: string, config: any) {
+    const merged = { ...(await this.getReferralConfig()), ...config };
+    await prisma.systemSetting.upsert({
+      where: { key: 'REFERRAL_CONFIG' },
+      update: { value: JSON.stringify(merged), updatedAt: new Date() },
+      create: {
+        key: 'REFERRAL_CONFIG',
+        value: JSON.stringify(merged),
+        description: 'Configurable referral rank ranges, position commission rates, milestones, and minimum qualifying transaction USD',
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'UPDATE_REFERRAL_CONFIG',
+        resourceType: 'SystemSetting',
+        resourceId: 'REFERRAL_CONFIG',
+        details: JSON.stringify(merged),
+      },
+    });
+
+    return merged;
+  }
+
   /**
-   * Processes referral commission for an eligible net revenue event (package purchase).
-   * Strict Rule: Never called on pure deposits!
-   * Funds are routed directly into the referrer's dedicated USER_REFERRAL wallet.
+   * Processes referral commission ONLY on the referred user's FIRST qualifying transaction.
+   * Uses dynamic rates and minimum qualifying USD from REFERRAL_CONFIG.
    */
   static async processCommissionForRevenueEvent(
     sourceUserId: string,
@@ -21,21 +57,44 @@ export class ReferralService {
       return null;
     }
 
-    // Find if user was referred by someone
+    const bonusSetting = await tx.systemSetting.findUnique({ where: { key: 'BONUS_SETTINGS' } });
+    if (bonusSetting) {
+      try {
+        const parsed = JSON.parse(bonusSetting.value);
+        if (parsed?.referralBonus?.enabled === false) {
+          return null;
+        }
+      } catch {}
+    }
+
+    const config = await this.getReferralConfig();
+    const minQualifyingCents = Math.round((config.minQualifyingUSD || 20) * 100);
+
+    if (netRevenueCents < minQualifyingCents) {
+      return null;
+    }
+
     const sourceUser = await tx.user.findUnique({
       where: { id: sourceUserId },
       include: { referredBy: true },
     });
 
     if (!sourceUser || !sourceUser.referredById || !sourceUser.referredBy) {
-      return null; // Not referred
+      return null;
     }
 
     const beneficiary = sourceUser.referredBy;
 
-    // Strict Anti-Fraud Guardrails
     if (beneficiary.id === sourceUserId) {
       console.warn(`[Referral Anti-Fraud] Blocked self-referral for user ${sourceUserId}`);
+      return null;
+    }
+
+    // Strict Documentation Rule: Commission applies ONLY on the referred user's FIRST qualifying transaction
+    const priorCommissionForSourceUser = await tx.referralCommission.count({
+      where: { sourceUserId },
+    });
+    if (priorCommissionForSourceUser > 0) {
       return null;
     }
 
@@ -45,46 +104,38 @@ export class ReferralService {
       data: { isQualifiedReferral: true },
     });
 
-    // Check duplicate commission for this revenue event (strict one-time check)
-    const existingCommission = await tx.referralCommission.findFirst({
-      where: { revenueEventId, beneficiaryId: beneficiary.id },
-    });
-    if (existingCommission) {
-      console.warn(`[Referral Anti-Fraud] Duplicate commission prevented for revenue event ${revenueEventId}`);
-      return null;
-    }
-
-    // Position-based tiered rates as per Section 8:
-    // 1st Referral = 5%, 2nd = 7%, 3rd = 10%, 4th = 12%, 5th+ = 15%
+    // Determine position for beneficiary
     const priorDirectCount = await tx.referralCommission.count({
       where: { beneficiaryId: beneficiary.id },
     });
     const position = priorDirectCount + 1;
-    let ratePercent = 5.0;
-    if (position === 1) ratePercent = 5.0;
-    else if (position === 2) ratePercent = 7.0;
-    else if (position === 3) ratePercent = 10.0;
-    else if (position === 4) ratePercent = 12.0;
-    else ratePercent = 15.0;
 
-    // Calculate commission in minor units (integer cents)
+    const rates = config.commissionRates || DEFAULT_REFERRAL_CONFIG.commissionRates;
+    let ratePercent = Number(rates.pos1 ?? 5);
+    if (position === 1) ratePercent = Number(rates.pos1 ?? 5);
+    else if (position === 2) ratePercent = Number(rates.pos2 ?? 7);
+    else if (position === 3) ratePercent = Number(rates.pos3 ?? 10);
+    else if (position === 4) ratePercent = Number(rates.pos4 ?? 12);
+    else if (position === 5) ratePercent = Number(rates.pos5 ?? 15);
+    else if (position <= 10) ratePercent = Number(rates.range6to10 ?? 15);
+    else if (position <= 100) ratePercent = Number(rates.range11to100 ?? 15);
+    else if (position <= 500) ratePercent = Number(rates.range101to500 ?? 15);
+    else ratePercent = Number(rates.range501Plus ?? 15);
+
     const commissionCents = Math.floor((netRevenueCents * ratePercent) / 100);
     if (commissionCents <= 0) return null;
 
-    // Post Double-Entry Ledger Credit to Referrer's Dedicated Referral Wallet (USER_REFERRAL)
-    // Debit: SYSTEM_EXPENSE_REFERRALS
-    // Credit: USER_REFERRAL (Beneficiary)
     const beneficiaryAccount = await LedgerService.getOrCreateAccount(
       tx,
       AccountType.USER_REFERRAL,
-      currency,
+      Currency.USD,
       beneficiary.id
     );
 
     const sysExpenseAccount = await LedgerService.getOrCreateAccount(
       tx,
       AccountType.SYSTEM_EXPENSE_REFERRALS,
-      currency,
+      Currency.USD,
       null
     );
 
@@ -93,8 +144,8 @@ export class ReferralService {
       {
         reference: ref,
         transactionType: LedgerTransactionType.REFERRAL_COMMISSION,
-        currency,
-        description: `Position #${position} Referral Commission (${ratePercent}%) from purchase by ${sourceUser.fullName}`,
+        currency: Currency.USD,
+        description: `Position #${position} Referral Commission (${ratePercent}%) on first qualifying transaction by ${sourceUser.fullName}`,
         entries: [
           {
             accountId: sysExpenseAccount.id,
@@ -111,100 +162,96 @@ export class ReferralService {
       tx
     );
 
-    // Record commission entry
     const commission = await tx.referralCommission.create({
       data: {
         beneficiaryId: beneficiary.id,
         sourceUserId: sourceUser.id,
         revenueEventId,
         commissionCents,
-        currency,
+        currency: 'USD',
         ratePercent,
         status: 'CREDITED',
         ledgerTxId: ledgerTx.id,
       },
     });
 
-    // Notify beneficiary
     await tx.notification.create({
       data: {
         userId: beneficiary.id,
-        title: 'Referral Commission Credited',
-        message: `You earned ${(commissionCents / 100).toFixed(2)} ${currency} (Tier rate ${ratePercent}%) directly into your Referral Wallet from ${sourceUser.fullName}.`,
+        title: 'Referral Qualified & Commission Credited',
+        message: `${sourceUser.fullName} completed their first qualifying transaction! +$${(commissionCents / 100).toFixed(2)} USD (${ratePercent}%) credited to your Referral Wallet.`,
         type: 'SUCCESS',
       },
     });
 
-    // Check and trigger Milestone Rewards (Section 7.2)
-    await this.checkAndAwardMilestones(beneficiary.id, currency, tx);
+    await this.checkAndAwardMilestones(beneficiary.id, Currency.USD, tx, config);
 
     return commission;
   }
 
   /**
-   * Checks and awards one-time milestone rewards upon reaching qualified referral thresholds:
-   * Gold (5) = $20, Platinum (10) = $100, Diamond (100) = $500
+   * Awards one-time milestone rewards dynamically based on REFERRAL_CONFIG
    */
   static async checkAndAwardMilestones(
     beneficiaryId: string,
     currency: Currency,
-    tx: Prisma.TransactionClient
+    tx: Prisma.TransactionClient,
+    passedConfig?: any
   ) {
+    const config = passedConfig || (await this.getReferralConfig());
     const qualifiedCount = await tx.user.count({
       where: { referredById: beneficiaryId, isQualifiedReferral: true },
     });
 
-    const milestones = [
-      { rank: 'GOLD', count: 5, rewardCents: 2000, desc: 'Gold Milestone Reward (5 Qualified Referrals)' },
-      { rank: 'PLATINUM', count: 10, rewardCents: 10000, desc: 'Platinum Milestone Reward (10 Qualified Referrals)' },
-      { rank: 'DIAMOND', count: 100, rewardCents: 50000, desc: 'Diamond Milestone Reward (100 Qualified Referrals)' },
-    ];
+    const ranks = config.ranks || DEFAULT_REFERRAL_CONFIG.ranks;
+    for (const r of ranks) {
+      if (!r.milestoneAt || r.milestoneAt <= 0 || !r.milestoneRewardUSD || r.milestoneRewardUSD <= 0) {
+        continue;
+      }
 
-    for (const m of milestones) {
-      if (qualifiedCount >= m.count) {
-        // Check if already claimed
+      if (qualifiedCount >= r.milestoneAt) {
         const existingClaim = await tx.referralMilestoneClaim.findUnique({
           where: {
             userId_rankName: {
               userId: beneficiaryId,
-              rankName: m.rank,
+              rankName: r.key,
             },
           },
         });
 
         if (!existingClaim) {
-          // Post double-entry credit to USER_REFERRAL
+          const rewardCents = Math.round(r.milestoneRewardUSD * 100);
           const beneficiaryAccount = await LedgerService.getOrCreateAccount(
             tx,
             AccountType.USER_REFERRAL,
-            currency,
+            Currency.USD,
             beneficiaryId
           );
 
           const sysExpenseAccount = await LedgerService.getOrCreateAccount(
             tx,
             AccountType.SYSTEM_EXPENSE_REFERRALS,
-            currency,
+            Currency.USD,
             null
           );
 
-          const ref = `MILESTONE-${m.rank}-${beneficiaryId.slice(0, 8)}-${Date.now()}`;
+          const ref = `MILESTONE-${r.key}-${beneficiaryId.slice(0, 8)}-${Date.now()}`;
           const ledgerTx = await LedgerService.postTransaction(
             {
               reference: ref,
               transactionType: LedgerTransactionType.MILESTONE_REWARD,
-              currency,
-              description: m.desc,
+              currency: Currency.USD,
+              description: `${r.name} Milestone Reward (${r.milestoneAt} Qualified Referrals)`,
               entries: [
                 {
                   accountId: sysExpenseAccount.id,
                   entryType: EntryType.DEBIT,
-                  amountCents: m.rewardCents,
+                  amountCents: rewardCents,
                 },
                 {
                   accountId: beneficiaryAccount.id,
                   entryType: EntryType.CREDIT,
-                  amountCents: m.rewardCents,
+                  amountCents: rewardCents,
                 },
               ],
             },
@@ -214,10 +261,10 @@ export class ReferralService {
           await tx.referralMilestoneClaim.create({
             data: {
               userId: beneficiaryId,
-              rankName: m.rank,
-              qualifiedCount: m.count,
-              rewardAmountCents: m.rewardCents,
-              currency: currency as string,
+              rankName: r.key,
+              qualifiedCount: r.milestoneAt,
+              rewardAmountCents: rewardCents,
+              currency: 'USD',
               ledgerTxId: ledgerTx.id,
             },
           });
@@ -225,8 +272,8 @@ export class ReferralService {
           await tx.notification.create({
             data: {
               userId: beneficiaryId,
-              title: `🎉 ${m.rank} Milestone Unlocked!`,
-              message: `Congratulations! You unlocked ${m.rank} rank with ${qualifiedCount} qualified referrals. A reward of $${(m.rewardCents / 100).toFixed(2)} has been credited to your Referral Wallet.`,
+              title: `🎉 ${r.name} Rank & Milestone Reward Unlocked!`,
+              message: `Congratulations! You reached ${r.name} (${qualifiedCount} qualified referrals) and earned a one-time +$${r.milestoneRewardUSD.toFixed(2)} USD bonus in your Referral Wallet.`,
               type: 'SUCCESS',
             },
           });
@@ -235,15 +282,12 @@ export class ReferralService {
     }
   }
 
-  /**
-   * Option B: Transfer from Referral Wallet to Main Account Credits (Section 9)
-   */
   static async transferReferralToMainBalance(userId: string, amountCents: number) {
     if (!Number.isInteger(amountCents) || amountCents <= 0) {
       throw new Error('Transfer amount must be a positive integer in cents.');
     }
 
-    return await prisma.$transaction(async (tx) => {
+    const res = await prisma.$transaction(async (tx) => {
       const referralAccount = await LedgerService.getOrCreateAccount(
         tx,
         AccountType.USER_REFERRAL,
@@ -271,7 +315,7 @@ export class ReferralService {
           reference: ref,
           transactionType: LedgerTransactionType.REFERRAL_CONVERT,
           currency: Currency.USD,
-          description: `Transferred $${(amountCents / 100).toFixed(2)} from Referral Wallet into Main Account Credits`,
+          description: `Transferred $${(amountCents / 100).toFixed(2)} USD from Referral Wallet into Main Account`,
           postedById: userId,
           entries: [
             {
@@ -304,15 +348,6 @@ export class ReferralService {
         },
       });
 
-      await tx.notification.create({
-        data: {
-          userId,
-          title: 'Referral Balance Converted',
-          message: `Successfully transferred $${(amountCents / 100).toFixed(2)} from your Referral Wallet into Main Account Credits.`,
-          type: 'SUCCESS',
-        },
-      });
-
       return {
         success: true,
         transferredCents: amountCents,
@@ -321,12 +356,20 @@ export class ReferralService {
         reference: ref,
       };
     });
+
+    await NotificationService.send({
+      userId,
+      eventKey: 'rewardCredited',
+      title: 'Referral Balance Transferred',
+      message: `Successfully transferred $${(amountCents / 100).toFixed(2)} USD from your Referral Wallet into your Main Account.`,
+      type: 'SUCCESS',
+    });
+
+    return res;
   }
 
-  /**
-   * Retrieves user referral rank, progress, and milestone details (Section 7)
-   */
   static async getReferralRankAndProgress(userId: string) {
+    const config = await this.getReferralConfig();
     const totalReferrals = await prisma.user.count({
       where: { referredById: userId },
     });
@@ -335,37 +378,22 @@ export class ReferralService {
       where: { referredById: userId, isQualifiedReferral: true },
     });
 
-    let currentRank = 'New';
-    let nextRank = 'Gold';
-    let targetQualified = 5;
-    let nextRewardUSD = 20;
-
-    if (qualifiedReferrals >= 501) {
-      currentRank = 'Rank 5';
-      nextRank = 'Maximum Rank';
-      targetQualified = 10000;
-      nextRewardUSD = 0;
-    } else if (qualifiedReferrals >= 101) {
-      currentRank = 'Rank 4';
-      nextRank = 'Rank 5';
-      targetQualified = 501;
-      nextRewardUSD = 1000;
-    } else if (qualifiedReferrals >= 11) {
-      currentRank = 'Diamond';
-      nextRank = 'Rank 4';
-      targetQualified = 101;
-      nextRewardUSD = 500;
-    } else if (qualifiedReferrals >= 6) {
-      currentRank = 'Platinum';
-      nextRank = 'Diamond';
-      targetQualified = 11;
-      nextRewardUSD = 200;
-    } else if (qualifiedReferrals >= 1) {
-      currentRank = 'Gold';
-      nextRank = 'Platinum';
-      targetQualified = 6;
-      nextRewardUSD = 100;
+    const ranks: Array<any> = config.ranks || DEFAULT_REFERRAL_CONFIG.ranks;
+    let currentRankObj = ranks[0];
+    for (const r of ranks) {
+      if (qualifiedReferrals >= r.minQualified) {
+        currentRankObj = r;
+      }
     }
+
+    const nextMilestoneRank = ranks.find((r) => r.milestoneAt > qualifiedCountForTarget(qualifiedReferrals, ranks));
+    function qualifiedCountForTarget(q: number, _list: any[]) {
+      return q;
+    }
+
+    const targetRank = ranks.find((r) => r.milestoneAt > 0 && qualifiedReferrals < r.milestoneAt) || ranks[ranks.length - 1];
+    const targetQualified = targetRank?.milestoneAt || currentRankObj?.maxQualified || 10000;
+    const nextRewardUSD = targetRank && qualifiedReferrals < targetRank.milestoneAt ? targetRank.milestoneRewardUSD : 0;
 
     const milestoneClaims = await prisma.referralMilestoneClaim.findMany({
       where: { userId },
@@ -373,14 +401,15 @@ export class ReferralService {
     });
 
     return {
-      currentRank,
-      nextRank,
+      currentRank: currentRankObj?.name || 'New',
+      nextRank: nextMilestoneRank?.name || targetRank?.name || 'Maximum Rank',
       totalReferrals,
       qualifiedReferrals,
       targetQualified,
       remainingToNext: Math.max(0, targetQualified - qualifiedReferrals),
       nextRewardUSD,
       milestoneClaims,
+      config,
     };
   }
 
@@ -430,12 +459,13 @@ export class ReferralService {
 
     return {
       referralCode: user.referralCode,
-      referralLink: `${env.CORS_ORIGIN}/register?ref=${user.referralCode}`,
+      referralLink: `${env.CORS_ORIGIN === '*' ? 'https://u-ads.com' : env.CORS_ORIGIN}/register?ref=${user.referralCode}`,
       totalReferrals,
       qualifiedReferrals,
       totalCommissionCents,
       currency: 'USD',
       rankProgress,
+      referralConfig: rankProgress.config,
       referrals: user.referrals.map((r) => ({
         id: r.id,
         fullName: r.fullName,
@@ -449,7 +479,7 @@ export class ReferralService {
         id: c.id,
         sourceUserName: c.sourceUser.fullName,
         commissionCents: c.commissionCents,
-        currency: c.currency,
+        currency: 'USD',
         ratePercent: c.ratePercent,
         createdAt: c.createdAt.toISOString(),
       })),

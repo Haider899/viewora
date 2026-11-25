@@ -33,12 +33,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshUser = async () => {
     try {
-      const token = localStorage.getItem('vistarax_token');
+      // Support both legacy 'vistarax_token' and new 'uads_token' storage keys
+      const token = localStorage.getItem('uads_token') || localStorage.getItem('vistarax_token');
       if (!token) {
         setUser(null);
         setWallet(null);
         setLoading(false);
         return;
+      }
+      // Migrate legacy token key
+      if (!localStorage.getItem('uads_token') && localStorage.getItem('vistarax_token')) {
+        localStorage.setItem('uads_token', localStorage.getItem('vistarax_token')!);
+        localStorage.removeItem('vistarax_token');
       }
 
       const res = await api.getCurrentUser();

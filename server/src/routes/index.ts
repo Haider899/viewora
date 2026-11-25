@@ -8,7 +8,9 @@ import withdrawalRoutes from './withdrawal.routes.js';
 import referralRoutes from './referral.routes.js';
 import adminRoutes from './admin.routes.js';
 import supportRoutes from './support.routes.js';
+import notificationRoutes from './notification.routes.js';
 import { CompanyDocumentService } from '../services/companyDocument.service.js';
+import { AdminService } from '../services/admin.service.js';
 
 const router = Router();
 
@@ -21,8 +23,9 @@ router.use('/withdrawals', withdrawalRoutes);
 router.use('/referrals', referralRoutes);
 router.use('/admin', adminRoutes);
 router.use('/support', supportRoutes);
+router.use('/notifications', notificationRoutes);
 
-// Public Verified Corporate Documents & Licenses (Section 2.1)
+// Public Verified Corporate Documents & Licenses
 router.get('/documents', async (req, res, next) => {
   try {
     const docs = await CompanyDocumentService.getPublicDocuments();
@@ -32,11 +35,21 @@ router.get('/documents', async (req, res, next) => {
   }
 });
 
+// Public Landing Page Content (Editable by Admin)
+router.get('/landing-content', async (req, res, next) => {
+  try {
+    const content = await AdminService.getLandingContent();
+    res.json({ success: true, data: content });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Health check endpoint
 router.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    service: 'VistaraX API',
+    service: 'U-Ads API',
     timestamp: new Date().toISOString(),
     uptimeSeconds: process.uptime(),
   });

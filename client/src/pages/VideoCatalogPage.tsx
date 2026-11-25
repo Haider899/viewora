@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import api from '../services/api.js';
 import { Video } from '../types/index.js';
 import {
@@ -7,7 +7,6 @@ import {
   Search,
   Clock,
   CheckCircle,
-  Filter,
   Sparkles,
   Layers,
 } from 'lucide-react';
@@ -18,19 +17,10 @@ interface VideoCatalogProps {
 
 export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
   const [videos, setVideos] = useState<Video[]>([]);
+  const [allCategories, setAllCategories] = useState<string[]>(['All']);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
-
-  const categories = [
-    'All',
-    'AI & Systems Architecture',
-    'Quantitative Finance & Ledgering',
-    'Full-Stack Software Engineering',
-    'Venture Creation & Scaling',
-    'Cybersecurity & Cryptography',
-    'Executive Leadership & Strategy',
-  ];
 
   const fetchVideos = async () => {
     setLoading(true);
@@ -40,8 +30,14 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
       if (searchQuery.trim()) params.search = searchQuery.trim();
 
       const res = await api.getVideos(params);
-      if (res.success && res.data) {
+      if (res.success && Array.isArray(res.data)) {
         setVideos(res.data);
+        if (selectedCategory === 'All' && !searchQuery.trim()) {
+          const cats = Array.from(
+            new Set(res.data.map((v: Video) => v.category).filter(Boolean))
+          ) as string[];
+          setAllCategories(['All', ...cats]);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch videos:', err);
@@ -60,10 +56,17 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
   };
 
   const formatDuration = (seconds: number) => {
+    if (!seconds || seconds <= 0) return 'Auto';
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
+    if (mins === 0) return `${secs}s`;
     return `${mins}m ${secs > 0 ? secs + 's' : ''}`;
   };
+
+  const categories = useMemo(
+    () => (allCategories.length > 1 ? allCategories : ['All', 'Featured Campaigns', 'Brand Showcase', 'Product Spotlight', 'Special Assignment']),
+    [allCategories]
+  );
 
   return (
     <div className="space-y-8">
@@ -71,13 +74,13 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-slate-100">
         <div className="space-y-1">
           <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest">
-            Curated Catalog
+            U-Ads Video Library
           </span>
           <h2 className="text-2xl font-extrabold text-slate-900">
-            60 Masterclasses & Workshops
+            Curated Video Campaigns ({videos.length})
           </h2>
           <p className="text-slate-500 text-xs max-w-xl">
-            Stream high-yield architectural masterclasses. Content tier access is authenticated against your active package limit.
+            Watch full verified videos without skipping to earn automatic USD credits in your Video Rewards Wallet.
           </p>
         </div>
 
@@ -87,7 +90,7 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search masterclasses..."
+              placeholder="Search videos..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition-colors"
@@ -131,7 +134,7 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
                 Exclusive Videos Assigned Directly to You
               </h3>
               <p className="text-[11px] text-slate-600">
-                The platform administrator has granted you custom access to the following video modules.
+                The U-Ads administrator has granted you direct access to the following video campaigns.
               </p>
             </div>
           </div>
@@ -185,7 +188,7 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
       ) : videos.length === 0 ? (
         <div className="text-center py-20 bg-slate-50 rounded-3xl border border-slate-200 space-y-4">
           <Layers className="w-10 h-10 text-slate-400 mx-auto" />
-          <h3 className="text-base font-bold text-slate-900">No Masterclasses Found</h3>
+          <h3 className="text-base font-bold text-slate-900">No Videos Found</h3>
           <p className="text-xs text-slate-500">Try adjusting your search criteria or category filter.</p>
         </div>
       ) : (
@@ -247,7 +250,7 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
                         Video Locked
                       </span>
                       <span className="text-[9px] text-slate-300 max-w-[190px] leading-tight">
-                        Requires Level Up or Qualifying Deposit to access
+                        Requires active USD package or qualifying Account Level to unlock
                       </span>
                     </div>
                   )}
@@ -256,7 +259,7 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
                   {video.isWatched && (
                     <div className="absolute bottom-2.5 right-3 text-[10px] font-bold text-emerald-300 flex items-center gap-1 bg-slate-900/90 px-2 py-0.5 rounded border border-emerald-500/40">
                       <CheckCircle className="w-3 h-3 text-emerald-400" />
-                      Watched
+                      Completed
                     </div>
                   )}
                 </div>
@@ -281,23 +284,22 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
                         onClick={() => navigate('player', { videoId: video.id })}
                         className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1"
                       >
-                        Launch Player
+                        Watch Video
                         <Play className="w-3 h-3 fill-current" />
                       </button>
                     ) : (
                       <button
-                        onClick={() => navigate('deposit')}
+                        onClick={() => navigate('packages')}
                         className="text-[11px] font-bold text-rose-700 hover:text-rose-800 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 transition-all hover:bg-rose-100"
-                        title="Deposit or Level Up to Unlock this video"
                       >
                         <Lock className="w-3.5 h-3.5 text-rose-500" />
-                        Unlock via Deposit
+                        Unlock via Package
                       </button>
                     )}
 
                     {video.rewardEligible && (
                       <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                        +${(video.rewardAmountCents / 100).toFixed(2)} Reward
+                        +${(video.rewardAmountCents / 100).toFixed(2)} USD
                       </span>
                     )}
                   </div>

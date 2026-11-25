@@ -4,10 +4,11 @@ import { WithdrawalService } from '../services/withdrawal.service.js';
 
 export const withdrawalRequestSchema = z.object({
   amountCents: z.number().int().positive(),
-  currency: z.enum(['USD', 'PKR']),
+  currency: z.enum(['USD', 'PKR']).optional(),
   payoutMethod: z.string().min(2),
   accountTitle: z.string().min(2),
   accountNumber: z.string().min(4),
+  sourceWallet: z.enum(['USER_AVAILABLE', 'USER_VIDEO_REWARDS', 'USER_REFERRAL', 'USER_OTHER_REWARDS']).optional(),
 });
 
 export class WithdrawalController {

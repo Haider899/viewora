@@ -5,6 +5,7 @@ import { VideoService } from '../services/video.service.js';
 export const heartbeatSchema = z.object({
   sessionToken: z.string().min(10),
   watchSeconds: z.number().int().nonnegative(),
+  actualDurationSeconds: z.number().nonnegative().optional(),
 });
 
 export const claimRewardSchema = z.object({
@@ -58,7 +59,8 @@ export class VideoController {
         req.user!.userId,
         req.params.id,
         req.body.sessionToken,
-        req.body.watchSeconds
+        req.body.watchSeconds,
+        req.body.actualDurationSeconds
       );
       res.json({
         success: true,

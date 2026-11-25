@@ -76,16 +76,16 @@ export class SupportService {
       },
     });
 
-    // Add initial greeting from Vistara AI Support Bot
+    // Add initial greeting from U-Ads AI Support Bot
     const welcome = await prisma.supportMessage.create({
       data: {
         conversationId: newConvo.id,
         senderType: 'BOT',
-        senderName: 'Vistara AI Assistant',
-        message: `👋 Welcome to **VistaraX Support**!
-Main aapki help karne ke liye 24/7 yahan mojood hoon.
+        senderName: 'U-Ads AI Assistant',
+        message: `👋 Welcome to **U-Ads Support**!
+I am available 24/7 to assist you with USD deposits, withdrawals, access plans, video rewards, and referrals.
 
-Aap mujh se Deposits, Withdrawals, Packages ya Rewards ke bare mein pooch sakte hain, ya **"Talk to Support Agent"** select karke live staff se rabta kar sakte hain.`,
+Ask a question below or select **"Talk to Agent"** to connect with a live support specialist.`,
       },
     });
 
@@ -179,7 +179,7 @@ Aap mujh se Deposits, Withdrawals, Packages ya Rewards ke bare mein pooch sakte 
         data: {
           conversationId: params.conversationId,
           senderType: 'BOT',
-          senderName: 'Vistara AI Assistant',
+          senderName: 'U-Ads AI Assistant',
           message: botResult.answer,
         },
       });
@@ -233,18 +233,18 @@ Aap mujh se Deposits, Withdrawals, Packages ya Rewards ke bare mein pooch sakte 
       data: {
         conversationId: params.conversationId,
         senderType: 'BOT',
-        senderName: 'Vistara AI Assistant',
+        senderName: 'U-Ads AI Assistant',
         message: `🔔 **Human Support Requested**:
-Aapki request Support Desk ko forward kardi gayi hai. Hamari team member abhi is chat ko dekh rahe hain aur foran reply karenge.
+Your request has been routed to our Support Desk queue. An available Support Agent will respond directly here shortly.
 
-Aap apna sawal ya receipt screenshot yahan attach kar ke share kar dein.`,
+Feel free to share your transaction reference or attach a screenshot.`,
       },
     });
 
-    // Find available support agents prioritizing ONLINE presence (least-loaded round-robin, max 10 agents)
-    let availableAgents = await prisma.user.findMany({
+    // Strict Rule: Automatically assign ONLY to active ONLINE Support Agents (least-loaded)
+    const availableAgents = await prisma.user.findMany({
       where: {
-        role: { in: ['SUPPORT_AGENT', 'SUPER_ADMIN'] },
+        role: 'SUPPORT_AGENT',
         status: 'ACTIVE',
         agentAvailability: 'ONLINE',
       },
@@ -255,23 +255,8 @@ Aap apna sawal ya receipt screenshot yahan attach kar ke share kar dein.`,
       },
     });
 
-    if (availableAgents.length === 0) {
-      availableAgents = await prisma.user.findMany({
-        where: {
-          role: { in: ['SUPPORT_AGENT', 'SUPER_ADMIN'] },
-          status: 'ACTIVE',
-        },
-        include: {
-          assignedSupportTickets: {
-            where: { status: { in: ['WAITING_FOR_AGENT', 'AGENT_ACTIVE'] } },
-          },
-        },
-      });
-    }
-
     let assignedAgentId = convo.assignedToId;
     if (!assignedAgentId && availableAgents.length > 0) {
-      // Sort ascending by active tickets count (least-loaded round-robin)
       availableAgents.sort((a, b) => a.assignedSupportTickets.length - b.assignedSupportTickets.length);
       assignedAgentId = availableAgents[0].id;
     }
@@ -395,12 +380,78 @@ Aap apna sawal ya receipt screenshot yahan attach kar ke share kar dein.`,
   // -------------------------------------------------------------
 
   /**
+   * Automatically reassigns WAITING_FOR_AGENT chats if assigned agent fails to respond within timeout
+   */
+  public static async reassignTimedOutChats() {
+    const timeoutSetting = await prisma.systemSetting.findUnique({ where: { key: 'SUPPORT_REASSIGN_TIMEOUT_SECONDS' } });
+    const timeoutSec = timeoutSetting && !isNaN(parseInt(timeoutSetting.value)) ? parseInt(timeoutSetting.value) : 180;
+    const cutoff = new Date(Date.now() - timeoutSec * 1000);
+
+    const staleChats = await prisma.supportConversation.findMany({
+      where: {
+        status: 'WAITING_FOR_AGENT',
+        assignedToId: { not: null },
+        lastMessageAt: { lt: cutoff },
+      },
+    });
+
+    if (staleChats.length === 0) return;
+
+    const onlineAgents = await prisma.user.findMany({
+      where: { role: 'SUPPORT_AGENT', status: 'ACTIVE', agentAvailability: 'ONLINE' },
+      include: {
+        assignedSupportTickets: {
+          where: { status: { in: ['WAITING_FOR_AGENT', 'AGENT_ACTIVE'] } },
+        },
+      },
+    });
+
+    for (const chat of staleChats) {
+      const candidates = onlineAgents.filter((a) => a.id !== chat.assignedToId);
+      if (candidates.length === 0) continue;
+
+      candidates.sort((a, b) => a.assignedSupportTickets.length - b.assignedSupportTickets.length);
+      const nextAgent = candidates[0];
+
+      await prisma.supportConversation.update({
+        where: { id: chat.id },
+        data: { assignedToId: nextAgent.id, lastMessageAt: new Date() },
+      });
+
+      await prisma.supportMessage.create({
+        data: {
+          conversationId: chat.id,
+          senderType: 'BOT',
+          senderName: 'System Router',
+          message: `🔄 Chat automatically reassigned to ${nextAgent.fullName} due to agent response timeout.`,
+        },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: chat.assignedToId,
+          action: 'SUPPORT_TIMEOUT_REASSIGNED',
+          resourceType: 'SupportConversation',
+          resourceId: chat.id,
+          details: JSON.stringify({
+            previousAgentId: chat.assignedToId,
+            newAgentId: nextAgent.id,
+            newAgentName: nextAgent.fullName,
+            timeoutSeconds: timeoutSec,
+          }),
+        },
+      }).catch(() => {});
+    }
+  }
+
+  /**
    * Admin lists all conversations with filtering and pagination
    */
   public static async adminGetConversations(filter?: {
     status?: string;
     search?: string;
   }) {
+    await this.reassignTimedOutChats().catch(() => {});
     const where: any = {};
 
     if (filter?.status && filter.status !== 'ALL') {
@@ -494,7 +545,18 @@ Aap apna sawal ya receipt screenshot yahan attach kar ke share kar dein.`,
       },
     });
 
-    // Audit Log for Agent Reply (Audio 2)
+    // Audit Log & User Notification for Agent Reply
+    if (convo.userId) {
+      await prisma.notification.create({
+        data: {
+          userId: convo.userId,
+          title: 'New Support Reply',
+          message: `${params.agentName || 'Support Agent'} replied to your live chat: "${params.message.slice(0, 80)}"`,
+          type: 'INFO',
+        },
+      }).catch(() => {});
+    }
+
     await prisma.auditLog.create({
       data: {
         userId: params.agentId,

@@ -10,22 +10,24 @@ import {
   Share2,
   ShieldAlert,
   Award,
-  Layers,
-  Sparkles,
   Zap,
   Target,
   Gift,
   GitBranch,
-  ShieldCheck,
-  UserCheck,
-  UserX,
   Clock,
-  ArrowRight,
 } from 'lucide-react';
 
 interface ReferralsProps {
   navigate?: (route: string) => void;
 }
+
+const DEFAULT_POSITIONS = [
+  { label: '1st Referral', ratePercent: 5, sub: 'Direct Rate' },
+  { label: '2nd Referral', ratePercent: 7, sub: 'Tier 2 Boost' },
+  { label: '3rd Referral', ratePercent: 10, sub: 'Tier 3 Boost' },
+  { label: '4th Referral', ratePercent: 12, sub: 'Tier 4 Boost' },
+  { label: '5th+ Referrals', ratePercent: 15, sub: 'Max Tier' },
+];
 
 export const ReferralsPage: React.FC<ReferralsProps> = () => {
   const { user } = useAuth();
@@ -82,6 +84,26 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
     }
   };
 
+  // Derive dynamic commission tiers from backend referralConfig if available
+  const dynamicPositions = (() => {
+    const cfg = data?.referralConfig;
+    if (cfg?.positionRates && Array.isArray(cfg.positionRates) && cfg.positionRates.length > 0) {
+      return cfg.positionRates.map((rate: number, idx: number) => ({
+        label: idx === cfg.positionRates.length - 1 ? `${idx + 1}th+ Referrals` : `${idx + 1}${idx === 0 ? 'st' : idx === 1 ? 'nd' : idx === 2 ? 'rd' : 'th'} Referral`,
+        ratePercent: rate,
+        sub: idx === cfg.positionRates.length - 1 ? 'Max Tier' : `Position #${idx + 1}`,
+      }));
+    }
+    if (cfg?.positions && Array.isArray(cfg.positions) && cfg.positions.length > 0) {
+      return cfg.positions.map((p: any, idx: number) => ({
+        label: idx === cfg.positions.length - 1 ? `${p.level}th+ Referrals` : `Position #${p.level}`,
+        ratePercent: Number(((p.rateBps ?? 500) / 100).toFixed(2)),
+        sub: idx === cfg.positions.length - 1 ? 'Max Tier' : `Tier ${p.level}`,
+      }));
+    }
+    return DEFAULT_POSITIONS;
+  })();
+
   const progressPercent = rankProgress
     ? Math.min(100, Math.round((rankProgress.qualifiedReferrals / (rankProgress.targetQualified || 1)) * 100))
     : 0;
@@ -91,15 +113,15 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
       {/* Header */}
       <div className="pb-4 border-b border-slate-100">
         <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest">
-          Referral Rank & Affiliation Program
+          U-Ads Referral & Affiliation Program
         </span>
         <h2 className="text-2xl font-extrabold text-slate-900">Referrals, Ranks & Milestones</h2>
         <p className="text-xs text-slate-500">
-          Separate referral ranks, milestone cash rewards, and tiered commissions (5% to 15%) routed directly into your Referral Wallet.
+          Earn tiered USD referral commissions on each invited user&apos;s first qualifying transaction, plus milestone rank rewards credited directly into your Referral Wallet.
         </p>
       </div>
 
-      {/* Referral Rank & Milestone Progress Showcase (Section 7) */}
+      {/* Referral Rank & Milestone Progress Showcase */}
       <div className="p-7 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white shadow-md space-y-6 relative overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
           <div className="space-y-1">
@@ -154,8 +176,8 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
 
           <p className="text-[11px] text-indigo-200/80">
             {rankProgress?.remainingToNext && rankProgress.remainingToNext > 0
-              ? `${rankProgress.remainingToNext} more qualified referrals needed to unlock ${rankProgress.nextRank} rank & automatic reward.`
-              : `Maximum milestone achieved! You have qualified as a top-tier affiliate.`}
+              ? `${rankProgress.remainingToNext} more qualified referrals needed to unlock ${rankProgress.nextRank} rank & automatic USD reward.`
+              : `Maximum milestone achieved! You have qualified as a top-tier U-Ads affiliate.`}
           </p>
         </div>
 
@@ -185,7 +207,9 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
             <span className="text-xs text-slate-500 font-semibold">Total Registered Members</span>
             <Users className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-3xl font-extrabold text-slate-900">{data?.totalReferrals ?? 0}</div>
+          <div className="text-3xl font-extrabold text-slate-900">
+            {loading ? '...' : data?.totalReferrals ?? 0}
+          </div>
           <span className="text-[10px] text-slate-400">Direct registered peers</span>
         </div>
 
@@ -194,8 +218,10 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
             <span className="text-xs text-slate-500 font-semibold">Qualified Referrals</span>
             <Target className="w-4 h-4 text-indigo-600" />
           </div>
-          <div className="text-3xl font-extrabold text-indigo-900">{data?.qualifiedReferrals ?? 0}</div>
-          <span className="text-[10px] text-indigo-600 font-bold">Completed verified qualifying package</span>
+          <div className="text-3xl font-extrabold text-indigo-900">
+            {loading ? '...' : data?.qualifiedReferrals ?? 0}
+          </div>
+          <span className="text-[10px] text-indigo-600 font-bold">Completed first qualifying USD package</span>
         </div>
 
         <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
@@ -206,48 +232,51 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
           <div className="text-3xl font-extrabold text-emerald-700">
             ${((data?.totalCommissionCents ?? 0) / 100).toFixed(2)} USD
           </div>
-          <span className="text-[10px] text-emerald-600 font-bold">Audited in Separate Referral Wallet</span>
+          <span className="text-[10px] text-emerald-600 font-bold">Credited in Separate Referral Wallet</span>
         </div>
       </div>
 
-      {/* Position-Based Commission Tier Schedule (Section 8) */}
+      {/* Position-Based Commission Tier Schedule */}
       <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-3">
-        <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-amber-500" />
-          <h3 className="text-sm font-bold text-slate-900">
-            Position-Based Commission Rates (Section 8)
-          </h3>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-500" />
+            <h3 className="text-sm font-bold text-slate-900">
+              Position-Based Commission Rates
+            </h3>
+          </div>
+          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+            First Qualifying Transaction Only
+          </span>
         </div>
         <p className="text-xs text-slate-500">
-          Commissions automatically scale based on your referral position number. Applies to first qualifying transaction:
+          Commissions scale by your direct referral position and apply strictly to each invited user&apos;s first qualifying transaction:
         </p>
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
-          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center space-y-1">
-            <div className="text-[10px] uppercase font-bold text-slate-400">1st Referral</div>
-            <div className="text-lg font-black text-emerald-600">5%</div>
-            <div className="text-[10px] text-slate-500">Direct Rate</div>
-          </div>
-          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center space-y-1">
-            <div className="text-[10px] uppercase font-bold text-slate-400">2nd Referral</div>
-            <div className="text-lg font-black text-emerald-600">7%</div>
-            <div className="text-[10px] text-slate-500">Tier 2 Boost</div>
-          </div>
-          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center space-y-1">
-            <div className="text-[10px] uppercase font-bold text-slate-400">3rd Referral</div>
-            <div className="text-lg font-black text-emerald-600">10%</div>
-            <div className="text-[10px] text-slate-500">Tier 3 Boost</div>
-          </div>
-          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center space-y-1">
-            <div className="text-[10px] uppercase font-bold text-slate-400">4th Referral</div>
-            <div className="text-lg font-black text-emerald-600">12%</div>
-            <div className="text-[10px] text-slate-500">Tier 4 Boost</div>
-          </div>
-          <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-200 text-center space-y-1 col-span-2 sm:col-span-1">
-            <div className="text-[10px] uppercase font-bold text-indigo-500">5th+ Referrals</div>
-            <div className="text-lg font-black text-indigo-700">15%</div>
-            <div className="text-[10px] text-indigo-600 font-bold">Max Platinum Tier</div>
-          </div>
+          {dynamicPositions.map((pos: any, idx: number) => {
+            const isMax = idx === dynamicPositions.length - 1;
+            return (
+              <div
+                key={idx}
+                className={`p-3 rounded-2xl border text-center space-y-1 ${
+                  isMax
+                    ? 'bg-indigo-50 border-indigo-200 col-span-2 sm:col-span-1'
+                    : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className={`text-[10px] uppercase font-bold ${isMax ? 'text-indigo-500' : 'text-slate-400'}`}>
+                  {pos.label}
+                </div>
+                <div className={`text-lg font-black ${isMax ? 'text-indigo-700' : 'text-emerald-600'}`}>
+                  {pos.ratePercent}%
+                </div>
+                <div className={`text-[10px] ${isMax ? 'text-indigo-600 font-bold' : 'text-slate-500'}`}>
+                  {pos.sub}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -259,7 +288,7 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
             Your Unique Referral Code
           </h3>
           <p className="text-xs text-slate-500">
-            Share this identifier with new users during their account registration.
+            Share this identifier with new users during their U-Ads account registration.
           </p>
 
           <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-200 font-mono text-sm font-bold text-emerald-700">
@@ -298,14 +327,14 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
         </div>
       </div>
 
-      {/* Visual Referral Hierarchy Tree & Direct Lineage Network (Section 6.1) */}
+      {/* Visual Referral Hierarchy Tree & Direct Lineage Network */}
       <div className="p-7 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <GitBranch className="w-4 h-4 text-emerald-600" />
               <h3 className="text-sm font-bold text-slate-900">
-                Direct Referral Hierarchy Tree (Section 6.1)
+                Direct Referral Hierarchy Tree
               </h3>
             </div>
             <p className="text-xs text-slate-500">
@@ -318,9 +347,8 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
           </div>
         </div>
 
-        {/* Tree Root & Children View */}
         <div className="p-6 rounded-2xl bg-slate-50/70 border border-slate-200/80 space-y-6">
-          {/* Root Node: You (The Referrer / Sponsor) */}
+          {/* Root Node */}
           <div className="flex flex-col items-center">
             <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white shadow-md border border-indigo-500/20 max-w-md w-full justify-between">
               <div className="flex items-center gap-3">
@@ -332,31 +360,28 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
                   <div className="text-[10px] text-indigo-300 font-mono">Code: {data?.referralCode || user?.referralCode}</div>
                 </div>
               </div>
-              <div className="text-right">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getRankBadgeStyle(rankProgress?.currentRank || 'New')}`}>
-                  {rankProgress?.currentRank || 'New'} Rank
-                </span>
-              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getRankBadgeStyle(rankProgress?.currentRank || 'New')}`}>
+                {rankProgress?.currentRank || 'New'} Rank
+              </span>
             </div>
 
-            {/* Tree Branch Connector */}
             <div className="w-0.5 h-6 bg-slate-300 my-1" />
             <div className="px-3 py-1 rounded-full bg-slate-200 text-[10px] font-bold text-slate-600 uppercase tracking-wider">
-              Direct Level-1 Offspring Branch ({data?.referrals?.length ?? 0})
+              Direct Level-1 Branch ({data?.referrals?.length ?? 0})
             </div>
             <div className="w-0.5 h-6 bg-slate-300 my-1" />
           </div>
 
-          {/* Child Nodes List */}
           {(!data?.referrals || data.referrals.length === 0) ? (
             <div className="text-center py-8 text-xs text-slate-400 bg-white rounded-xl border border-dashed border-slate-200 p-6">
-              No direct referrals registered yet. Share your unique invitation link above to build your referral tree!
+              No direct referrals registered yet. Share your unique invitation link above to grow your referral network!
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {data.referrals.map((ref: any, idx: number) => {
                 const position = idx + 1;
-                const posRate = position === 1 ? '5%' : position === 2 ? '7%' : position === 3 ? '10%' : position === 4 ? '12%' : '15%';
+                const posObj = dynamicPositions[Math.min(idx, dynamicPositions.length - 1)];
+                const posRate = `${posObj?.ratePercent ?? 15}%`;
 
                 return (
                   <div
@@ -411,7 +436,7 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
 
         {!data?.commissions || data.commissions.length === 0 ? (
           <div className="p-12 text-center text-xs text-slate-400">
-            No referral commissions credited yet. When your referred members purchase access packages, earned rewards will appear here.
+            No referral commissions credited yet. When your referred members complete their first qualifying USD package purchase, earned rewards will appear here.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -447,8 +472,8 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
       <div className="p-4 rounded-2xl bg-white border border-slate-200 text-[11px] text-slate-500 flex items-start gap-3 shadow-2xs">
         <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
         <div>
-          <span className="font-bold text-slate-800">Referral Program Compliance: </span>
-          Commissions are strictly distributed out of confirmed platform net revenue generated through package subscriptions. No commission is ever paid for recruiting or deposit transfers.
+          <span className="font-bold text-slate-800">U-Ads Referral Program Compliance: </span>
+          Commissions are strictly awarded once per referred user on their first qualifying USD package transaction and credited to your separate USD Referral Wallet.
         </div>
       </div>
     </div>

@@ -4,18 +4,19 @@ import { useAuth } from '../context/AuthContext.js';
 import { Video } from '../types/index.js';
 import {
   ArrowLeft,
-  Play,
-  Pause,
-  Award,
   ShieldCheck,
   CheckCircle2,
   Clock,
   AlertCircle,
   Sparkles,
   Lock,
+  Volume2,
+  VolumeX,
+  Maximize2,
+  Minimize2,
+  Play,
 } from 'lucide-react';
-
-import { extractYouTubeId, getYouTubeEmbedUrl } from '../utils/youtube.js';
+import { getYouTubeEmbedUrl } from '../utils/youtube.js';
 
 interface VideoPlayerProps {
   videoId: string;
@@ -35,10 +36,19 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
   const [claimSuccessMsg, setClaimSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [needsUserStart, setNeedsUserStart] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
+  const playerContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const claimLockRef = useRef(false);
-  const targetDuration = actualDuration || video?.durationSeconds || 15;
+  const maxWatchedRef = useRef(0);
+
+  // Full actual video duration (auto-detected from metadata; falls back to backend durationSeconds)
+  const targetDuration = Math.max(1, actualDuration || video?.durationSeconds || 30);
+  const progressPct = Math.min(100, Math.round((watchSeconds / targetDuration) * 100));
 
   // 1. Fetch Video Metadata
   useEffect(() => {
@@ -49,9 +59,9 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
           setVideo(res.data);
           setHasClaimed(res.data.hasClaimedReward || false);
         } else {
-          setErrorMsg(res.error?.message || 'Failed to load masterclass.');
+          setErrorMsg(res.error?.message || 'Failed to load video.');
         }
-      } catch (err: any) {
+      } catch {
         setErrorMsg('Network error loading video.');
       } finally {
         setLoading(false);
@@ -62,105 +72,181 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
 
   // 2. Start Secure Telemetry Session
   useEffect(() => {
-    if (!video || !user) return;
+    if (!video || !user || !video.hasAccess) return;
 
     const initSession = async () => {
       try {
         const res = await api.startVideoSession(videoId);
         if (res.success && res.data) {
           setSessionToken(res.data.sessionToken);
-          // Auto-start timer session so progress tracks immediately
           setIsPlaying(true);
         } else {
           setErrorMsg(res.error?.message || 'Access restricted. Please upgrade tier.');
         }
-      } catch (err: any) {
+      } catch {
         setErrorMsg('Unable to initialize playback session.');
       }
     };
     initSession();
-  }, [video, user]);
+  }, [video, user, videoId]);
 
-  // Claim Engagement Reward (Auto-triggered upon full watch completion - Section 4.3)
-  const handleClaimReward = async (finalSec?: number) => {
+  // Disable pause/seek keyboard shortcuts while player is mounted
+  useEffect(() => {
+    const blockKeys = (e: KeyboardEvent) => {
+      const blocked = [' ', 'k', 'K', 'ArrowLeft', 'ArrowRight', 'j', 'J', 'l', 'L', 'MediaPlayPause'];
+      if (blocked.includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('keydown', blockKeys, true);
+    return () => window.removeEventListener('keydown', blockKeys, true);
+  }, []);
+
+  // Track fullscreen changes
+  useEffect(() => {
+    const onFsChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  // Attempt autoplay for HTML5 video; fallback to muted autoplay or click-to-play overlay
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !video || !video.hasAccess) return;
+    el.muted = isMuted;
+    const playPromise = el.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {
+        // Browser blocked unmuted autoplay -> try muted autoplay so video runs seamlessly
+        el.muted = true;
+        setIsMuted(true);
+        el.play().catch(() => {
+          setNeedsUserStart(true);
+          setIsPlaying(false);
+        });
+      });
+    }
+  }, [video]);
+
+  // Auto-Credit Engagement Reward (NO manual claim button)
+  const triggerAutomaticReward = async (finalSec?: number) => {
     if (claimLockRef.current || !sessionToken || hasClaimed || claiming) return;
     claimLockRef.current = true;
     setClaiming(true);
     setErrorMsg(null);
     try {
-      const secToReport = finalSec ?? watchSeconds;
-      // 1. Send final progress heartbeat to guarantee backend session records completion
-      await api.sendVideoHeartbeat(videoId, sessionToken, Math.max(secToReport, targetDuration)).catch(() => {});
+      const secToReport = Math.max(finalSec ?? watchSeconds, targetDuration);
+      await api
+        .sendVideoHeartbeat(videoId, sessionToken, secToReport, actualDuration ?? undefined)
+        .catch(() => {});
 
-      // 2. Claim reward
       const res = await api.claimVideoReward(videoId, sessionToken);
       if (res.success) {
         setHasClaimed(true);
         setClaimSuccessMsg(
-          `🎉 Masterclass Completed! $${((video?.rewardAmountCents ?? 50) / 100).toFixed(
+          `Video Completed! $${((video?.rewardAmountCents ?? 0) / 100).toFixed(
             2
-          )} USD engagement reward automatically verified and credited to your wallet.`
+          )} USD has been automatically credited to your Video Rewards Wallet.`
         );
         await refreshWallet();
       } else {
-        // If already claimed, gracefully mark claimed
-        if (res.error?.message?.includes('already claimed')) {
+        const errCode = res.error?.code || '';
+        const errMessage = res.error?.message || '';
+        if (errCode === 'ALREADY_CLAIMED' || errMessage.toLowerCase().includes('already claimed')) {
           setHasClaimed(true);
+          setClaimSuccessMsg('Reward has already been credited to your Video Rewards Wallet for this video.');
         } else {
-          setErrorMsg(res.error?.message || 'Failed to verify reward.');
+          setErrorMsg(errMessage || 'Automatic reward verification pending.');
         }
       }
-    } catch (err: any) {
-      setErrorMsg('Error processing reward claim.');
+    } catch {
+      setErrorMsg('Network issue verifying reward. Please refresh your wallet.');
     } finally {
       setClaiming(false);
     }
   };
 
-  // 3. Periodic Session Heartbeat & Progress Tracking
+  // 3. Periodic Session Heartbeat & Anti-Skip Watch Progress
   useEffect(() => {
-    if (!sessionToken || !isPlaying || isCompleted || hasClaimed) return;
+    if (!sessionToken || !isPlaying || isCompleted) return;
 
     const interval = setInterval(() => {
       setWatchSeconds((prev) => {
         const nextSec = prev + 1;
+        maxWatchedRef.current = Math.max(maxWatchedRef.current, nextSec);
 
-        // Dispatch heartbeat every 5 seconds for responsive sync
         if (nextSec % 5 === 0) {
           api
-            .sendVideoHeartbeat(videoId, sessionToken, nextSec)
+            .sendVideoHeartbeat(videoId, sessionToken, nextSec, actualDuration ?? undefined)
             .then((res) => {
               if (res.success && res.data?.completed) {
                 setIsCompleted(true);
               }
             })
-            .catch((err) => console.error('Heartbeat error:', err));
+            .catch(() => {});
         }
 
-        // Auto-complete when target duration is watched (Section 4.3)
         if (nextSec >= targetDuration) {
           setIsCompleted(true);
         }
-
         return nextSec;
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [sessionToken, isPlaying, videoId, video, isCompleted, hasClaimed, targetDuration]);
+  }, [sessionToken, isPlaying, videoId, isCompleted, targetDuration, actualDuration]);
 
-  // Section 4.3: Automatic Reward Credit Effect
+  // 4. Trigger automatic credit the instant full watch completes
   useEffect(() => {
     if (isCompleted && !hasClaimed && !claimLockRef.current && sessionToken && video?.rewardEligible) {
-      handleClaimReward();
+      triggerAutomaticReward(Math.max(watchSeconds, targetDuration));
     }
   }, [isCompleted, hasClaimed, sessionToken, video]);
+
+  // Sound toggle (ONLY allowed playback control besides Fullscreen)
+  const toggleMute = () => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    if (videoRef.current) {
+      videoRef.current.muted = nextMuted;
+    }
+    if (iframeRef.current && iframeRef.current.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        JSON.stringify({ event: 'command', func: nextMuted ? 'mute' : 'unMute', args: '' }),
+        '*'
+      );
+    }
+  };
+
+  // Fullscreen toggle
+  const toggleFullscreen = () => {
+    const container = playerContainerRef.current;
+    if (!container) return;
+    if (!document.fullscreenElement) {
+      container.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  };
+
+  const handleManualStartIfBlocked = () => {
+    setNeedsUserStart(false);
+    setIsPlaying(true);
+    if (videoRef.current) {
+      videoRef.current.muted = false;
+      setIsMuted(false);
+      videoRef.current.play().catch(() => {});
+    }
+  };
 
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto px-4 py-20 text-center space-y-4">
         <div className="w-10 h-10 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
-        <p className="text-xs font-semibold text-slate-500">Authenticating playback session...</p>
+        <p className="text-xs font-semibold text-slate-500">Authenticating U-Ads playback session...</p>
       </div>
     );
   }
@@ -188,17 +274,17 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
           <Lock className="w-7 h-7 text-rose-600" />
         </div>
         <div className="space-y-1">
-          <h2 className="text-xl font-bold text-slate-900">Video Module Locked</h2>
+          <h2 className="text-xl font-bold text-slate-900">Video Campaign Locked</h2>
           <p className="text-xs text-slate-600 max-w-md mx-auto">
-            This masterclass requires Account Level 1 or higher with qualifying deposit. Please upgrade your Account Level or make a qualifying deposit to unlock access.
+            This video requires an active U-Ads package or qualifying USD Account Level. Deposit USD or select a package to unlock full access.
           </p>
         </div>
         <div className="flex items-center justify-center gap-3 pt-2">
           <button
-            onClick={() => navigate('deposit')}
+            onClick={() => navigate('packages')}
             className="px-6 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all cursor-pointer"
           >
-            Make a Deposit
+            View Packages
           </button>
           <button
             onClick={() => navigate('videos')}
@@ -211,7 +297,10 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
     );
   }
 
-  const youtubeEmbedUrl = getYouTubeEmbedUrl(video?.videoUrl);
+  const baseYtUrl = getYouTubeEmbedUrl(video?.videoUrl);
+  const restrictedYtUrl = baseYtUrl
+    ? `${baseYtUrl}${baseYtUrl.includes('?') ? '&' : '?'}autoplay=1&controls=0&disablekb=1&rel=0&modestbranding=1&fs=0&enablejsapi=1`
+    : null;
   const isAssigned = video?.isAssignedToUser || (user && video?.assignedUserId === user.id);
 
   return (
@@ -223,118 +312,161 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
           className="flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors w-fit"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to Catalog
+          Back to Video Catalog
         </button>
         <div className="flex flex-wrap items-center gap-2">
           {isAssigned && (
             <span className="text-[11px] font-bold px-3 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-300 flex items-center gap-1.5 shadow-2xs">
               <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-              Assigned Directly to You by Admin
+              Assigned Directly to You
             </span>
           )}
-          <span className="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-600">
-            Session: {sessionToken ? sessionToken.slice(0, 10) + '...' : 'Connecting...'}
-          </span>
-          <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+          <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5" />
-            Telemetry Guard Active
+            Anti-Skip Full-Duration Verification Active
           </span>
         </div>
       </div>
 
-      {/* Embedded Player Card */}
-      <div className="rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden shadow-xl relative">
+      {/* Controlled Embedded Player (NO pause / NO seek / ONLY Sound + Fullscreen) */}
+      <div
+        ref={playerContainerRef}
+        className="rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden shadow-xl relative select-none"
+        onContextMenu={(e) => e.preventDefault()}
+      >
         <div className="relative aspect-video bg-black">
-          {youtubeEmbedUrl ? (
-            <iframe
-              src={youtubeEmbedUrl}
-              title={video?.title || 'YouTube Video Player'}
-              className="w-full h-full border-0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-            />
+          {restrictedYtUrl ? (
+            <>
+              <iframe
+                ref={iframeRef}
+                src={restrictedYtUrl}
+                title={video?.title || 'U-Ads Video Player'}
+                className="w-full h-full border-0 pointer-events-none"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              />
+              {/* Interaction guard overlay prevents pausing or scrubbing inside YouTube iframe */}
+              <div className="absolute inset-0 z-10 bg-transparent cursor-not-allowed" />
+            </>
           ) : (
             <video
               ref={videoRef}
               src={video?.videoUrl}
               poster={video?.thumbnailUrl}
-              controls
               autoPlay
-              controlsList="nodownload noplaybackrate"
+              playsInline
+              disablePictureInPicture
+              controlsList="nodownload noplaybackrate nofullscreen"
               onLoadedMetadata={(e) => {
                 const dur = Math.round(e.currentTarget.duration);
-                if (dur > 0 && dur < 600) {
+                if (dur > 0 && Number.isFinite(dur)) {
                   setActualDuration(dur);
                 }
               }}
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
+              onPlay={() => {
+                setIsPlaying(true);
+                setNeedsUserStart(false);
+              }}
+              onPause={(e) => {
+                // Strictly prevent user pausing while video is still playing
+                if (!e.currentTarget.ended && !isCompleted) {
+                  e.currentTarget.play().catch(() => {});
+                }
+              }}
+              onRateChange={(e) => {
+                if (e.currentTarget.playbackRate !== 1) {
+                  e.currentTarget.playbackRate = 1;
+                }
+              }}
+              onSeeking={() => {
+                if (videoRef.current && videoRef.current.currentTime > maxWatchedRef.current + 1) {
+                  videoRef.current.currentTime = maxWatchedRef.current;
+                }
+              }}
               onEnded={() => {
                 setIsPlaying(false);
                 setIsCompleted(true);
-                handleClaimReward(Math.max(watchSeconds, targetDuration));
-              }}
-              onSeeking={() => {
-                if (videoRef.current && videoRef.current.currentTime > watchSeconds + 1) {
-                  videoRef.current.currentTime = watchSeconds;
-                }
+                triggerAutomaticReward(Math.max(watchSeconds, targetDuration));
               }}
               onContextMenu={(e) => e.preventDefault()}
-              className="w-full h-full object-contain"
+              className="w-full h-full object-contain pointer-events-none"
             />
+          )}
+
+          {/* Browser Autoplay Fallback Overlay (only if browser blocks autoplay) */}
+          {needsUserStart && (
+            <div className="absolute inset-0 z-20 bg-slate-950/75 flex flex-col items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={handleManualStartIfBlocked}
+                className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm flex items-center gap-2 shadow-lg cursor-pointer"
+              >
+                <Play className="w-5 h-5 fill-current" />
+                Start Verified Playback
+              </button>
+              <span className="text-[11px] text-slate-300">
+                Video plays continuously without pause or skip until completion
+              </span>
+            </div>
           )}
         </div>
 
-        {/* Telemetry Status Strip */}
+        {/* Non-interactive Read-only Progress Bar */}
+        <div className="w-full h-1.5 bg-slate-800">
+          <div
+            className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+
+        {/* Custom Restricted Controls Bar: ONLY Sound On/Off & Fullscreen + Auto-Credit Status */}
         <div className="p-4 bg-slate-900 border-t border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs text-white">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5 font-medium text-slate-300">
+          <div className="flex items-center gap-3">
+            {/* Sound On/Off */}
+            <button
+              type="button"
+              onClick={toggleMute}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+              title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
+            >
+              {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+              <span>{isMuted ? 'Sound Off' : 'Sound On'}</span>
+            </button>
+
+            {/* Fullscreen */}
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4 text-emerald-400" /> : <Maximize2 className="w-4 h-4 text-emerald-400" />}
+              <span>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+            </button>
+
+            <div className="flex items-center gap-1.5 font-medium text-slate-300 pl-2">
               <Clock className="w-4 h-4 text-emerald-400" />
-              <span>Watched: {watchSeconds}s</span>
-              <span className="text-slate-500">/ {targetDuration}s</span>
-            </div>
-            {isCompleted && (
-              <span className="flex items-center gap-1 text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Full Watch Verified
+              <span className="font-mono">
+                {Math.min(watchSeconds, targetDuration)}s / {targetDuration}s ({progressPct}%)
               </span>
-            )}
-            {youtubeEmbedUrl && !isPlaying && (
-              <button
-                onClick={() => setIsPlaying(true)}
-                className="text-[10px] font-semibold text-emerald-400 underline cursor-pointer"
-              >
-                Start Telemetry Tracking
-              </button>
-            )}
+            </div>
           </div>
 
-          {/* Automatic Reward Status (Section 4.3) */}
+          {/* Automatic Reward Status (No manual claim button) */}
           {video?.rewardEligible && (
             <div>
               {hasClaimed ? (
                 <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30">
                   <CheckCircle2 className="w-4 h-4" />
-                  Reward Automatically Credited (${(video.rewardAmountCents / 100).toFixed(2)} USD)
+                  Auto-Credited to Video Rewards Wallet (${(video.rewardAmountCents / 100).toFixed(2)} USD)
                 </div>
               ) : isCompleted ? (
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30 animate-pulse">
-                    <Sparkles className="w-4 h-4" />
-                    {claiming ? 'Verifying & Crediting Ledger...' : 'Crediting Reward Automatically...'}
-                  </div>
-                  {!claiming && (
-                    <button
-                      onClick={() => handleClaimReward(Math.max(watchSeconds, targetDuration))}
-                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md cursor-pointer transition-all"
-                    >
-                      Instant Claim
-                    </button>
-                  )}
+                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30 animate-pulse">
+                  <Sparkles className="w-4 h-4" />
+                  {claiming ? 'Verifying & Auto-Crediting Reward...' : 'Completing Automatic Credit...'}
                 </div>
               ) : (
                 <div className="text-[11px] text-slate-400">
-                  Complete full {targetDuration}s duration for automatic ${(video.rewardAmountCents / 100).toFixed(2)} USD reward credit
+                  Watch 100% ({targetDuration}s) for automatic ${(video.rewardAmountCents / 100).toFixed(2)} USD credit
                 </div>
               )}
             </div>
@@ -342,7 +474,7 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
         </div>
       </div>
 
-      {/* Claim notifications */}
+      {/* Automatic Credit Notification */}
       {claimSuccessMsg && (
         <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
@@ -357,14 +489,17 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
         </div>
       )}
 
-      {/* Video Details & Curriculum */}
+      {/* Video Details */}
       <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-3">
         <div className="flex flex-wrap items-center gap-2.5">
           <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
             {video?.category}
           </span>
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+          <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
             {video?.minPackageTier} Tier
+          </span>
+          <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+            Duration: {targetDuration}s (Auto-Detected)
           </span>
         </div>
         <h1 className="text-xl font-bold text-slate-900">{video?.title}</h1>

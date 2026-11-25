@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
-import { WithdrawalRequest, Currency } from '../types/index.js';
+import { WithdrawalRequest } from '../types/index.js';
 import {
   ArrowUpRight,
   ArrowLeft,
   CheckCircle2,
   AlertCircle,
   Clock,
-  ShieldCheck,
-  CreditCard,
   Lock,
 } from 'lucide-react';
 
@@ -17,9 +15,15 @@ interface WithdrawalProps {
   navigate?: (route: string) => void;
 }
 
+type SourceWalletKey =
+  | 'USER_AVAILABLE'
+  | 'USER_VIDEO_REWARDS'
+  | 'USER_REFERRAL'
+  | 'USER_OTHER_REWARDS';
+
 export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
   const { user, wallet, refreshWallet } = useAuth();
-  const [currency, setCurrency] = useState<Currency>('USD');
+  const [sourceWallet, setSourceWallet] = useState<SourceWalletKey>('USER_AVAILABLE');
   const [payoutMethod, setPayoutMethod] = useState('CRYPTO_USDT');
   const [amountInput, setAmountInput] = useState('');
   const [accountTitle, setAccountTitle] = useState(user?.fullName || '');
@@ -41,20 +45,47 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
   };
 
   useEffect(() => {
+    refreshWallet();
     fetchWithdrawalData();
   }, []);
 
-  const availableBalanceCents =
-    currency === 'USD'
-      ? wallet?.USD?.availableCents ?? 0
-      : wallet?.PKR?.availableCents ?? 0;
+  const walletBalances: Record<SourceWalletKey, { label: string; cents: number }> = {
+    USER_AVAILABLE: {
+      label: 'Main Account Credits',
+      cents: wallet?.USD?.availableCents ?? 0,
+    },
+    USER_VIDEO_REWARDS: {
+      label: 'Video Rewards Wallet',
+      cents: wallet?.USD?.videoRewardsCents ?? 0,
+    },
+    USER_REFERRAL: {
+      label: 'Referral Wallet',
+      cents: wallet?.USD?.referralCents ?? 0,
+    },
+    USER_OTHER_REWARDS: {
+      label: 'Approved Other Rewards',
+      cents: wallet?.USD?.otherRewardsCents ?? 0,
+    },
+  };
 
-  const handleCurrencyChange = (newCur: Currency) => {
-    setCurrency(newCur);
-    if (newCur === 'PKR') {
-      setPayoutMethod('EASYPAISA');
-    } else {
-      setPayoutMethod('CRYPTO_USDT');
+  const availableBalanceCents = walletBalances[sourceWallet].cents;
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'PAID':
+      case 'COMPLETED':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'REJECTED':
+      case 'FAILED':
+      case 'CANCELLED':
+        return 'bg-rose-50 text-rose-700 border-rose-200';
+      case 'APPROVED':
+      case 'PROCESSING':
+        return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'UNDER_REVIEW':
+        return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      default:
+        return 'bg-amber-50 text-amber-700 border-amber-200';
     }
   };
 
@@ -65,7 +96,7 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
 
     const parsedAmount = parseFloat(amountInput);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      setErrorMsg('Please enter a valid monetary amount.');
+      setErrorMsg('Please enter a valid USD amount.');
       return;
     }
 
@@ -73,15 +104,15 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
 
     if (amountCents > availableBalanceCents) {
       setErrorMsg(
-        `Requested amount exceeds available balance of ${(availableBalanceCents / 100).toFixed(
+        `Requested amount exceeds available balance of $${(availableBalanceCents / 100).toFixed(
           2
-        )} ${currency}.`
+        )} USD in ${walletBalances[sourceWallet].label}.`
       );
       return;
     }
 
     if (!accountTitle.trim() || !accountNumber.trim()) {
-      setErrorMsg('Please provide your complete beneficiary account title and payout number/address.');
+      setErrorMsg('Please provide your complete beneficiary account title and payout address/number.');
       return;
     }
 
@@ -89,15 +120,16 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
     try {
       const res = await api.createWithdrawalRequest({
         amountCents,
-        currency,
+        currency: 'USD',
         payoutMethod,
         accountTitle: accountTitle.trim(),
         accountNumber: accountNumber.trim(),
+        sourceWallet,
       });
 
       if (res.success) {
         setSuccessMsg(
-          'Withdrawal request created! Funds have been securely reserved on hold pending payout settlement.'
+          'USD withdrawal request created! Funds are safely placed on ledger hold pending Finance Admin review and payout settlement.'
         );
         setAmountInput('');
         setAccountNumber('');
@@ -106,7 +138,7 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
       } else {
         setErrorMsg(res.error?.message || 'Withdrawal request failed.');
       }
-    } catch (err: any) {
+    } catch {
       setErrorMsg('Network error submitting withdrawal request.');
     } finally {
       setSubmitting(false);
@@ -118,9 +150,9 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
       {/* Header */}
       <div className="pb-4 border-b border-slate-100 flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-extrabold text-slate-900">Request Payout & Withdrawal</h2>
+          <h2 className="text-2xl font-extrabold text-slate-900">Request USD Payout & Withdrawal</h2>
           <p className="text-xs text-slate-500">
-            Submit a withdrawal request. Funds are placed on a verified ledger hold to prevent double-spending until external settlement.
+            Withdraw USD from your Main Account Credits, Video Rewards, or Referral Wallet. Funds are held securely until verified settlement.
           </p>
         </div>
         {navigate && (
@@ -141,61 +173,62 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
             onSubmit={handleWithdrawalSubmit}
             className="p-8 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-5"
           >
-            {/* Currency Selector */}
+            {/* Source Wallet Selector */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-2">
-                Select Withdrawal Currency
+                Select Source USD Wallet
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleCurrencyChange('USD')}
-                  className={`p-3 rounded-2xl border text-xs font-bold transition-all flex items-center justify-between ${
-                    currency === 'USD'
-                      ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-2xs'
-                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <span>USD Wallet</span>
-                  <span className="font-mono font-extrabold">${((wallet?.USD?.availableCents ?? 0) / 100).toFixed(2)}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleCurrencyChange('PKR')}
-                  className={`p-3 rounded-2xl border text-xs font-bold transition-all flex items-center justify-between ${
-                    currency === 'PKR'
-                      ? 'bg-teal-50 border-teal-500 text-teal-800 shadow-2xs'
-                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <span>PKR Wallet</span>
-                  <span className="font-mono font-extrabold">Rs {((wallet?.PKR?.availableCents ?? 0) / 100).toFixed(0)}</span>
-                </button>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {(['USER_AVAILABLE', 'USER_VIDEO_REWARDS', 'USER_REFERRAL'] as SourceWalletKey[]).map(
+                  (key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSourceWallet(key)}
+                      className={`p-3 rounded-2xl border text-left transition-all ${
+                        sourceWallet === key
+                          ? 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-2xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <div className="text-[11px] font-bold truncate">{walletBalances[key].label}</div>
+                      <div className="font-mono font-extrabold text-sm mt-0.5">
+                        ${(walletBalances[key].cents / 100).toFixed(2)}
+                      </div>
+                    </button>
+                  )
+                )}
               </div>
+              {(wallet?.USD?.otherRewardsCents ?? 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSourceWallet('USER_OTHER_REWARDS')}
+                  className={`mt-2 w-full p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between ${
+                    sourceWallet === 'USER_OTHER_REWARDS'
+                      ? 'bg-amber-50 border-amber-500 text-amber-900'
+                      : 'bg-slate-50 border-slate-200 text-slate-600'
+                  }`}
+                >
+                  <span>Approved Other Rewards</span>
+                  <span className="font-mono">
+                    ${((wallet?.USD?.otherRewardsCents ?? 0) / 100).toFixed(2)} USD
+                  </span>
+                </button>
+              )}
             </div>
 
             {/* Payout Method */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Payout Channel
+                USD Payout Channel
               </label>
               <select
                 value={payoutMethod}
                 onChange={(e) => setPayoutMethod(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-500 font-semibold"
               >
-                {currency === 'PKR' ? (
-                  <>
-                    <option value="EASYPAISA">EasyPaisa Mobile Account</option>
-                    <option value="JAZZCASH">JazzCash Wallet</option>
-                    <option value="BANK_TRANSFER">Direct Bank IBFT Wire</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="CRYPTO_USDT">USDT (TRC-20 Network)</option>
-                  </>
-                )}
+                <option value="CRYPTO_USDT">USDT (TRC-20 Network)</option>
+                <option value="USD_BANK_WIRE">USD International Bank / Wire Transfer</option>
               </select>
             </div>
 
@@ -203,19 +236,20 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <label className="text-xs font-semibold text-slate-700">
-                  Withdrawal Amount ({currency})
+                  Withdrawal Amount (USD)
                 </label>
                 <button
                   type="button"
-                  onClick={() => setAmountInput(((availableBalanceCents) / 100).toString())}
+                  onClick={() => setAmountInput((availableBalanceCents / 100).toFixed(2))}
                   className="text-[10px] text-emerald-600 hover:text-emerald-700 font-bold"
                 >
-                  Max Available
+                  Max Available (${(availableBalanceCents / 100).toFixed(2)})
                 </button>
               </div>
               <input
                 type="number"
-                step="any"
+                step="0.01"
+                min="1"
                 placeholder="0.00"
                 value={amountInput}
                 onChange={(e) => setAmountInput(e.target.value)}
@@ -227,7 +261,7 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
             {/* Beneficiary Details */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Beneficiary Account Title
+                Beneficiary Full Name / Account Title
               </label>
               <input
                 type="text"
@@ -241,11 +275,17 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Account Number / IBAN / USDT TRC-20 Address
+                {payoutMethod === 'CRYPTO_USDT'
+                  ? 'USDT TRC-20 Receiving Wallet Address'
+                  : 'USD Bank Account / IBAN & SWIFT'}
               </label>
               <input
                 type="text"
-                placeholder="Receiving mobile number or wallet address"
+                placeholder={
+                  payoutMethod === 'CRYPTO_USDT'
+                    ? 'e.g. TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+                    : 'e.g. IBAN / Account Number + SWIFT Code'
+                }
                 value={accountNumber}
                 onChange={(e) => setAccountNumber(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500 font-mono"
@@ -260,7 +300,7 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
                 Ledger Hold Invariant
               </div>
               <p>
-                The requested amount will immediately transition from Available to Reserved. If rejected, the hold is safely released back to your available balance.
+                The requested USD amount transitions immediately to Reserved Hold. If rejected or marked failed, the full hold is automatically released back to your wallet.
               </p>
             </div>
 
@@ -281,10 +321,10 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-3.5 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all flex items-center justify-center gap-2 shadow-sm text-sm"
+              className="w-full py-3.5 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white transition-all flex items-center justify-center gap-2 shadow-sm text-sm cursor-pointer"
             >
               <ArrowUpRight className="w-4 h-4" />
-              {submitting ? 'Reserving Ledger Balance...' : 'Confirm Withdrawal Request'}
+              {submitting ? 'Reserving Ledger Balance...' : 'Confirm USD Withdrawal Request'}
             </button>
           </form>
         </div>
@@ -310,26 +350,20 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
                   >
                     <div className="flex items-center justify-between">
                       <div className="font-extrabold text-slate-900 text-sm">
-                        {(w.amountCents / 100).toFixed(2)} {w.currency}
+                        ${(w.amountCents / 100).toFixed(2)} USD
                       </div>
                       <span
-                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-                          w.status === 'COMPLETED'
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : w.status === 'REJECTED'
-                            ? 'bg-rose-50 text-rose-700 border-rose-200'
-                            : w.status === 'APPROVED'
-                            ? 'bg-blue-50 text-blue-700 border-blue-200'
-                            : 'bg-amber-50 text-amber-700 border-amber-200'
-                        }`}
+                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${getStatusBadge(
+                          w.status
+                        )}`}
                       >
-                        {w.status}
+                        {w.status.replace(/_/g, ' ')}
                       </span>
                     </div>
 
                     <div className="text-[11px] text-slate-500 flex items-center justify-between">
                       <span>Method: {w.payoutMethod}</span>
-                      <span>{new Date(w.createdAt).toLocaleDateString()}</span>
+                      <span>{new Date(w.createdAt).toLocaleString()}</span>
                     </div>
 
                     <div className="text-[10px] font-mono text-slate-600 truncate">

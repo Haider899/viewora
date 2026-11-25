@@ -75,7 +75,9 @@ EOT
 fi
 
 npm install
-npx prisma db push
+npx prisma db push --accept-data-loss
+npx prisma generate
+npm run db:seed
 npx tsx src/scripts/create-super-admin.ts || true
 npm run build
 

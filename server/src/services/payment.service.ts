@@ -1,11 +1,14 @@
 import prisma from '../lib/prisma.js';
 import { LedgerService } from './ledger.service.js';
-import { AccountType, Currency, DepositStatus, EntryType, LedgerTransactionType, UserRole } from '../types/index.js';
+import { NotificationService } from './notification.service.js';
+import { AccountLevelService } from './accountLevel.service.js';
+import { AccountType, Currency, DepositStatus, EntryType, LedgerTransactionType } from '../types/index.js';
 
 export class PaymentService {
   static async getActivePaymentMethods() {
     return await prisma.paymentMethod.findMany({
-      where: { isActive: true },
+      where: { isActive: true, currency: 'USD' },
+      orderBy: { createdAt: 'asc' },
     });
   }
 
@@ -23,37 +26,42 @@ export class PaymentService {
     });
 
     if (!paymentMethod || !paymentMethod.isActive) {
-      throw { statusCode: 400, code: 'INVALID_PAYMENT_METHOD', message: 'Payment method is invalid or inactive.' };
+      throw { statusCode: 400, code: 'INVALID_PAYMENT_METHOD', message: 'Selected payment channel is invalid or inactive.' };
     }
 
     if (data.amountCents < paymentMethod.minAmountCents || data.amountCents > paymentMethod.maxAmountCents) {
       throw {
         statusCode: 400,
         code: 'AMOUNT_OUT_OF_BOUNDS',
-        message: `Amount must be between ${(paymentMethod.minAmountCents / 100).toFixed(2)} and ${(paymentMethod.maxAmountCents / 100).toFixed(2)} ${paymentMethod.currency}.`,
+        message: `Deposit amount must be between $${(paymentMethod.minAmountCents / 100).toFixed(2)} and $${(paymentMethod.maxAmountCents / 100).toFixed(2)} USD.`,
       };
     }
 
-    // Check duplicate transaction reference across all deposits
+    const cleanRef = data.transactionRef.trim();
+    if (!cleanRef) {
+      throw { statusCode: 400, code: 'INVALID_REFERENCE', message: 'Transaction ID / Reference is required.' };
+    }
+
+    // Strict duplicate transaction reference prevention across all deposits
     const existingRef = await prisma.depositRequest.findFirst({
-      where: { transactionRef: data.transactionRef.trim() },
+      where: { transactionRef: cleanRef },
     });
 
     if (existingRef) {
       throw {
         statusCode: 400,
         code: 'DUPLICATE_REFERENCE',
-        message: 'This transaction reference or hash has already been submitted on the platform.',
+        message: 'This transaction reference or hash has already been submitted. Duplicate references are not accepted.',
       };
     }
 
-    return await prisma.depositRequest.create({
+    const created = await prisma.depositRequest.create({
       data: {
         userId,
         paymentMethodId: paymentMethod.id,
         amountCents: data.amountCents,
-        currency: paymentMethod.currency,
-        transactionRef: data.transactionRef.trim(),
+        currency: 'USD',
+        transactionRef: cleanRef,
         senderPhone: data.senderPhone || null,
         senderName: data.senderName || null,
         proofImageUrl: data.proofImageUrl || null,
@@ -61,6 +69,16 @@ export class PaymentService {
       },
       include: { paymentMethod: true },
     });
+
+    await NotificationService.send({
+      userId,
+      eventKey: 'depositSubmitted',
+      title: 'Deposit Request Submitted',
+      message: `Your $${(data.amountCents / 100).toFixed(2)} USD deposit via ${paymentMethod.name} (Ref: ${cleanRef}) is Pending / Under Review. Typical verification takes 10–30 minutes.`,
+      type: 'INFO',
+    });
+
+    return created;
   }
 
   static async getUserDeposits(userId: string) {
@@ -71,13 +89,13 @@ export class PaymentService {
     });
   }
 
-  // Finance Admin Verification
+  // Finance / Super Admin Verification
   static async getDepositsForReview(status: string = DepositStatus.PENDING) {
     return await prisma.depositRequest.findMany({
-      where: { status },
-      orderBy: { createdAt: 'asc' },
+      where: status === 'ALL' ? {} : { status },
+      orderBy: { createdAt: 'desc' },
       include: {
-        user: { select: { id: true, email: true, fullName: true, status: true } },
+        user: { select: { id: true, memberCode: true, email: true, fullName: true, status: true } },
         paymentMethod: true,
       },
     });
@@ -103,18 +121,27 @@ export class PaymentService {
     }
 
     if (action === 'REJECT') {
-      if (!rejectionReason || rejectionReason.trim().length < 5) {
+      if (!rejectionReason || rejectionReason.trim().length < 3) {
         throw { statusCode: 400, code: 'REASON_REQUIRED', message: 'A descriptive rejection reason is required.' };
       }
 
+      const cleanReason = rejectionReason.trim();
       const updated = await prisma.depositRequest.update({
         where: { id: depositId },
         data: {
           status: DepositStatus.REJECTED,
-          rejectionReason: rejectionReason.trim(),
+          rejectionReason: cleanReason,
           reviewedById: adminId,
           reviewedAt: new Date(),
         },
+      });
+
+      await NotificationService.send({
+        userId: deposit.userId,
+        eventKey: 'depositRejected',
+        title: 'Deposit Request Rejected',
+        message: `Your $${(deposit.amountCents / 100).toFixed(2)} USD deposit (Ref: ${deposit.transactionRef}) was declined. Reason: ${cleanReason}`,
+        type: 'DANGER',
       });
 
       await prisma.auditLog.create({
@@ -126,8 +153,8 @@ export class PaymentService {
           details: JSON.stringify({
             userId: deposit.userId,
             amountCents: deposit.amountCents,
-            currency: deposit.currency,
-            rejectionReason: rejectionReason.trim(),
+            currency: 'USD',
+            rejectionReason: cleanReason,
           }),
         },
       });
@@ -135,27 +162,19 @@ export class PaymentService {
       return updated;
     }
 
-    // ACTION === 'APPROVE': Execute double-entry ledger credit to user
-    return await prisma.$transaction(async (tx) => {
-      const cur = deposit.currency as Currency;
-
-      // User Available Account (Credit)
+    // ACTION === 'APPROVE': Execute double-entry ledger credit to user's USD Main Account
+    const result = await prisma.$transaction(async (tx) => {
       const userAccount = await LedgerService.getOrCreateAccount(
         tx,
         AccountType.USER_AVAILABLE,
-        cur,
+        Currency.USD,
         deposit.userId
       );
 
-      // System Cash Account (Debit)
-      let sysAccountType = AccountType.SYSTEM_CASH_CRYPTO;
-      if (deposit.paymentMethod.code === 'EASYPAISA') sysAccountType = AccountType.SYSTEM_CASH_EASYPAISA;
-      else if (deposit.paymentMethod.code === 'JAZZCASH') sysAccountType = AccountType.SYSTEM_CASH_JAZZCASH;
-
       const systemCashAccount = await LedgerService.getOrCreateAccount(
         tx,
-        sysAccountType,
-        cur,
+        AccountType.SYSTEM_CASH_CRYPTO,
+        Currency.USD,
         null
       );
 
@@ -165,8 +184,8 @@ export class PaymentService {
         {
           reference: ref,
           transactionType: LedgerTransactionType.DEPOSIT,
-          currency: cur,
-          description: `Verified deposit via ${deposit.paymentMethod.name} (Ref: ${deposit.transactionRef})`,
+          currency: Currency.USD,
+          description: `Verified USD deposit via ${deposit.paymentMethod.name} (Ref: ${deposit.transactionRef})`,
           postedById: adminId,
           entries: [
             {
@@ -194,36 +213,91 @@ export class PaymentService {
         },
       });
 
-      // Create notification for user
-      await tx.notification.create({
-        data: {
-          userId: deposit.userId,
-          title: 'Deposit Approved',
-          message: `Your deposit of ${(deposit.amountCents / 100).toFixed(2)} ${deposit.currency} has been verified and credited to your wallet.`,
-          type: 'SUCCESS',
-        },
-      });
-
-      // Audit Log
       await tx.auditLog.create({
         data: {
           userId: adminId,
           action: 'DEPOSIT_APPROVED',
           resourceType: 'DepositRequest',
           resourceId: deposit.id,
-          details: JSON.stringify({ amountCents: deposit.amountCents, currency: deposit.currency, ref }),
+          details: JSON.stringify({
+            targetUserId: deposit.userId,
+            amountCents: deposit.amountCents,
+            currency: 'USD',
+            ref,
+          }),
         },
       });
 
       return updatedDeposit;
     });
+
+    await NotificationService.send({
+      userId: deposit.userId,
+      eventKey: 'depositApproved',
+      title: 'Deposit Approved & Credited',
+      message: `Your deposit of $${(deposit.amountCents / 100).toFixed(2)} USD has been verified and credited to your Main Account.`,
+      type: 'SUCCESS',
+    });
+
+    // Automatically evaluate account level progression after verified deposit
+    await AccountLevelService.calculateAndUpdateUserLevel(deposit.userId).catch(() => {});
+
+    return result;
   }
 
-  // Admin Payment Channel Management
+  // Admin Payment Channel Management (Create, List, Edit, Delete)
   static async getAllPaymentMethods() {
     return await prisma.paymentMethod.findMany({
+      where: { currency: 'USD' },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  static async createPaymentMethod(
+    adminId: string,
+    data: {
+      name: string;
+      code?: string;
+      accountTitle: string;
+      accountNumber: string;
+      instructions: string;
+      minAmountCents?: number;
+      maxAmountCents?: number;
+      isActive?: boolean;
+      qrCodeUrl?: string;
+    }
+  ) {
+    const code =
+      (data.code || data.name.replace(/[^a-zA-Z0-9]+/g, '_').toUpperCase()) +
+      '_' +
+      Date.now().toString().slice(-4);
+
+    const created = await prisma.paymentMethod.create({
+      data: {
+        code,
+        name: data.name.trim(),
+        currency: 'USD',
+        accountTitle: data.accountTitle.trim(),
+        accountNumber: data.accountNumber.trim(),
+        instructions: data.instructions.trim() || 'Send exact USD amount and upload your receipt and reference.',
+        minAmountCents: data.minAmountCents ?? 2000,
+        maxAmountCents: data.maxAmountCents ?? 5000000,
+        isActive: data.isActive !== undefined ? data.isActive : true,
+        qrCodeUrl: data.qrCodeUrl || null,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'CREATE_PAYMENT_METHOD',
+        resourceType: 'PaymentMethod',
+        resourceId: created.id,
+        details: JSON.stringify({ name: created.name, currency: 'USD', accountNumber: created.accountNumber }),
+      },
+    });
+
+    return created;
   }
 
   static async updatePaymentMethod(
@@ -243,6 +317,7 @@ export class PaymentService {
     const updated = await prisma.paymentMethod.update({
       where: { id },
       data: {
+        currency: 'USD',
         ...(data.name !== undefined && { name: data.name }),
         ...(data.accountTitle !== undefined && { accountTitle: data.accountTitle }),
         ...(data.accountNumber !== undefined && { accountNumber: data.accountNumber }),
@@ -266,5 +341,37 @@ export class PaymentService {
 
     return updated;
   }
-}
 
+  static async deletePaymentMethod(adminId: string, id: string) {
+    const linkedDeposits = await prisma.depositRequest.count({ where: { paymentMethodId: id } });
+    if (linkedDeposits > 0) {
+      // Soft-deactivate if historical deposits exist so ledger audit links stay intact
+      const disabled = await prisma.paymentMethod.update({
+        where: { id },
+        data: { isActive: false },
+      });
+      await prisma.auditLog.create({
+        data: {
+          userId: adminId,
+          action: 'DEACTIVATE_PAYMENT_METHOD',
+          resourceType: 'PaymentMethod',
+          resourceId: id,
+          details: JSON.stringify({ reason: 'Has linked deposits; set inactive.' }),
+        },
+      });
+      return disabled;
+    }
+
+    const deleted = await prisma.paymentMethod.delete({ where: { id } });
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'DELETE_PAYMENT_METHOD',
+        resourceType: 'PaymentMethod',
+        resourceId: id,
+        details: JSON.stringify({ name: deleted.name }),
+      },
+    });
+    return deleted;
+  }
+}

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import prisma from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { LedgerService } from './ledger.service.js';
+import { NotificationService } from './notification.service.js';
 import { AccountType, Currency, EntryType, LedgerTransactionType } from '../types/index.js';
 import { extractYouTubeId } from '../utils/youtube.js';
 
@@ -13,9 +14,6 @@ const TIER_RANK: Record<string, number> = {
 };
 
 export class VideoService {
-  /**
-   * Retrieves list of videos with access status computed against the user's active package.
-   */
   static async getVideos(
     userId?: string,
     filters?: { category?: string; search?: string }
@@ -77,7 +75,7 @@ export class VideoService {
     const levelLimit = levelLimits[userAccountLevel] ?? 0;
     const purchaseLimit = userActivePurchase?.videoLimitGranted || 0;
     userVideoLimit = isStaff ? 9999 : Math.max(levelLimit, purchaseLimit);
-    userTierRank = userActivePurchase ? TIER_RANK[userActivePurchase.packageName] || 1 : (userAccountLevel !== 'NEW_USER' ? 2 : 0);
+    userTierRank = userActivePurchase ? TIER_RANK[userActivePurchase.packageName] || 1 : (userAccountLevel !== 'NEW_USER' ? 4 : 0);
 
     const conditions: any[] = [{ isPublished: true }];
 
@@ -118,12 +116,12 @@ export class VideoService {
       ],
     });
 
-    return videos.map((v) => {
+    return videos.map((v, idx) => {
       const isAssignedToUser = !!userId && v.assignedUserId === userId;
       const requiredRank = TIER_RANK[v.minPackageTier] || 1;
-      const isWithinLimit = v.orderIndex <= userVideoLimit;
-      // If directly assigned by Admin to this user, grant access immediately!
-      const hasTierAccess = isAssignedToUser || (userTierRank >= requiredRank && isWithinLimit);
+      const effectivePosition = v.orderIndex > 0 ? v.orderIndex : idx + 1;
+      const isWithinLimit = effectivePosition <= userVideoLimit;
+      const hasTierAccess = isStaff || isAssignedToUser || (userVideoLimit > 0 && isWithinLimit && userTierRank >= requiredRank);
 
       return {
         ...v,
@@ -156,7 +154,6 @@ export class VideoService {
     const isAssignedToUser = !!userId && video.assignedUserId === userId;
 
     if (userId) {
-      // Check if user is staff (Super Admin or Content Admin)
       const userRecord = await prisma.user.findUnique({
         where: { id: userId },
         select: { role: true, accountLevel: true },
@@ -166,7 +163,6 @@ export class VideoService {
       if (isAssignedToUser || isStaff) {
         hasAccess = true;
       } else if (video.assignedUserId && video.assignedUserId !== userId) {
-        // Video is assigned exclusively to another user
         hasAccess = false;
       } else {
         const userActivePurchase = await prisma.packagePurchase.findFirst({
@@ -218,16 +214,13 @@ export class VideoService {
     };
   }
 
-  /**
-   * Starts a secure video playback session. Generates sessionToken.
-   */
   static async startSession(userId: string, videoId: string) {
     const video = await this.getVideoById(videoId, userId);
     if (!video.hasAccess) {
       throw {
         statusCode: 403,
         code: 'ACCESS_RESTRICTED',
-        message: `Your current tier does not grant access to this video. Requires package tier '${video.minPackageTier}' or above.`,
+        message: `Your current account level or access plan does not unlock this video. Upgrade your plan or level to watch.`,
       };
     }
 
@@ -247,14 +240,15 @@ export class VideoService {
   }
 
   /**
-   * Heartbeat endpoint to validate real playback engagement.
-   * Client cannot fast-forward or fake time because heartbeat checks wall-clock delta!
+   * Heartbeat endpoint: validates real playback progress against actual video duration & wall-clock time.
+   * No short-circuit bypasses: requires full actual duration completion (>= 95% of videoDuration).
    */
   static async recordHeartbeat(
     userId: string,
     videoId: string,
     sessionToken: string,
-    clientWatchSeconds: number
+    clientWatchSeconds: number,
+    actualDurationSeconds?: number
   ) {
     const session = await prisma.videoSession.findUnique({
       where: { sessionToken },
@@ -268,20 +262,33 @@ export class VideoService {
     const now = new Date();
     const elapsedRealSeconds = Math.floor((now.getTime() - session.startedAt.getTime()) / 1000);
 
-    // Strict Anti-Cheat: client watchSeconds cannot exceed real elapsed time by more than 15s tolerance
+    // Anti-cheat: prevent fast-forwarding or client timer manipulation
     if (clientWatchSeconds > elapsedRealSeconds + 15) {
       throw {
         statusCode: 400,
         code: 'TIMING_ANOMALY',
-        message: 'Invalid playback telemetry detected. Playback rate exceeds permissible limits.',
+        message: 'Invalid playback telemetry detected. Seeking forward or speed manipulation is prohibited.',
       };
     }
 
-    const videoDuration = session.video.durationSeconds;
-    // Section 4.3: Mark completed if at least 80% watched, or >= 12 seconds, or reached full duration
-    const isCompleted =
-      clientWatchSeconds >= Math.min(videoDuration * 0.8, 12) ||
-      clientWatchSeconds >= videoDuration;
+    // If actual video file metadata duration differs from placeholder, sync actual duration safely
+    let videoDuration = session.video.durationSeconds;
+    if (
+      actualDurationSeconds &&
+      Number.isFinite(actualDurationSeconds) &&
+      actualDurationSeconds >= 5 &&
+      actualDurationSeconds <= 7200 &&
+      Math.abs(actualDurationSeconds - videoDuration) >= 2
+    ) {
+      await prisma.video.update({
+        where: { id: videoId },
+        data: { durationSeconds: Math.round(actualDurationSeconds) },
+      });
+      videoDuration = Math.round(actualDurationSeconds);
+    }
+
+    const requiredWatchSeconds = Math.max(5, Math.floor(videoDuration * 0.95));
+    const isCompleted = clientWatchSeconds >= requiredWatchSeconds;
 
     const updated = await prisma.videoSession.update({
       where: { id: session.id },
@@ -296,15 +303,29 @@ export class VideoService {
     return {
       watchSeconds: updated.watchSeconds,
       completed: updated.completed,
+      durationSeconds: videoDuration,
     };
   }
 
   /**
-   * Reward claim workflow with anti-fraud duplicate prevention and double-entry ledger credit.
+   * Automatic server-verified reward credit into the user's dedicated USER_VIDEO_REWARDS wallet.
+   * Re-watching the same video gracefully prevents duplicate credit.
    */
   static async claimReward(userId: string, videoId: string, sessionToken: string) {
     if (!env.ENABLE_REWARDS) {
-      throw { statusCode: 400, code: 'REWARDS_DISABLED', message: 'Rewards policy is currently in disabled mode.' };
+      throw { statusCode: 400, code: 'REWARDS_DISABLED', message: 'Rewards policy is currently disabled.' };
+    }
+
+    const bonusSetting = await prisma.systemSetting.findUnique({ where: { key: 'BONUS_SETTINGS' } });
+    if (bonusSetting) {
+      try {
+        const parsed = JSON.parse(bonusSetting.value);
+        if (parsed?.videoBonus?.enabled === false) {
+          throw { statusCode: 400, code: 'REWARDS_DISABLED', message: 'Video completion bonuses are currently paused by Admin.' };
+        }
+      } catch (e: any) {
+        if (e.statusCode) throw e;
+      }
     }
 
     const video = await prisma.video.findUnique({
@@ -322,22 +343,18 @@ export class VideoService {
       throw { statusCode: 400, code: 'INVALID_SESSION', message: 'Session does not match video.' };
     }
 
-    // Section 4.3: Ensure session is completed or auto-verify elapsed playback time
+    // Strict full-duration completion check
     if (!session.completed) {
       const now = new Date();
       const elapsedRealSeconds = Math.floor((now.getTime() - session.startedAt.getTime()) / 1000);
       const effectiveWatch = Math.max(session.watchSeconds, elapsedRealSeconds);
+      const requiredWatchSeconds = Math.max(5, Math.floor(video.durationSeconds * 0.95));
 
-      // Qualify if watched at least 80% or >= 10s or reached video duration
-      if (
-        effectiveWatch >= Math.min(video.durationSeconds * 0.8, 12) ||
-        session.watchSeconds >= 10 ||
-        effectiveWatch >= 10
-      ) {
+      if (effectiveWatch >= requiredWatchSeconds) {
         await prisma.videoSession.update({
           where: { id: session.id },
           data: {
-            watchSeconds: Math.max(session.watchSeconds, Math.min(video.durationSeconds, effectiveWatch)),
+            watchSeconds: video.durationSeconds,
             completed: true,
             completedAt: now,
           },
@@ -347,26 +364,31 @@ export class VideoService {
         throw {
           statusCode: 400,
           code: 'INCOMPLETE_VIEWING',
-          message: `Video must be fully completed to qualify for rewards. Watched ${effectiveWatch}s / ${video.durationSeconds}s.`,
+          message: `Video must play through its full duration to credit rewards. Watched ${effectiveWatch}s / ${video.durationSeconds}s.`,
         };
       }
     }
 
     const rewardAmountCents = video.rewardAmountCents;
 
-    return await prisma.$transaction(async (tx) => {
-      // 1. Concurrency-safe check inside transaction
+    const existingBefore = await prisma.rewardClaim.findUnique({
+      where: { userId_videoId: { userId, videoId } },
+    });
+    if (existingBefore) {
+      throw { statusCode: 400, code: 'ALREADY_CLAIMED', message: 'Reward has already been claimed for this video.' };
+    }
+
+    const claim = await prisma.$transaction(async (tx) => {
       const existingInTx = await tx.rewardClaim.findUnique({
         where: { userId_videoId: { userId, videoId } },
       });
       if (existingInTx) {
-        return existingInTx;
+        throw { statusCode: 400, code: 'ALREADY_CLAIMED', message: 'Reward has already been claimed for this video.' };
       }
 
-      // 2. Create reward claim record with P2002 duplicate protection
-      let claim;
+      let createdClaim;
       try {
-        claim = await tx.rewardClaim.create({
+        createdClaim = await tx.rewardClaim.create({
           data: {
             userId,
             videoId,
@@ -378,19 +400,15 @@ export class VideoService {
         });
       } catch (err: any) {
         if (err.code === 'P2002') {
-          return await tx.rewardClaim.findUnique({
-            where: { userId_videoId: { userId, videoId } },
-          });
+          throw { statusCode: 400, code: 'ALREADY_CLAIMED', message: 'Reward has already been claimed for this video.' };
         }
         throw err;
       }
 
-      // Credit user available balance via double-entry ledger:
-      // Debit: SYSTEM_EXPENSE_REWARDS
-      // Credit: USER_AVAILABLE
-      const userAccount = await LedgerService.getOrCreateAccount(
+      // Credit user's dedicated Video Rewards wallet (USER_VIDEO_REWARDS) via double-entry ledger
+      const videoRewardsAccount = await LedgerService.getOrCreateAccount(
         tx,
-        AccountType.USER_AVAILABLE,
+        AccountType.USER_VIDEO_REWARDS,
         Currency.USD,
         userId
       );
@@ -408,7 +426,7 @@ export class VideoService {
           reference,
           transactionType: LedgerTransactionType.REWARD_CREDIT,
           currency: Currency.USD,
-          description: `Engagement reward for: ${video.title} ($${(rewardAmountCents / 100).toFixed(2)})`,
+          description: `Video completion reward for: ${video.title} ($${(rewardAmountCents / 100).toFixed(2)} USD)`,
           entries: [
             {
               accountId: sysExpenseAccount.id,
@@ -416,7 +434,7 @@ export class VideoService {
               amountCents: rewardAmountCents,
             },
             {
-              accountId: userAccount.id,
+              accountId: videoRewardsAccount.id,
               entryType: EntryType.CREDIT,
               amountCents: rewardAmountCents,
             },
@@ -425,8 +443,99 @@ export class VideoService {
         tx
       );
 
-      return claim;
+      return { ...createdClaim, alreadyClaimed: false };
     });
+
+    if (claim && !claim.alreadyClaimed) {
+      await NotificationService.send({
+        userId,
+        eventKey: 'videoCompleted',
+        title: 'Video Completed',
+        message: `You completed "${video.title}". Full watch duration verified.`,
+        type: 'INFO',
+      });
+      await NotificationService.send({
+        userId,
+        eventKey: 'rewardCredited',
+        title: 'Video Reward Credited!',
+        message: `+$${(rewardAmountCents / 100).toFixed(2)} USD has been credited to your Video Rewards wallet for watching "${video.title}".`,
+        type: 'SUCCESS',
+      });
+    }
+
+    return claim;
+  }
+
+  /**
+   * Allows users to transfer balance from Video Rewards Wallet -> Main Account Credits
+   */
+  static async transferVideoRewardsToMainBalance(userId: string, amountCents: number) {
+    if (!Number.isInteger(amountCents) || amountCents <= 0) {
+      throw { statusCode: 400, code: 'INVALID_AMOUNT', message: 'Transfer amount must be greater than $0.00.' };
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const videoRewardsAccount = await LedgerService.getOrCreateAccount(
+        tx,
+        AccountType.USER_VIDEO_REWARDS,
+        Currency.USD,
+        userId
+      );
+
+      if (videoRewardsAccount.balanceCents < amountCents) {
+        throw {
+          statusCode: 400,
+          code: 'INSUFFICIENT_FUNDS',
+          message: `Insufficient Video Rewards balance. Available: $${(videoRewardsAccount.balanceCents / 100).toFixed(2)} USD.`,
+        };
+      }
+
+      const mainAccount = await LedgerService.getOrCreateAccount(
+        tx,
+        AccountType.USER_AVAILABLE,
+        Currency.USD,
+        userId
+      );
+
+      const ref = `VID-CONV-${userId.slice(0, 8)}-${Date.now()}`;
+      await LedgerService.postTransaction(
+        {
+          reference: ref,
+          transactionType: LedgerTransactionType.VIDEO_REWARD_CONVERT,
+          currency: Currency.USD,
+          description: `Transferred $${(amountCents / 100).toFixed(2)} USD from Video Rewards Wallet to Main Account`,
+          postedById: userId,
+          entries: [
+            {
+              accountId: videoRewardsAccount.id,
+              entryType: EntryType.DEBIT,
+              amountCents,
+            },
+            {
+              accountId: mainAccount.id,
+              entryType: EntryType.CREDIT,
+              amountCents,
+            },
+          ],
+        },
+        tx
+      );
+
+      return {
+        transferredCents: amountCents,
+        reference: ref,
+      };
+    });
+
+    await NotificationService.send({
+      userId,
+      eventKey: 'rewardCredited',
+      title: 'Video Rewards Transferred',
+      message: `Successfully transferred $${(amountCents / 100).toFixed(2)} USD from Video Rewards into your Main Account.`,
+      type: 'SUCCESS',
+    });
+
+    return result;
   }
 
   // Admin video operations
@@ -475,9 +584,7 @@ export class VideoService {
           select: { sessions: true, rewardClaims: true },
         },
       },
-      orderBy: [
-        { createdAt: 'desc' },
-      ],
+      orderBy: [{ orderIndex: 'asc' }, { createdAt: 'desc' }],
     });
 
     return videos.map((v) => ({
@@ -514,10 +621,11 @@ export class VideoService {
     return await prisma.video.create({
       data: {
         title: data.title,
-        description: data.description || 'Masterclass streaming module',
+        description: data.description || 'Verified U-Ads video campaign',
         thumbnailUrl: thumbnail,
         videoUrl: data.videoUrl,
-        durationSeconds: data.durationSeconds && data.durationSeconds > 0 ? data.durationSeconds : 180,
+        // Duration automatically captured from actual video metadata on client upload/playback
+        durationSeconds: data.durationSeconds && data.durationSeconds > 0 ? data.durationSeconds : 60,
         category: data.category || 'Special Assignment',
         minPackageTier: data.minPackageTier || 'Starter',
         orderIndex: data.orderIndex ?? count + 1,

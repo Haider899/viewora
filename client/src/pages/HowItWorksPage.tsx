@@ -18,14 +18,14 @@ export const HowItWorksPage: React.FC<HowItWorksProps> = ({ navigate }) => {
   const steps = [
     {
       step: '01',
-      title: 'Create Your VistaraX Account',
-      desc: 'Register with your verified email and assign your unique referral identifier. Your dual-currency wallet (USD & PKR) is instantly provisioned.',
+      title: 'Create Your U-Ads Account',
+      desc: 'Register with your verified email and assign your unique referral identifier. Your USD wallet is instantly provisioned.',
       icon: <UserPlus className="w-6 h-6 text-emerald-600" />,
     },
     {
       step: '02',
       title: 'Fund Wallet via Verified Channels',
-      desc: 'Submit a deposit request through EasyPaisa, JazzCash, or USDT (TRC-20). Authorized finance administrators verify authentic payment references before posting atomic ledger credits.',
+      desc: 'Submit a deposit request through USDT (TRC-20) or Bank Wire. Authorized finance administrators verify authentic payment references before posting atomic ledger credits. Verification typically takes 10–30 minutes.',
       icon: <CreditCard className="w-6 h-6 text-teal-600" />,
     },
     {
@@ -54,7 +54,7 @@ export const HowItWorksPage: React.FC<HowItWorksProps> = ({ navigate }) => {
         <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-widest">
           Platform Architecture
         </span>
-        <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900">How VistaraX Works</h1>
+        <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900">How U-Ads Works</h1>
         <p className="text-slate-600 text-sm leading-relaxed">
           A step-by-step walkthrough of our verification pipeline, double-entry financial ledger, and video access control system.
         </p>

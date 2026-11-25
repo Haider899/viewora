@@ -51,8 +51,21 @@ import {
   Video as VideoIcon,
   Lock,
   Upload,
+  Volume2,
+  VolumeX,
+  FileBarChart,
+  Gift,
 } from 'lucide-react';
 import { extractYouTubeId, getYouTubeEmbedUrl, getYouTubeThumbnail } from '../utils/youtube.js';
+import {
+  AdminPackagesTab,
+  AdminReferralsConfigTab,
+  AdminBonusesConfigTab,
+  AdminWalletAdjustTab,
+  AdminReportsAuditTab,
+  AdminCmsAndNotificationsPanel,
+  AdminSupportAgentsPanel,
+} from '../components/AdminExtraTabs.js';
 
 interface AdminDashboardProps {
   navigate?: (route: string) => void;
@@ -65,13 +78,19 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     | 'deposits'
     | 'withdrawals'
     | 'users'
+    | 'wallets'
     | 'gateways'
-    | 'settings'
-    | 'support'
+    | 'packages'
+    | 'referrals'
+    | 'bonuses'
+    | 'levels'
     | 'videos'
     | 'documents'
-    | 'levels'
+    | 'support'
+    | 'reports'
+    | 'settings'
   >('kpis');
+  const [soundAlertsEnabled, setSoundAlertsEnabled] = useState(true);
 
   // Live Support Desk State
   const [supportConversations, setSupportConversations] = useState<SupportConversation[]>([]);
@@ -687,11 +706,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
 
   const openEditLevelModal = (lvl: any) => {
     setEditingLevel(lvl);
-    setLevelFormName(lvl.displayName || lvl.levelKey);
-    setLevelFormMinUSD((lvl.minAmountCents || 0) / 100);
-    setLevelFormMaxUSD(lvl.maxAmountCents ? lvl.maxAmountCents / 100 : 0);
-    setLevelFormVideoLimit(lvl.dailyVideoLimit || 10);
-    setLevelFormBonusBps(lvl.dailyBonusBps || 0);
+    setLevelFormName(lvl.name || lvl.displayName || lvl.levelKey);
+    setLevelFormMinUSD(lvl.minQualificationUSD ?? (lvl.minAmountCents || 0) / 100);
+    setLevelFormMaxUSD(lvl.maxQualificationUSD ?? (lvl.maxAmountCents ? lvl.maxAmountCents / 100 : 0));
+    setLevelFormVideoLimit(lvl.videoLimit ?? lvl.dailyVideoLimit ?? 10);
+    setLevelFormBonusBps(lvl.dailyBonusRateBps ?? lvl.dailyBonusBps ?? 0);
     setLevelModalOpen(true);
   };
 
@@ -703,11 +722,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     setActionError(null);
     try {
       const payload = {
-        displayName: levelFormName.trim(),
-        minAmountCents: Math.round(levelFormMinUSD * 100),
-        maxAmountCents: levelFormMaxUSD > 0 ? Math.round(levelFormMaxUSD * 100) : null,
-        dailyVideoLimit: Number(levelFormVideoLimit),
-        dailyBonusBps: Number(levelFormBonusBps),
+        name: levelFormName.trim(),
+        minQualificationUSD: Number(levelFormMinUSD) || 0,
+        maxQualificationUSD: levelFormMaxUSD > 0 ? Number(levelFormMaxUSD) : null,
+        videoLimit: Number(levelFormVideoLimit),
+        dailyBonusRateBps: Number(levelFormBonusBps),
       };
       const res = await api.updateAccountLevel(editingLevel.levelKey, payload);
       if (res.success) {
@@ -730,6 +749,37 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     const badgeInterval = setInterval(refreshNotificationBadges, 4000);
     return () => clearInterval(badgeInterval);
   }, []);
+
+  // Repeating 3-second Web Audio notification chime when live support chats await an agent
+  useEffect(() => {
+    if (!soundAlertsEnabled || waitingSupportCount <= 0) return;
+
+    const playChime = () => {
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1174.66, ctx.currentTime + 0.14);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.36);
+        setTimeout(() => ctx.close().catch(() => {}), 500);
+      } catch {
+        // AudioContext requires user gesture before unlocking
+      }
+    };
+
+    playChime();
+    const chimeInterval = setInterval(playChime, 3000);
+    return () => clearInterval(chimeInterval);
+  }, [waitingSupportCount, soundAlertsEnabled]);
 
   useEffect(() => {
     if (activeTab === 'kpis') loadKpis();
@@ -863,26 +913,73 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     setActionSuccess(null);
     setActionError(null);
     try {
-      const res = await api.updateAdminPaymentMethod(editingGateway.id, {
+      const payload = {
+        code: (editingGateway.code || `USD_${Date.now()}`).toUpperCase().replace(/\s+/g, '_'),
         name: editingGateway.name,
+        currency: 'USD',
         accountTitle: editingGateway.accountTitle,
         accountNumber: editingGateway.accountNumber,
         instructions: editingGateway.instructions,
-        minAmountCents: parseInt(editingGateway.minAmountCents),
-        maxAmountCents: parseInt(editingGateway.maxAmountCents),
+        minAmountCents: parseInt(editingGateway.minAmountCents) || 2000,
+        maxAmountCents: parseInt(editingGateway.maxAmountCents) || 5000000,
         isActive: Boolean(editingGateway.isActive),
-      });
+      };
+      const res = editingGateway.id
+        ? await api.updateAdminPaymentMethod(editingGateway.id, payload)
+        : await api.createAdminPaymentMethod(payload);
       if (res.success) {
-        setActionSuccess(`Payment gateway "${editingGateway.name}" updated successfully!`);
+        setActionSuccess(
+          editingGateway.id
+            ? `Payment channel "${editingGateway.name}" updated successfully!`
+            : `New USD payment channel "${editingGateway.name}" created!`
+        );
         setEditingGateway(null);
         await loadGateways();
       } else {
-        setActionError(res.error?.message || 'Failed to update gateway details.');
+        setActionError(res.error?.message || 'Failed to save payment channel.');
       }
     } catch {
-      setActionError('Error saving gateway details.');
+      setActionError('Error saving payment channel details.');
     } finally {
       setSavingGateway(false);
+    }
+  };
+
+  const handleDeleteGateway = async (gw: any) => {
+    if (!confirm(`Delete or deactivate USD payment channel "${gw.name}"?`)) return;
+    setActionSuccess(null);
+    setActionError(null);
+    const res = await api.deleteAdminPaymentMethod(gw.id);
+    if (res.success) {
+      setActionSuccess(`Payment channel "${gw.name}" removed/deactivated.`);
+      await loadGateways();
+    } else {
+      setActionError(res.error?.message || 'Failed to delete payment channel.');
+    }
+  };
+
+  const handleWithdrawalTransition = async (
+    withdrawalId: string,
+    action: 'UNDER_REVIEW' | 'APPROVE' | 'PROCESSING' | 'FAILED',
+    reason?: string
+  ) => {
+    setActionSuccess(null);
+    setActionError(null);
+    try {
+      const res = await api.reviewWithdrawal(
+        withdrawalId,
+        action,
+        reason ? { rejectionReason: reason } : undefined
+      );
+      if (res.success) {
+        setActionSuccess(`Withdrawal updated to ${action.replace(/_/g, ' ')}.`);
+        loadWithdrawals();
+        refreshNotificationBadges();
+      } else {
+        setActionError(res.error?.message || 'Status update failed.');
+      }
+    } catch {
+      setActionError('Error updating withdrawal status.');
     }
   };
 
@@ -1178,7 +1275,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
             </div>
             <div>
               <span className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                Vistara<span className="text-purple-600">X</span>
+                U-<span className="text-purple-600">Ads</span>
                 <span className="text-[10px] uppercase font-bold tracking-wider bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
                   {user?.role}
                 </span>
@@ -1186,10 +1283,23 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setSoundAlertsEnabled(!soundAlertsEnabled)}
+              title={soundAlertsEnabled ? 'Mute Support Alert Chime' : 'Enable Support Alert Chime'}
+              className={`p-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                soundAlertsEnabled
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-slate-100 text-slate-500 border-slate-200'
+              }`}
+            >
+              {soundAlertsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+              <span className="hidden md:inline">{soundAlertsEnabled ? 'Alerts On' : 'Muted'}</span>
+            </button>
             <div className="hidden sm:block text-right">
               <div className="text-xs font-bold text-slate-900">{user?.fullName}</div>
-              <div className="text-[10px] text-slate-500 font-medium">Administrator Session</div>
+              <div className="text-[10px] text-slate-500 font-medium">U-Ads Admin Console</div>
             </div>
             <button
               onClick={logout}
@@ -1206,7 +1316,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-1 overflow-x-auto py-2 border-t border-slate-100 scrollbar-none">
           <button
             onClick={() => setActiveTab('kpis')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'kpis'
                 ? 'bg-purple-600 text-white shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -1217,14 +1327,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           </button>
           <button
             onClick={() => setActiveTab('deposits')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'deposits'
                 ? 'bg-purple-600 text-white shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <CreditCard className="w-4 h-4" />
-            Deposit Verification
+            Deposits
             {pendingDepositsCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
                 {pendingDepositsCount}
@@ -1233,14 +1343,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           </button>
           <button
             onClick={() => setActiveTab('withdrawals')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'withdrawals'
                 ? 'bg-purple-600 text-white shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <ArrowUpRight className="w-4 h-4" />
-            Withdrawal Settlements
+            Withdrawals
             {pendingWithdrawalsCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
                 {pendingWithdrawalsCount}
@@ -1249,47 +1359,113 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           </button>
           <button
             onClick={() => setActiveTab('users')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'users'
                 ? 'bg-purple-600 text-white shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <Users className="w-4 h-4" />
-            User Management
+            Users
           </button>
           <button
-            onClick={() => setActiveTab('gateways')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-              activeTab === 'gateways'
+            onClick={() => setActiveTab('wallets')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'wallets'
                 ? 'bg-purple-600 text-white shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <Wallet className="w-4 h-4" />
-            Payment Channels & Wallets
+            Wallet Adjustments
           </button>
           <button
-            onClick={() => setActiveTab('settings')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-              activeTab === 'settings'
+            onClick={() => setActiveTab('gateways')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'gateways'
                 ? 'bg-purple-600 text-white shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Settings className="w-4 h-4" />
-            System Settings
+            <CreditCard className="w-4 h-4" />
+            USD Channels
+          </button>
+          <button
+            onClick={() => setActiveTab('packages')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'packages'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            Packages
+          </button>
+          <button
+            onClick={() => setActiveTab('levels')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'levels'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            Levels
+          </button>
+          <button
+            onClick={() => setActiveTab('referrals')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'referrals'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            Referrals Config
+          </button>
+          <button
+            onClick={() => setActiveTab('bonuses')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'bonuses'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Gift className="w-4 h-4" />
+            Bonuses
+          </button>
+          <button
+            onClick={() => setActiveTab('videos')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'videos'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <PlaySquare className="w-4 h-4" />
+            Videos
+          </button>
+          <button
+            onClick={() => setActiveTab('documents')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'documents'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <FileCheck className="w-4 h-4" />
+            Documents
           </button>
           <button
             onClick={() => setActiveTab('support')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'support'
                 ? 'bg-purple-600 text-white shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <MessageSquare className="w-4 h-4" />
-            Live Support Desk
+            Live Support
             {waitingSupportCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
                 {waitingSupportCount}
@@ -1297,37 +1473,26 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
             )}
           </button>
           <button
-            onClick={() => setActiveTab('videos')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-              activeTab === 'videos'
+            onClick={() => setActiveTab('reports')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'reports'
                 ? 'bg-purple-600 text-white shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <PlaySquare className="w-4 h-4" />
-            Videos & Assignments
+            <FileBarChart className="w-4 h-4" />
+            Reports &amp; Logs
           </button>
           <button
-            onClick={() => setActiveTab('documents')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-              activeTab === 'documents'
+            onClick={() => setActiveTab('settings')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'settings'
                 ? 'bg-purple-600 text-white shadow-sm'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <FileCheck className="w-4 h-4" />
-            Company Documents
-          </button>
-          <button
-            onClick={() => setActiveTab('levels')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-              activeTab === 'levels'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            Account Levels & Daily Bonus
+            <Settings className="w-4 h-4" />
+            Settings &amp; CMS
           </button>
         </div>
       </header>
@@ -1368,7 +1533,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                     Double-Entry Ledger Integrity: 100% Balanced
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Every transaction across USD and PKR accounts strictly satisfies &Sigma; Debits = &Sigma; Credits. Zero drift.
+                    Every transaction across U-Ads USD wallets strictly satisfies &Sigma; Debits = &Sigma; Credits. Zero drift.
                   </p>
                 </div>
               </div>
@@ -1377,7 +1542,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
               <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
                 <span className="text-xs text-slate-500 font-semibold">Total Registered Users</span>
                 <div className="text-3xl font-extrabold text-slate-900">{kpis?.totalUsers ?? 0}</div>
@@ -1387,7 +1552,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               </div>
 
               <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-                <span className="text-xs text-slate-500 font-semibold">Pending Deposit Queue</span>
+                <span className="text-xs text-slate-500 font-semibold">Pending Deposits</span>
                 <div className="text-3xl font-extrabold text-amber-600">
                   {kpis?.pendingDepositsCount ?? 0}
                 </div>
@@ -1397,21 +1562,63 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               </div>
 
               <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-                <span className="text-xs text-slate-500 font-semibold">Verified Deposits</span>
+                <span className="text-xs text-slate-500 font-semibold">Verified USD Deposits</span>
                 <div className="text-3xl font-extrabold text-emerald-700">
                   ${((kpis?.verifiedDepositsCents?.USD ?? 0) / 100).toFixed(2)}
                 </div>
-                <span className="text-[11px] text-teal-600 font-medium">
-                  PKR: Rs {((kpis?.verifiedDepositsCents?.PKR ?? 0) / 100).toLocaleString()}
+                <span className="text-[11px] text-emerald-600 font-medium">
+                  Approved USD treasury inflow
                 </span>
               </div>
 
               <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-                <span className="text-xs text-slate-500 font-semibold">Completed Payouts</span>
-                <div className="text-3xl font-extrabold text-slate-900">
-                  ${((kpis?.completedPayoutsCents?.USD ?? 0) / 100).toFixed(2)}
+                <span className="text-xs text-slate-500 font-semibold">Pending Withdrawals</span>
+                <div className="text-3xl font-extrabold text-rose-600">
+                  {kpis?.pendingWithdrawalsCount ?? 0}
                 </div>
-                <span className="text-[11px] text-slate-500">Settled with verified TxHash</span>
+                <span className="text-[11px] text-slate-500">
+                  Hold: ${((kpis?.pendingWithdrawalsCents?.USD ?? 0) / 100).toFixed(2)} • Paid: ${((kpis?.completedPayoutsCents?.USD ?? 0) / 100).toFixed(2)}
+                </span>
+              </div>
+
+              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                <span className="text-xs text-slate-500 font-semibold">Total Video Completions</span>
+                <div className="text-3xl font-extrabold text-teal-700">
+                  {kpis?.totalVideoCompletions ?? kpis?.totalViewsCount ?? 0}
+                </div>
+                <span className="text-[11px] text-slate-500">
+                  Across {kpis?.totalVideosCount ?? 0} catalog videos
+                </span>
+              </div>
+
+              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                <span className="text-xs text-slate-500 font-semibold">Total Eligible Rewards</span>
+                <div className="text-3xl font-extrabold text-indigo-700">
+                  ${((kpis?.totalEligibleRewardsCents ?? 0) / 100).toFixed(2)}
+                </div>
+                <span className="text-[11px] text-slate-500">
+                  Video, referral &amp; daily level payouts
+                </span>
+              </div>
+
+              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                <span className="text-xs text-slate-500 font-semibold">Total Referrals</span>
+                <div className="text-3xl font-extrabold text-purple-700">
+                  {kpis?.totalReferrals ?? 0}
+                </div>
+                <span className="text-[11px] text-slate-500">
+                  Attributed direct referrals
+                </span>
+              </div>
+
+              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                <span className="text-xs text-slate-500 font-semibold">Live Support Agents</span>
+                <div className="text-3xl font-extrabold text-slate-900">
+                  {kpis?.onlineSupportAgents ?? 0} / {kpis?.activeSupportAgents ?? 0}
+                </div>
+                <span className="text-[11px] text-amber-600 font-medium">
+                  {kpis?.waitingSupportChats ?? waitingSupportCount} waiting chats
+                </span>
               </div>
             </div>
           </div>
@@ -1570,32 +1777,62 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                           </span>
                         </td>
 
-                        <td className="py-4 px-6 text-right space-x-2">
+                        <td className="py-4 px-6 text-right space-x-1.5 space-y-1">
                           <button
                             onClick={() => openUserDossier(w.userId)}
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 transition-colors inline-flex items-center gap-1 cursor-pointer"
+                            className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 transition-colors inline-flex items-center gap-1 cursor-pointer"
                             title="Audit user earnings, deposits, video rewards, and activity trail"
                           >
                             <FileText className="w-3.5 h-3.5" />
-                            Audit Trail
+                            Audit
                           </button>
-                          {w.status !== 'COMPLETED' && w.status !== 'REJECTED' && (
+                          {!['COMPLETED', 'PAID', 'REJECTED', 'FAILED', 'CANCELLED'].includes(w.status) && (
                             <>
+                              {w.status === 'PENDING' && (
+                                <button
+                                  onClick={() => handleWithdrawalTransition(w.id, 'UNDER_REVIEW')}
+                                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 cursor-pointer"
+                                >
+                                  Under Review
+                                </button>
+                              )}
+                              {['PENDING', 'UNDER_REVIEW'].includes(w.status) && (
+                                <button
+                                  onClick={() => handleWithdrawalTransition(w.id, 'APPROVE')}
+                                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 cursor-pointer"
+                                >
+                                  Approve
+                                </button>
+                              )}
+                              {['PENDING', 'UNDER_REVIEW', 'APPROVED'].includes(w.status) && (
+                                <button
+                                  onClick={() => handleWithdrawalTransition(w.id, 'PROCESSING')}
+                                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 cursor-pointer"
+                                >
+                                  Processing
+                                </button>
+                              )}
                               <button
                                 onClick={() => setCompleteModal(w.id)}
-                                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer"
+                                className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer"
                               >
-                                Settle Payout
+                                Mark Paid
                               </button>
                               <button
                                 onClick={() => setRejectModal({ type: 'withdrawal', id: w.id })}
-                                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-white hover:bg-rose-50 text-rose-600 border border-rose-300 transition-colors cursor-pointer"
+                                className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-white hover:bg-rose-50 text-rose-600 border border-rose-300 transition-colors cursor-pointer"
                               >
-                                Reject & Release Hold
+                                Reject
+                              </button>
+                              <button
+                                onClick={() => handleWithdrawalTransition(w.id, 'FAILED', 'External payout rail failure')}
+                                className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 cursor-pointer"
+                              >
+                                Mark Failed
                               </button>
                             </>
                           )}
-                          {w.status === 'COMPLETED' && (
+                          {(w.status === 'COMPLETED' || w.status === 'PAID') && (
                             <span className="text-[10px] font-mono text-emerald-700 font-semibold ml-2">
                               Tx: {w.payoutRef}
                             </span>
@@ -1667,8 +1904,20 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                     return (
                       <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-4 px-6">
-                          <div className="font-bold text-slate-900">{u.fullName}</div>
+                          <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                            <span>{u.fullName}</span>
+                            {u.memberCode && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                                {u.memberCode}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-slate-500">{u.email}</div>
+                          {u.createdAt && (
+                            <div className="text-[10px] text-slate-400">
+                              Joined: {new Date(u.createdAt).toLocaleDateString()}
+                            </div>
+                          )}
                         </td>
 
                         <td className="py-4 px-6">
@@ -1785,19 +2034,41 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               <div>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <Wallet className="w-5 h-5 text-purple-600" />
-                  Deposit Payment Channels & Wallet Addresses
+                  USD Deposit Payment Channels &amp; Treasury Wallets
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Configure corporate wallet addresses (e.g. USDT TRC-20), bank accounts, EasyPaisa, and JazzCash accounts shown to users when depositing.
+                  Add, edit, activate, or remove USD deposit channels (USDT TRC-20, International Bank Wire, etc.) shown to members.
                 </p>
               </div>
-              <button
-                onClick={loadGateways}
-                className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors self-start sm:self-auto"
-                title="Refresh"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <button
+                  onClick={() =>
+                    setEditingGateway({
+                      id: null,
+                      code: '',
+                      name: '',
+                      currency: 'USD',
+                      accountTitle: '',
+                      accountNumber: '',
+                      instructions: 'Send USD to the details above and submit your transaction reference and receipt. Verified in 10–30 minutes.',
+                      minAmountCents: 2000,
+                      maxAmountCents: 5000000,
+                      isActive: true,
+                    })
+                  }
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add USD Channel
+                </button>
+                <button
+                  onClick={loadGateways}
+                  className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                  title="Refresh"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {loadingGateways ? (
@@ -1858,13 +2129,20 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                       {gw.instructions}
                     </div>
 
-                    <div className="pt-2 flex justify-end">
+                    <div className="pt-2 flex justify-end gap-2">
                       <button
                         onClick={() => setEditingGateway({ ...gw })}
-                        className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white flex items-center gap-1.5 transition-colors shadow-2xs"
+                        className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
-                        Edit Gateway & Wallet
+                        Edit Channel
+                      </button>
+                      <button
+                        onClick={() => handleDeleteGateway(gw)}
+                        className="px-3 py-2 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Delete / Deactivate Channel"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -1881,9 +2159,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               <div className="flex items-center gap-2">
                 <Settings className="w-5 h-5 text-purple-600" />
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">System Configuration Parameters</h3>
+                  <h3 className="text-base font-bold text-slate-900">System Configuration, Landing CMS &amp; Notifications</h3>
                   <p className="text-xs text-slate-500">
-                    Modify global business rules, commission rates, withdrawal thresholds, and USD-to-PKR conversion rates in real-time.
+                    Modify global U-Ads USD business rules, deposit verification time text, landing page content, and notification triggers.
                   </p>
                 </div>
               </div>
@@ -1944,6 +2222,17 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 </div>
               ))}
             </div>
+
+            <AdminCmsAndNotificationsPanel
+              onSuccess={(m) => {
+                setActionError(null);
+                setActionSuccess(m);
+              }}
+              onError={(m) => {
+                setActionSuccess(null);
+                setActionError(m);
+              }}
+            />
           </div>
         )}
 
@@ -1952,6 +2241,18 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         {/* ------------------------------------------------------------- */}
         {activeTab === 'support' && (
           <div className="space-y-6">
+            {user?.role === 'SUPER_ADMIN' && (
+              <AdminSupportAgentsPanel
+                onSuccess={(m) => {
+                  setActionError(null);
+                  setActionSuccess(m);
+                }}
+                onError={(m) => {
+                  setActionSuccess(null);
+                  setActionError(m);
+                }}
+              />
+            )}
             {/* Top Toolbar */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200/90 shadow-xs">
               <div className="space-y-1">
@@ -2248,7 +2549,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                                     ? `Customer: ${msg.senderName}`
                                     : isAgent
                                     ? `Support Agent (${msg.senderName})`
-                                    : '🤖 Vistara AI Bot'}
+                                    : '🤖 U-Ads AI Assistant'}
                                 </span>
                                 <span className="text-[9px] text-slate-400">
                                   {new Date(msg.createdAt).toLocaleTimeString([], {
@@ -2788,9 +3089,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {levelsList.map((lvl: any) => {
-                      const minUSD = ((lvl.minAmountCents || 0) / 100).toFixed(2);
-                      const maxUSD = lvl.maxAmountCents ? `$${((lvl.maxAmountCents || 0) / 100).toFixed(2)}` : 'No Cap';
-                      const bonusPercent = ((lvl.dailyBonusBps || 0) / 100).toFixed(2);
+                      const minUSDNum = lvl.minQualificationUSD ?? (lvl.minAmountCents || 0) / 100;
+                      const maxUSDNum = lvl.maxQualificationUSD ?? (lvl.maxAmountCents ? lvl.maxAmountCents / 100 : null);
+                      const bonusBps = lvl.dailyBonusRateBps ?? lvl.dailyBonusBps ?? 0;
+                      const minUSD = Number(minUSDNum).toFixed(2);
+                      const maxUSD = maxUSDNum !== null && maxUSDNum !== undefined ? `$${Number(maxUSDNum).toFixed(2)}` : 'No Cap';
+                      const bonusPercent = (Number(bonusBps) / 100).toFixed(2);
 
                       return (
                         <tr key={lvl.id || lvl.levelKey} className="hover:bg-slate-50/80 transition-colors">
@@ -2799,15 +3103,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                               {lvl.levelKey}
                             </span>
                           </td>
-                          <td className="py-4 px-6 font-bold text-indigo-900">{lvl.displayName}</td>
+                          <td className="py-4 px-6 font-bold text-indigo-900">{lvl.name || lvl.displayName || lvl.levelKey}</td>
                           <td className="py-4 px-6 font-mono font-semibold text-slate-800">
                             ${minUSD} – {maxUSD}
                           </td>
                           <td className="py-4 px-6 font-bold text-slate-700">
-                            {lvl.dailyVideoLimit} videos/day
+                            {lvl.videoLimit ?? lvl.dailyVideoLimit ?? 0} videos
                           </td>
                           <td className="py-4 px-6 font-bold text-emerald-700">
-                            {bonusPercent}% ({lvl.dailyBonusBps || 0} bps)
+                            {bonusPercent}% ({bonusBps} bps)
                           </td>
                           <td className="py-4 px-6">
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -2854,6 +3158,38 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
             </div>
           </div>
         )}
+
+        {/* NEW ADMIN TABS: PACKAGES, REFERRALS CONFIG, BONUSES, WALLETS, REPORTS */}
+        {activeTab === 'packages' && (
+          <AdminPackagesTab
+            onSuccess={(m) => { setActionError(null); setActionSuccess(m); }}
+            onError={(m) => { setActionSuccess(null); setActionError(m); }}
+          />
+        )}
+        {activeTab === 'referrals' && (
+          <AdminReferralsConfigTab
+            onSuccess={(m) => { setActionError(null); setActionSuccess(m); }}
+            onError={(m) => { setActionSuccess(null); setActionError(m); }}
+          />
+        )}
+        {activeTab === 'bonuses' && (
+          <AdminBonusesConfigTab
+            onSuccess={(m) => { setActionError(null); setActionSuccess(m); }}
+            onError={(m) => { setActionSuccess(null); setActionError(m); }}
+          />
+        )}
+        {activeTab === 'wallets' && (
+          <AdminWalletAdjustTab
+            onSuccess={(m) => { setActionError(null); setActionSuccess(m); }}
+            onError={(m) => { setActionSuccess(null); setActionError(m); }}
+          />
+        )}
+        {activeTab === 'reports' && (
+          <AdminReportsAuditTab
+            onSuccess={(m) => { setActionError(null); setActionSuccess(m); }}
+            onError={(m) => { setActionSuccess(null); setActionError(m); }}
+          />
+        )}
       </main>
 
       {/* EDIT GATEWAY MODAL */}
@@ -2862,8 +3198,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           <div className="w-full max-w-lg rounded-3xl bg-white border border-slate-200 p-8 space-y-5 shadow-2xl relative">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Edit Gateway: {editingGateway.name}</h3>
-                <span className="text-xs text-purple-700 font-mono font-bold">{editingGateway.code} ({editingGateway.currency})</span>
+                <h3 className="text-lg font-bold text-slate-900">
+                  {editingGateway.id ? `Edit USD Channel: ${editingGateway.name}` : 'Create New USD Payment Channel'}
+                </h3>
+                <span className="text-xs text-purple-700 font-mono font-bold">
+                  {editingGateway.code || 'NEW_USD_CHANNEL'} (USD)
+                </span>
               </div>
               <button
                 type="button"
@@ -2875,10 +3215,25 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
             </div>
 
             <form onSubmit={handleSaveGateway} className="space-y-4 text-xs">
+              {!editingGateway.id && (
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Channel Code (Unique)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. CRYPTO_USDT_BEP20 or USD_WISE"
+                    value={editingGateway.code || ''}
+                    onChange={(e) => setEditingGateway({ ...editingGateway, code: e.target.value.toUpperCase() })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:border-purple-500"
+                    required
+                  />
+                </div>
+              )}
+
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Gateway Display Name</label>
+                <label className="block font-semibold text-slate-700 mb-1">Channel Display Name</label>
                 <input
                   type="text"
+                  placeholder="e.g. USDT (TRC-20 Network)"
                   value={editingGateway.name}
                   onChange={(e) => setEditingGateway({ ...editingGateway, name: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-purple-500"
@@ -2890,7 +3245,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 <label className="block font-semibold text-slate-700 mb-1">Account Title / Beneficiary Name</label>
                 <input
                   type="text"
-                  placeholder="e.g. VistaraX Media Treasury or Muhammad Ali"
+                  placeholder="e.g. U-Ads Treasury Custody LLC"
                   value={editingGateway.accountTitle || ''}
                   onChange={(e) => setEditingGateway({ ...editingGateway, accountTitle: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-purple-500"
@@ -2900,11 +3255,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Account Number / Wallet Address (USDT TRC-20, IBAN, Mobile No)
+                  Account Number / Wallet Address (USDT TRC-20, SWIFT / IBAN)
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t or 0345-1234567"
+                  placeholder="e.g. TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
                   value={editingGateway.accountNumber || ''}
                   onChange={(e) => setEditingGateway({ ...editingGateway, accountNumber: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-purple-500"
@@ -3459,12 +3814,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               <label className="text-xs font-bold text-slate-700">Select Target Tier</label>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { key: 'NEW_USER', name: 'New User', min: '$0' },
-                  { key: 'LEVEL_1', name: 'Level 1 (Novice)', min: '$20' },
-                  { key: 'LEVEL_2', name: 'Level 2 (Active)', min: '$100' },
-                  { key: 'LEVEL_3', name: 'Level 3 (Creator)', min: '$500' },
-                  { key: 'LEVEL_4', name: 'Level 4 (Architect)', min: '$2,000' },
-                  { key: 'LEVEL_5', name: 'Level 5 (Elite)', min: '$5,000' },
+                  { key: 'LEVEL_0', name: 'Level 0 (New User)', min: '$0' },
+                  { key: 'LEVEL_1', name: 'Level 1', min: '$20' },
+                  { key: 'LEVEL_2', name: 'Level 2', min: '$100' },
+                  { key: 'LEVEL_3', name: 'Level 3', min: '$500' },
+                  { key: 'LEVEL_4', name: 'Level 4', min: '$1,000' },
+                  { key: 'LEVEL_5', name: 'Level 5', min: '$5,000' },
                 ].map((lvl) => (
                   <button
                     key={lvl.key}
@@ -4042,16 +4397,25 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block font-bold text-slate-800">Duration (Seconds)</label>
-                  <input
-                    type="number"
-                    value={formVideoDuration}
-                    onChange={(e) => setFormVideoDuration(parseInt(e.target.value) || 0)}
-                    min={10}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900"
-                  />
+                  <label className="block font-bold text-slate-800">Video Duration</label>
+                  <div className="w-full bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-2.5 text-xs text-emerald-800 font-semibold">
+                    Auto-Detected ({formVideoDuration > 0 ? `${Math.floor(formVideoDuration / 60)}m ${formVideoDuration % 60}s` : 'From Media Metadata'})
+                  </div>
+                  {formVideoUrl && !extractYouTubeId(formVideoUrl) && (
+                    <video
+                      src={formVideoUrl}
+                      preload="metadata"
+                      className="hidden"
+                      onLoadedMetadata={(e) => {
+                        const dur = Math.round(e.currentTarget.duration);
+                        if (dur > 0 && Number.isFinite(dur)) {
+                          setFormVideoDuration(dur);
+                        }
+                      }}
+                    />
+                  )}
                   <span className="text-[10px] text-slate-400">
-                    Approx: {Math.floor(formVideoDuration / 60)}m {formVideoDuration % 60}s
+                    Duration is automatically detected from the video metadata during upload &amp; playback.
                   </span>
                 </div>
               </div>

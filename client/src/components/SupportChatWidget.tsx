@@ -55,6 +55,7 @@ export const SupportChatWidget: React.FC = () => {
   useEffect(() => {
     // Clean up any legacy anonymous convo ID from localStorage
     localStorage.removeItem('vistara_support_convo_id');
+    localStorage.removeItem('uads_support_convo_id');
   }, []);
 
   useEffect(() => {
@@ -80,8 +81,9 @@ export const SupportChatWidget: React.FC = () => {
     const initChat = async () => {
       setLoading(true);
       try {
-        const userConvoKey = `vistara_support_convo_id_${user.id}`;
-        const storedConvoId = localStorage.getItem(userConvoKey) || undefined;
+        const userConvoKey = `uads_support_convo_id_${user.id}`;
+        const legacyKey = `vistara_support_convo_id_${user.id}`;
+        const storedConvoId = localStorage.getItem(userConvoKey) || localStorage.getItem(legacyKey) || undefined;
         const res = await api.getOrCreateSupportConversation({
           conversationId: storedConvoId,
         });
@@ -234,7 +236,7 @@ export const SupportChatWidget: React.FC = () => {
               </div>
               <div className="flex flex-col">
                 <span className="text-xs font-bold flex items-center gap-1.5">
-                  Vistara Support Desk
+                  U-Ads Support Desk
                   <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
                 </span>
                 <span className="text-[11px] text-slate-300">
@@ -301,7 +303,7 @@ export const SupportChatWidget: React.FC = () => {
                     >
                       {/* Sender label */}
                       <span className="text-[10px] font-semibold text-slate-400 px-1">
-                        {isUser ? 'You' : isAgent ? `👨‍💼 ${msg.senderName}` : '🤖 Vistara AI'}
+                        {isUser ? 'You' : isAgent ? `👨‍💼 ${msg.senderName}` : '🤖 U-Ads AI'}
                       </span>
 
                       {/* Bubble */}

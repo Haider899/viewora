@@ -4,13 +4,15 @@ const API_BASE = ((import.meta as any).env?.VITE_API_BASE_URL as string) || '/ap
 
 class ApiClient {
   private getToken(): string | null {
-    return localStorage.getItem('vistarax_token');
+    return localStorage.getItem('uads_token') || localStorage.getItem('vistarax_token');
   }
 
   public setToken(token: string | null) {
     if (token) {
-      localStorage.setItem('vistarax_token', token);
+      localStorage.setItem('uads_token', token);
+      localStorage.removeItem('vistarax_token'); // remove legacy key
     } else {
+      localStorage.removeItem('uads_token');
       localStorage.removeItem('vistarax_token');
     }
   }
@@ -64,7 +66,7 @@ class ApiClient {
     }
   }
 
-  // Auth
+  // ─── Auth ────────────────────────────────────────────────────────────────
   async login(credentials: { email: string; password: string }) {
     return this.request<{ user: any; token: string }>('/auth/login', {
       method: 'POST',
@@ -83,7 +85,7 @@ class ApiClient {
     return this.request<{ user: any }>('/auth/me');
   }
 
-  // Packages
+  // ─── Packages ────────────────────────────────────────────────────────────
   async getPackages() {
     return this.request<any[]>('/packages');
   }
@@ -103,7 +105,7 @@ class ApiClient {
     return this.request<any>('/packages/active');
   }
 
-  // Videos
+  // ─── Videos ──────────────────────────────────────────────────────────────
   async getVideos(params?: { category?: string; search?: string }) {
     const query = new URLSearchParams();
     if (params?.category) query.append('category', params.category);
@@ -122,10 +124,15 @@ class ApiClient {
     });
   }
 
-  async sendVideoHeartbeat(videoId: string, sessionToken: string, watchSeconds: number) {
+  async sendVideoHeartbeat(
+    videoId: string,
+    sessionToken: string,
+    watchSeconds: number,
+    actualDurationSeconds?: number
+  ) {
     return this.request<any>(`/videos/${videoId}/heartbeat`, {
       method: 'POST',
-      body: JSON.stringify({ sessionToken, watchSeconds }),
+      body: JSON.stringify({ sessionToken, watchSeconds, actualDurationSeconds }),
     });
   }
 
@@ -136,7 +143,7 @@ class ApiClient {
     });
   }
 
-  // Wallet & Ledger
+  // ─── Wallet & Ledger ─────────────────────────────────────────────────────
   async getWalletSummary() {
     return this.request<any>('/wallet/summary');
   }
@@ -147,7 +154,14 @@ class ApiClient {
     );
   }
 
-  // Payments / Deposits
+  async transferVideoRewardsToMain(amountCents: number) {
+    return this.request<any>('/wallet/transfer-video-rewards', {
+      method: 'POST',
+      body: JSON.stringify({ amountCents }),
+    });
+  }
+
+  // ─── Payments / Deposits ─────────────────────────────────────────────────
   async getPaymentMethods() {
     return this.request<any[]>('/payments/methods');
   }
@@ -171,13 +185,14 @@ class ApiClient {
     return this.request<any[]>('/payments/my-deposits');
   }
 
-  // Withdrawals
+  // ─── Withdrawals ─────────────────────────────────────────────────────────
   async createWithdrawalRequest(data: {
     amountCents: number;
     currency: string;
     payoutMethod: string;
     accountTitle: string;
     accountNumber: string;
+    sourceWallet?: string;
   }) {
     return this.request<any>('/withdrawals/request', {
       method: 'POST',
@@ -189,7 +204,7 @@ class ApiClient {
     return this.request<any[]>('/withdrawals/my-withdrawals');
   }
 
-  // Referrals
+  // ─── Referrals ───────────────────────────────────────────────────────────
   async getReferralSummary() {
     return this.request<any>('/referrals/summary');
   }
@@ -205,7 +220,25 @@ class ApiClient {
     });
   }
 
-  // Admin APIs
+  // ─── Notifications ───────────────────────────────────────────────────────
+  async getNotifications(page = 1, pageSize = 20) {
+    return this.request<any>(`/notifications?page=${page}&pageSize=${pageSize}`);
+  }
+
+  async markNotificationRead(id: string) {
+    return this.request<any>(`/notifications/${id}/read`, { method: 'PATCH' });
+  }
+
+  async markAllNotificationsRead() {
+    return this.request<any>('/notifications/read-all', { method: 'POST' });
+  }
+
+  // ─── Landing Content (public) ─────────────────────────────────────────────
+  async getLandingContent() {
+    return this.request<any>('/landing-content');
+  }
+
+  // ─── Admin – KPIs & Users ────────────────────────────────────────────────
   async getAdminKpis() {
     return this.request<any>('/admin/kpis');
   }
@@ -227,6 +260,39 @@ class ApiClient {
     });
   }
 
+  async getUserFinancialDossier(userId: string) {
+    return this.request<any>(`/admin/users/${userId}/financial-dossier`);
+  }
+
+  async manualAdjustUserLevel(userId: string, newLevel: string, reason: string) {
+    return this.request<any>(`/admin/users/${userId}/level`, {
+      method: 'POST',
+      body: JSON.stringify({ newLevel, reason }),
+    });
+  }
+
+  async lockUserAccount(userId: string, durationDays: number, reason: string) {
+    return this.request<any>(`/admin/users/${userId}/lock`, {
+      method: 'POST',
+      body: JSON.stringify({ durationDays, reason }),
+    });
+  }
+
+  async unlockUserAccount(userId: string, reason: string) {
+    return this.request<any>(`/admin/users/${userId}/unlock`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  async updateUserRole(userId: string, role: string, reason?: string) {
+    return this.request<any>(`/admin/users/${userId}/role`, {
+      method: 'POST',
+      body: JSON.stringify({ role, reason }),
+    });
+  }
+
+  // ─── Admin – Deposits ────────────────────────────────────────────────────
   async getAdminDeposits(status = 'PENDING') {
     return this.request<any[]>(`/admin/deposits?status=${status}`);
   }
@@ -238,18 +304,15 @@ class ApiClient {
     });
   }
 
+  // ─── Admin – Withdrawals ─────────────────────────────────────────────────
   async getAdminWithdrawals(status?: string) {
     const qs = status ? `?status=${status}` : '';
     return this.request<any[]>(`/admin/withdrawals${qs}`);
   }
 
-  async getUserFinancialDossier(userId: string) {
-    return this.request<any>(`/admin/users/${userId}/financial-dossier`);
-  }
-
   async reviewWithdrawal(
     withdrawalId: string,
-    action: 'APPROVE' | 'REJECT' | 'COMPLETE',
+    action: 'UNDER_REVIEW' | 'APPROVE' | 'PROCESSING' | 'PAID' | 'COMPLETE' | 'REJECT' | 'FAILED',
     payload?: { payoutRef?: string; rejectionReason?: string }
   ) {
     return this.request<any>(`/admin/withdrawals/${withdrawalId}/review`, {
@@ -258,19 +321,30 @@ class ApiClient {
     });
   }
 
-  async updateSystemSetting(key: string, value: string) {
-    return this.request<any>('/admin/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ key, value }),
+  // ─── Admin – Wallet Adjust ───────────────────────────────────────────────
+  async adminAdjustWallet(data: {
+    userId: string;
+    walletCategory: 'USER_AVAILABLE' | 'USER_REFERRAL' | 'USER_VIDEO_REWARDS' | 'USER_OTHER_REWARDS';
+    direction: 'CREDIT' | 'DEBIT';
+    amountCents: number;
+    reason: string;
+  }) {
+    return this.request<any>('/admin/wallets/adjust', {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 
-  async getSystemSettings() {
-    return this.request<any[]>('/admin/settings');
-  }
-
+  // ─── Admin – Payment Channels ────────────────────────────────────────────
   async getAdminPaymentMethods() {
     return this.request<any[]>('/admin/payment-methods');
+  }
+
+  async createAdminPaymentMethod(data: any) {
+    return this.request<any>('/admin/payment-methods', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   }
 
   async updateAdminPaymentMethod(id: string, data: any) {
@@ -280,44 +354,129 @@ class ApiClient {
     });
   }
 
-  // -----------------------------------------------------------
-  // LIVE CHAT & CUSTOMER SUPPORT
-  // -----------------------------------------------------------
-  async getSupportFaqs() {
-    return this.request<any[]>('/support/faqs');
-  }
-
-  async getOrCreateSupportConversation(data?: {
-    conversationId?: string;
-    guestName?: string;
-    guestEmail?: string;
-  }) {
-    return this.request<any>('/support/conversations', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
+  async deleteAdminPaymentMethod(id: string) {
+    return this.request<any>(`/admin/payment-methods/${id}`, {
+      method: 'DELETE',
     });
   }
 
-  async getSupportConversation(id: string) {
-    return this.request<any>(`/support/conversations/${id}`);
+  // ─── Admin – Packages ────────────────────────────────────────────────────
+  async adminGetPackages() {
+    return this.request<any[]>('/admin/packages');
   }
 
-  async sendSupportMessage(
-    conversationId: string,
-    data: { message: string; attachmentUrl?: string; attachmentName?: string }
-  ) {
-    return this.request<any>(`/support/conversations/${conversationId}/messages`, {
+  async adminCreatePackage(data: any) {
+    return this.request<any>('/admin/packages', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async escalateSupportConversation(conversationId: string) {
-    return this.request<any>(`/support/conversations/${conversationId}/escalate`, {
-      method: 'POST',
+  async adminUpdatePackage(id: string, data: any) {
+    return this.request<any>(`/admin/packages/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
     });
   }
 
+  async adminDeletePackage(id: string) {
+    return this.request<any>(`/admin/packages/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ─── Admin – Account Levels ──────────────────────────────────────────────
+  async getAccountLevels() {
+    return this.request<any[]>('/admin/levels');
+  }
+
+  async updateAccountLevel(levelKey: string, data: any) {
+    return this.request<any>(`/admin/levels/${levelKey}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Admin – Settings (System) ───────────────────────────────────────────
+  async getSystemSettings() {
+    return this.request<any[]>('/admin/settings');
+  }
+
+  async updateSystemSetting(key: string, value: string) {
+    return this.request<any>('/admin/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ key, value }),
+    });
+  }
+
+  // ─── Admin – Referral Config ─────────────────────────────────────────────
+  async getReferralConfig() {
+    return this.request<any>('/admin/referral-config');
+  }
+
+  async updateReferralConfig(data: any) {
+    return this.request<any>('/admin/referral-config', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Admin – Bonus Settings ──────────────────────────────────────────────
+  async getBonusSettings() {
+    return this.request<any>('/admin/bonus-settings');
+  }
+
+  async updateBonusSettings(data: any) {
+    return this.request<any>('/admin/bonus-settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Admin – Notification Settings ──────────────────────────────────────
+  async getNotificationSettings() {
+    return this.request<any>('/admin/notification-settings');
+  }
+
+  async updateNotificationSettings(data: any) {
+    return this.request<any>('/admin/notification-settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Admin – Landing CMS ─────────────────────────────────────────────────
+  async adminGetLandingContent() {
+    return this.request<any>('/admin/landing-content');
+  }
+
+  async adminUpdateLandingContent(data: any) {
+    return this.request<any>('/admin/landing-content', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Admin – Reports & Audit Logs ────────────────────────────────────────
+  async getAdminReports(from?: string, to?: string) {
+    const query = new URLSearchParams();
+    if (from) query.append('from', from);
+    if (to) query.append('to', to);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return this.request<any>(`/admin/reports${qs}`);
+  }
+
+  async getAuditLogs(params?: { page?: number; pageSize?: number; action?: string; search?: string }) {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.pageSize) query.append('pageSize', params.pageSize.toString());
+    if (params?.action) query.append('action', params.action);
+    if (params?.search) query.append('search', params.search);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return this.request<any>(`/admin/audit-logs${qs}`);
+  }
+
+  // ─── Admin – Support ─────────────────────────────────────────────────────
   async getAdminSupportConversations(params?: { status?: string; search?: string }) {
     const query = new URLSearchParams();
     if (params?.status) query.append('status', params.status);
@@ -354,9 +513,31 @@ class ApiClient {
     });
   }
 
-  // -----------------------------------------------------------
-  // ADMIN VIDEO CATALOG & USER ASSIGNMENTS
-  // -----------------------------------------------------------
+  async getSupportAgents() {
+    return this.request<any[]>('/admin/support/agents');
+  }
+
+  async createSupportAgent(data: { email: string; fullName: string; password: string }) {
+    return this.request<any>('/admin/support/agents', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteSupportAgent(id: string) {
+    return this.request<any>(`/admin/support/agents/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async updateAgentAvailability(status: 'ONLINE' | 'BUSY' | 'OFFLINE') {
+    return this.request<any>('/admin/support/agent-status', {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  // ─── Admin – Videos ──────────────────────────────────────────────────────
   async adminGetVideos(params?: {
     search?: string;
     category?: string;
@@ -404,9 +585,7 @@ class ApiClient {
     });
   }
 
-  // -----------------------------------------------------------
-  // COMPANY DOCUMENTS (SECTION 2.1)
-  // -----------------------------------------------------------
+  // ─── Company Documents ───────────────────────────────────────────────────
   async getPublicDocuments() {
     return this.request<any[]>('/documents');
   }
@@ -435,55 +614,43 @@ class ApiClient {
     });
   }
 
-  // -----------------------------------------------------------
-  // ACCOUNT LEVELS & USER LOCKS (SECTION 3 & 11)
-  // -----------------------------------------------------------
-  async getAccountLevels() {
-    return this.request<any[]>('/admin/levels');
+  // ─── Support – User-facing ───────────────────────────────────────────────
+  async getSupportFaqs() {
+    return this.request<any[]>('/support/faqs');
   }
 
-  async updateAccountLevel(levelKey: string, data: any) {
-    return this.request<any>(`/admin/levels/${levelKey}`, {
-      method: 'PUT',
+  async getOrCreateSupportConversation(data?: {
+    conversationId?: string;
+    guestName?: string;
+    guestEmail?: string;
+  }) {
+    return this.request<any>('/support/conversations', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    });
+  }
+
+  async getSupportConversation(id: string) {
+    return this.request<any>(`/support/conversations/${id}`);
+  }
+
+  async sendSupportMessage(
+    conversationId: string,
+    data: { message: string; attachmentUrl?: string; attachmentName?: string }
+  ) {
+    return this.request<any>(`/support/conversations/${conversationId}/messages`, {
+      method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async manualAdjustUserLevel(userId: string, newLevel: string, reason: string) {
-    return this.request<any>(`/admin/users/${userId}/level`, {
+  async escalateSupportConversation(conversationId: string) {
+    return this.request<any>(`/support/conversations/${conversationId}/escalate`, {
       method: 'POST',
-      body: JSON.stringify({ newLevel, reason }),
     });
   }
 
-  async lockUserAccount(userId: string, durationDays: number, reason: string) {
-    return this.request<any>(`/admin/users/${userId}/lock`, {
-      method: 'POST',
-      body: JSON.stringify({ durationDays, reason }),
-    });
-  }
-
-  async unlockUserAccount(userId: string, reason: string) {
-    return this.request<any>(`/admin/users/${userId}/unlock`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
-    });
-  }
-
-  async updateUserRole(userId: string, role: string, reason?: string) {
-    return this.request<any>(`/admin/users/${userId}/role`, {
-      method: 'POST',
-      body: JSON.stringify({ role, reason }),
-    });
-  }
-
-  async updateAgentAvailability(status: 'ONLINE' | 'BUSY' | 'OFFLINE') {
-    return this.request<any>('/admin/support/agent-status', {
-      method: 'PUT',
-      body: JSON.stringify({ status }),
-    });
-  }
-
+  // ─── Misc ────────────────────────────────────────────────────────────────
   async triggerDailyBonusBatch() {
     return this.request<any>('/admin/bonuses/daily-batch', {
       method: 'POST',
@@ -493,4 +660,3 @@ class ApiClient {
 
 export const api = new ApiClient();
 export default api;
-

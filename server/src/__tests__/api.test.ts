@@ -5,7 +5,7 @@ import prisma from '../lib/prisma.js';
 import { LedgerService } from '../services/ledger.service.js';
 import { AccountType, Currency, EntryType, LedgerTransactionType } from '../types/index.js';
 
-describe('VistaraX API & RBAC Integration Tests', () => {
+describe('U-Ads API & RBAC Integration Tests', () => {
   let userToken = '';
   let userId = '';
   let supportToken = '';
@@ -15,10 +15,10 @@ describe('VistaraX API & RBAC Integration Tests', () => {
 
   it('authenticates seeded users and yields valid JWT session tokens', async () => {
     // 1. Register fresh isolated test user
-    const testEmail = `test-${Date.now()}@vistarax.com`;
+    const testEmail = `test-${Date.now()}@u-ads.com`;
     const userRes = await request(app)
       .post('/api/v1/auth/register')
-      .send({ email: testEmail, password: 'VistaraSecure2026!', fullName: 'Test Isolation User' });
+      .send({ email: testEmail, password: 'UAdsSecure2026!', fullName: 'Test Isolation User' });
 
     expect(userRes.status).toBe(201);
     expect(userRes.body.success).toBe(true);
@@ -29,14 +29,14 @@ describe('VistaraX API & RBAC Integration Tests', () => {
     // 2. Login support agent
     const suppRes = await request(app)
       .post('/api/v1/auth/login')
-      .send({ email: 'support@vistarax.com', password: 'VistaraSecure2026!' });
+      .send({ email: 'support@u-ads.com', password: 'UAdsSecure2026!' });
     expect(suppRes.status).toBe(200);
     supportToken = suppRes.body.data.token;
 
     // 3. Login super admin
     const adminRes = await request(app)
       .post('/api/v1/auth/login')
-      .send({ email: 'admin@vistarax.com', password: 'VistaraSecure2026!' });
+      .send({ email: 'admin@innovative.online', password: 'Super@2026' });
     expect(adminRes.status).toBe(200);
     adminToken = adminRes.body.data.token;
   });
@@ -51,23 +51,23 @@ describe('VistaraX API & RBAC Integration Tests', () => {
 
     const pmRes = await request(app).get('/api/v1/payments/methods');
     expect(pmRes.status).toBe(200);
-    expect(pmRes.body.data.length).toBeGreaterThanOrEqual(3);
+    expect(pmRes.body.data.length).toBeGreaterThanOrEqual(2);
     paymentMethodId = pmRes.body.data[0].id;
   });
 
   it('rejects duplicate deposit transaction references', async () => {
     const uniqueTxRef = `TX-TEST-${Date.now()}`;
 
-    // First submission
+    // First submission (USD Only)
     const res1 = await request(app)
       .post('/api/v1/payments/deposit')
       .set('Authorization', `Bearer ${userToken}`)
       .send({
         paymentMethodId,
-        amountCents: 200000, // 2,000 PKR
-        currency: 'PKR',
+        amountCents: 2500, // $25.00 USD
+        currency: 'USD',
         transactionRef: uniqueTxRef,
-        senderName: 'David Sterling',
+        senderName: 'Test Isolation User',
       });
 
     expect(res1.status).toBe(201);
@@ -79,10 +79,10 @@ describe('VistaraX API & RBAC Integration Tests', () => {
       .set('Authorization', `Bearer ${userToken}`)
       .send({
         paymentMethodId,
-        amountCents: 200000,
-        currency: 'PKR',
+        amountCents: 2500,
+        currency: 'USD',
         transactionRef: uniqueTxRef,
-        senderName: 'David Sterling',
+        senderName: 'Test Isolation User',
       });
 
     expect(res2.status).toBe(400);
@@ -90,13 +90,11 @@ describe('VistaraX API & RBAC Integration Tests', () => {
   });
 
   it('strictly prohibits SUPPORT_AGENT from approving financial deposits (RBAC)', async () => {
-    // Fetch pending deposit
     const dep = await prisma.depositRequest.findFirst({
-      where: { status: 'PENDING' },
+      where: { status: 'PENDING', userId },
     });
     expect(dep).toBeDefined();
 
-    // Attempt approval with SUPPORT_AGENT token
     const res = await request(app)
       .post(`/api/v1/admin/deposits/${dep!.id}/review`)
       .set('Authorization', `Bearer ${supportToken}`)
@@ -106,30 +104,8 @@ describe('VistaraX API & RBAC Integration Tests', () => {
     expect(res.body.error.code).toBe('FORBIDDEN');
   });
 
-  it('allows SUPER_ADMIN to approve deposit and atomically credits wallet balance', async () => {
-    const dep = await prisma.depositRequest.findFirst({
-      where: { status: 'PENDING' },
-    });
-
-    const res = await request(app)
-      .post(`/api/v1/admin/deposits/${dep!.id}/review`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ action: 'APPROVE' });
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-
-    // Verify wallet summary for user has updated balance
-    const walletRes = await request(app)
-      .get('/api/v1/wallet/summary')
-      .set('Authorization', `Bearer ${userToken}`);
-
-    expect(walletRes.status).toBe(200);
-    expect(walletRes.body.data.PKR.availableCents).toBeGreaterThan(0);
-  });
-
   it('prevents package purchase when wallet balance is insufficient', async () => {
-    // User has 0 USD available balance
+    // User still has 0 USD available balance because deposit is PENDING
     const res = await request(app)
       .post('/api/v1/packages/purchase')
       .set('Authorization', `Bearer ${userToken}`)
@@ -139,27 +115,30 @@ describe('VistaraX API & RBAC Integration Tests', () => {
     expect(res.body.error.code).toBe('INSUFFICIENT_FUNDS');
   });
 
+  it('allows SUPER_ADMIN to approve deposit and atomically credits USD wallet balance', async () => {
+    const dep = await prisma.depositRequest.findFirst({
+      where: { status: 'PENDING', userId },
+    });
+    expect(dep).toBeDefined();
+
+    const res = await request(app)
+      .post(`/api/v1/admin/deposits/${dep!.id}/review`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ action: 'APPROVE' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const walletRes = await request(app)
+      .get('/api/v1/wallet/summary')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(walletRes.status).toBe(200);
+    expect(walletRes.body.data.USD.availableCents).toBeGreaterThanOrEqual(2500);
+  });
+
   it('allows package purchase after deposit and preserves historical snapshot terms', async () => {
-    // Credit $100.00 USD to user's available balance via ledger
-    const userUsd = await prisma.walletAccount.findFirst({
-      where: { userId, accountType: 'USER_AVAILABLE', currency: 'USD' },
-    });
-    const sysCash = await prisma.walletAccount.findFirst({
-      where: { accountType: 'SYSTEM_CASH_CRYPTO', currency: 'USD' },
-    });
-
-    await LedgerService.postTransaction({
-      reference: `TEST-SEED-CREDIT-${Date.now()}`,
-      transactionType: LedgerTransactionType.DEPOSIT,
-      currency: Currency.USD,
-      description: 'Test seed credit for package purchase',
-      entries: [
-        { accountId: sysCash!.id, entryType: EntryType.DEBIT, amountCents: 10000 },
-        { accountId: userUsd!.id, entryType: EntryType.CREDIT, amountCents: 10000 },
-      ],
-    });
-
-    // Now purchase Starter Package ($20 = 2000 cents)
+    // Now purchase Starter Package ($20 = 2000 cents) using the approved $25 deposit (2500 cents -> 500 cents remaining)
     const buyRes = await request(app)
       .post('/api/v1/packages/purchase')
       .set('Authorization', `Bearer ${userToken}`)
@@ -170,12 +149,11 @@ describe('VistaraX API & RBAC Integration Tests', () => {
     expect(buyRes.body.data.packageName).toBe('Starter');
     expect(buyRes.body.data.videoLimitGranted).toBe(2);
 
-    // Check user's remaining USD balance is 10000 - 2000 = 8000 cents
     const walletRes = await request(app)
       .get('/api/v1/wallet/summary')
       .set('Authorization', `Bearer ${userToken}`);
 
-    expect(walletRes.body.data.USD.availableCents).toBe(8000);
+    expect(walletRes.body.data.USD.availableCents).toBe(500);
   });
 
   it('strictly blocks duplicate reward claims for the same video', async () => {

@@ -30,7 +30,9 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(input.password, 10);
-    const userReferralCode = 'VX-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const userReferralCode = 'UAD-' + randomSuffix;
+    const memberCode = 'UID-' + randomSuffix;
 
     const user = await prisma.$transaction(async (tx) => {
       const newUser = await tx.user.create({
@@ -43,17 +45,41 @@ export class AuthService {
           status: UserStatus.ACTIVE,
           emailVerified: true, // auto-verified for seamless evaluation
           referralCode: userReferralCode,
+          memberCode,
           referredById: referrer?.id || null,
         },
       });
 
-      // Initialize USD and PKR available and reserved accounts
-      for (const cur of ['USD', 'PKR']) {
-        await tx.walletAccount.createMany({
-          data: [
-            { userId: newUser.id, accountType: 'USER_AVAILABLE', currency: cur, balanceCents: 0 },
-            { userId: newUser.id, accountType: 'USER_RESERVED', currency: cur, balanceCents: 0 },
-          ],
+      // Initialize USD-only separate wallets: Main Account, Video Rewards, Other Rewards, Reserved, Referral
+      await tx.walletAccount.createMany({
+        data: [
+          { userId: newUser.id, accountType: 'USER_AVAILABLE', currency: 'USD', balanceCents: 0 },
+          { userId: newUser.id, accountType: 'USER_VIDEO_REWARDS', currency: 'USD', balanceCents: 0 },
+          { userId: newUser.id, accountType: 'USER_OTHER_REWARDS', currency: 'USD', balanceCents: 0 },
+          { userId: newUser.id, accountType: 'USER_RESERVED', currency: 'USD', balanceCents: 0 },
+          { userId: newUser.id, accountType: 'USER_REFERRAL', currency: 'USD', balanceCents: 0 },
+        ],
+      });
+
+      // Create Registration Notification
+      await tx.notification.create({
+        data: {
+          userId: newUser.id,
+          title: 'Welcome to U-Ads!',
+          message: `Your U-Ads account (${memberCode}) is active. Complete a qualifying deposit or select an access plan to start watching videos and earning USD rewards.`,
+          type: 'SUCCESS',
+        },
+      });
+
+      // Notify Referrer if any
+      if (referrer) {
+        await tx.notification.create({
+          data: {
+            userId: referrer.id,
+            title: 'New Referral Registered',
+            message: `${input.fullName} registered using your invitation code (${userReferralCode}). Commissions unlock on their first qualifying transaction.`,
+            type: 'INFO',
+          },
         });
       }
 
@@ -69,11 +95,14 @@ export class AuthService {
     return {
       user: {
         id: user.id,
+        memberCode: user.memberCode,
         email: user.email,
         fullName: user.fullName,
         role: user.role,
         status: user.status,
+        accountLevel: user.accountLevel,
         referralCode: user.referralCode,
+        createdAt: user.createdAt,
       },
       token,
     };
@@ -106,11 +135,16 @@ export class AuthService {
     return {
       user: {
         id: user.id,
+        memberCode: user.memberCode || `UID-${user.id.replace(/-/g, '').slice(0, 6).toUpperCase()}`,
         email: user.email,
         fullName: user.fullName,
         role: user.role,
         status: user.status,
+        accountLevel: user.accountLevel,
+        accountLockedUntil: user.accountLockedUntil,
+        agentAvailability: user.agentAvailability,
         referralCode: user.referralCode,
+        createdAt: user.createdAt,
       },
       token,
     };
@@ -121,12 +155,16 @@ export class AuthService {
       where: { id: userId },
       select: {
         id: true,
+        memberCode: true,
         email: true,
         fullName: true,
         phone: true,
         role: true,
         status: true,
         emailVerified: true,
+        accountLevel: true,
+        accountLockedUntil: true,
+        agentAvailability: true,
         referralCode: true,
         referredById: true,
         createdAt: true,

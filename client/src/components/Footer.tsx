@@ -17,11 +17,11 @@ export const Footer: React.FC<FooterProps> = ({ navigate }) => {
                 <PlaySquare className="w-4 h-4 text-white stroke-[2.5]" />
               </div>
               <span className="text-lg font-bold text-slate-900 tracking-tight">
-                Vistara<span className="text-emerald-600">X</span>
+                U-Ads
               </span>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Enterprise digital video streaming and engagement platform with immutable double-entry dual-currency ledgering.
+              Enterprise digital video streaming and engagement platform with immutable double-entry USD ledgering.
             </p>
             <div className="flex items-center gap-2 text-xs text-emerald-700 font-semibold">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -92,20 +92,20 @@ export const Footer: React.FC<FooterProps> = ({ navigate }) => {
                 <Shield className="w-3.5 h-3.5 text-emerald-600" />
                 Educational Platform Notice
               </p>
-              VistaraX operates as a digital video media service. VistaraX does not operate an investment scheme, does not solicit speculative deposits, and makes no representation of guaranteed financial yields or returns.
+              U-Ads operates as a digital video media service. U-Ads does not operate an investment scheme, does not solicit speculative deposits, and makes no representation of guaranteed financial yields or returns.
             </div>
           </div>
         </div>
 
         {/* Bottom bar */}
         <div className="pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
-          <p>© {new Date().getFullYear()} VistaraX Platform Technologies Ltd. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} U-Ads Platform Technologies Ltd. All rights reserved.</p>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1 text-slate-600 font-medium">
               <Lock className="w-3.5 h-3.5 text-emerald-600" /> 256-Bit TLS Encrypted
             </span>
             <span>•</span>
-            <span>EasyPaisa / JazzCash / USDT Supported</span>
+            <span>USDT Supported</span>
           </div>
         </div>
       </div>
