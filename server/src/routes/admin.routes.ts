@@ -25,6 +25,7 @@ import { AdminService } from '../services/admin.service.js';
 import { PackageService } from '../services/package.service.js';
 import { ReferralService } from '../services/referral.service.js';
 import { NotificationService } from '../services/notification.service.js';
+import { SupportService } from '../services/support.service.js';
 
 const router = Router();
 
@@ -43,6 +44,18 @@ router.get(
   '/users',
   requireRole(UserRole.SUPER_ADMIN, UserRole.SUPPORT_AGENT, UserRole.FINANCE_ADMIN),
   AdminController.getUsers
+);
+router.get(
+  '/users/ip-groups',
+  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN),
+  async (req, res, next) => {
+    try {
+      const groups = await AdminService.getIpGroups();
+      res.json({ success: true, data: groups });
+    } catch (err) {
+      next(err);
+    }
+  }
 );
 router.get(
   '/users/:userId/financial-dossier',
@@ -257,6 +270,26 @@ router.post(
   '/support/conversations/:id/escalate-to-admin',
   requireRole(UserRole.SUPER_ADMIN, UserRole.SUPPORT_AGENT),
   SupportController.adminEscalateToSuperAdmin
+);
+router.patch(
+  '/support/conversations/:id/assign',
+  requireRole(UserRole.SUPER_ADMIN),
+  async (req, res, next) => {
+    try {
+      const { agentId } = req.body;
+      const updated = await SupportService.adminAssignConversation({
+        conversationId: req.params.id,
+        agentId,
+        adminId: req.user!.userId,
+      });
+      res.json({ success: true, data: updated, message: 'Conversation assigned successfully.' });
+    } catch (err: any) {
+      res.status(err.statusCode || 400).json({
+        success: false,
+        error: { message: err.message || 'Failed to assign conversation.' },
+      });
+    }
+  }
 );
 
 // Support Agent Management (Create / List / Activate-Deactivate / Remove - Max 10 Agents)

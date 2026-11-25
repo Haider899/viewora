@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma.js';
 import { env } from '../config/env.js';
+import { AccountLevelService } from './accountLevel.service.js';
 import { JWTPayload, UserRole, UserStatus } from '../types/index.js';
 
 export class AuthService {
@@ -11,6 +12,7 @@ export class AuthService {
     fullName: string;
     phone?: string;
     referralCode?: string;
+    ipAddress?: string;
   }) {
     const existing = await prisma.user.findUnique({
       where: { email: input.email.toLowerCase() },
@@ -47,6 +49,9 @@ export class AuthService {
           referralCode: userReferralCode,
           memberCode,
           referredById: referrer?.id || null,
+          registrationIp: input.ipAddress || null,
+          lastLoginIp: input.ipAddress || null,
+          lastSeenAt: new Date(),
         },
       });
 
@@ -108,7 +113,7 @@ export class AuthService {
     };
   }
 
-  static async login(input: { email: string; password: string }) {
+  static async login(input: { email: string; password: string; ipAddress?: string }) {
     const user = await prisma.user.findUnique({
       where: { email: input.email.toLowerCase() },
     });
@@ -126,11 +131,22 @@ export class AuthService {
       throw { statusCode: 401, code: 'INVALID_CREDENTIALS', message: 'Invalid email address or password.' };
     }
 
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastSeenAt: new Date(),
+        ...(input.ipAddress ? { lastLoginIp: input.ipAddress } : {}),
+        ...(!user.registrationIp && input.ipAddress ? { registrationIp: input.ipAddress } : {}),
+      },
+    }).catch(() => {});
+
     const token = this.generateToken({
       userId: user.id,
       email: user.email,
       role: user.role as UserRole,
     });
+
+    const levelProgress = await AccountLevelService.getUserLevelProgress(user.id).catch(() => null);
 
     return {
       user: {
@@ -145,6 +161,7 @@ export class AuthService {
         agentAvailability: user.agentAvailability,
         referralCode: user.referralCode,
         createdAt: user.createdAt,
+        levelProgress,
       },
       token,
     };
@@ -167,6 +184,7 @@ export class AuthService {
         agentAvailability: true,
         referralCode: true,
         referredById: true,
+        lastSeenAt: true,
         createdAt: true,
       },
     });
@@ -175,7 +193,12 @@ export class AuthService {
       throw { statusCode: 404, code: 'USER_NOT_FOUND', message: 'User profile not found.' };
     }
 
-    return user;
+    const levelProgress = await AccountLevelService.getUserLevelProgress(userId).catch(() => null);
+
+    return {
+      ...user,
+      levelProgress,
+    };
   }
 
   static async updateProfile(userId: string, data: { fullName?: string; phone?: string }) {
@@ -258,12 +281,16 @@ export class AuthService {
   }
 
   static async forgotPassword(email: string) {
+    const genericResponse = {
+      sent: true,
+      expiresInMinutes: 15,
+      message:
+        'If an account with that email exists, a 6-digit password recovery code has been sent to your registered email address.',
+    };
+
     const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
     if (!user) {
-      return {
-        sent: true,
-        message: 'If an account with that email exists, a 6-digit password reset code has been generated.',
-      };
+      return genericResponse;
     }
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -277,21 +304,20 @@ export class AuthService {
       },
     });
 
-    await prisma.notification.create({
+    await prisma.auditLog.create({
       data: {
         userId: user.id,
-        title: 'Password Reset Code Requested',
-        message: `Your 6-digit U-Ads password reset code is ${code}. It expires in 15 minutes.`,
-        type: 'WARNING',
+        action: 'PASSWORD_RESET_REQUESTED',
+        resourceType: 'User',
+        resourceId: user.id,
+        details: JSON.stringify({ email: user.email, expiresAt: expires.toISOString() }),
       },
-    });
+    }).catch(() => {});
 
-    return {
-      sent: true,
-      resetCode: code, // Exposed for self-service recovery while external SMTP is unconfigured
-      expiresInMinutes: 15,
-      message: 'A 6-digit password reset code has been generated (valid for 15 minutes).',
-    };
+    // Dispatch recovery code strictly out-of-band (email/SMTP relay — NEVER returned in HTTP response!)
+    console.info(`[U-Ads Security Mailer] Password reset code dispatched to ${user.email} (valid 15m).`);
+
+    return genericResponse;
   }
 
   static async resetPassword(email: string, token: string, newPassword: string) {

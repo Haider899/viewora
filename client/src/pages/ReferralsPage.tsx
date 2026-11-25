@@ -96,23 +96,46 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
 
   const qualifiedCount = rankProgress?.qualifiedReferrals ?? data?.qualifiedReferrals ?? 0;
 
-  // Compute single consistent current rank & next rank/milestone (NEVER contradicts itself!)
+  // Issue #7: ONLY mark a milestone Achieved when its real claim payment exists!
+  const claimedRankKeys = new Set(
+    (rankProgress?.milestoneClaims || []).map((c: any) => String(c.rankName || '').toUpperCase())
+  );
+
+  // Compute single consistent current rank & next milestone directly from admin config
   const currentRankObj =
     [...documentedRanks]
       .reverse()
       .find((r: any) => qualifiedCount >= (r.minQualified ?? 0)) || documentedRanks[0];
 
   const nextMilestoneRank = documentedRanks.find(
-    (r: any) => (r.milestoneAt ?? 0) > qualifiedCount && (r.milestoneRewardUSD ?? 0) > 0
+    (r: any) =>
+      (r.milestoneAt ?? 0) > 0 &&
+      (r.milestoneRewardUSD ?? 0) > 0 &&
+      !claimedRankKeys.has(String(r.key || r.name || '').toUpperCase())
   );
 
   const nextTargetCount = nextMilestoneRank?.milestoneAt ?? currentRankObj?.milestoneAt ?? 5;
   const remainingCount = Math.max(0, nextTargetCount - qualifiedCount);
   const progressPercent = nextMilestoneRank
-    ? Math.min(100, Math.round((qualifiedCount / Math.max(1, nextTargetCount)) * 100))
+    ? Math.min(99, Math.round((qualifiedCount / Math.max(1, nextTargetCount)) * 100))
     : 100;
 
   const nextReferralPos = qualifiedCount + 1;
+
+  // Issue #15: Never render false zeros or empty states before real data arrives
+  if (loading) {
+    return (
+      <div className="space-y-5">
+        <div className="h-52 rounded-2xl skeleton-shimmer" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="h-28 rounded-2xl skeleton-shimmer" />
+          <div className="h-28 rounded-2xl skeleton-shimmer" />
+          <div className="h-28 rounded-2xl skeleton-shimmer" />
+        </div>
+        <div className="h-44 rounded-2xl skeleton-shimmer" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -169,11 +192,14 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
           </div>
         </div>
 
-        {/* Milestone Ladder with Achieved / In Progress / Locked states */}
+        {/* Milestone Ladder with Paid-Verified Achieved / In Progress / Locked states (#7 & #17b) */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2 border-t border-white/10">
           {documentedRanks.map((rk: any) => {
-            const isAchieved =
-              rk.milestoneAt > 0 ? qualifiedCount >= rk.milestoneAt : qualifiedCount >= rk.minQualified;
+            const rankKey = String(rk.key || rk.name || '').toUpperCase();
+            const displayName = rk.name || (rankKey === 'RANK_4' ? 'Rank 4' : rankKey === 'RANK_5' ? 'Rank 5' : rankKey);
+            const isPaidMilestone = rk.milestoneAt > 0 && claimedRankKeys.has(rankKey);
+            const isBaseRankReached = rk.milestoneAt === 0 && qualifiedCount >= (rk.minQualified ?? 0);
+            const isAchieved = isPaidMilestone || isBaseRankReached;
             const isInProgress = nextMilestoneRank?.key === rk.key;
             const statusLabel = isAchieved ? 'Achieved' : isInProgress ? 'In progress' : 'Locked';
 
@@ -189,7 +215,7 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
                 }`}
               >
                 <div className="flex items-center justify-between gap-1">
-                  <span className="text-xs font-extrabold">{rk.name}</span>
+                  <span className="text-xs font-extrabold">{displayName}</span>
                   {isAchieved ? (
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                   ) : isInProgress ? (
@@ -204,7 +230,7 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
                     : `${rk.minQualified}–${rk.maxQualified.toLocaleString()} qual.`}
                 </div>
                 <div className="text-[10px] font-bold text-emerald-300">
-                  {rk.milestoneRewardUSD > 0 ? `+$${rk.milestoneRewardUSD} at ${rk.milestoneAt}` : statusLabel}
+                  {rk.milestoneRewardUSD > 0 ? `+$${rk.milestoneRewardUSD} at ${rk.milestoneAt} · ${statusLabel}` : statusLabel}
                 </div>
               </div>
             );
@@ -375,8 +401,9 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
           ) : (
             <div className="ml-5 pl-5 border-l-2 border-slate-200 pt-4 space-y-3">
               {data.referrals.map((ref: any, idx: number) => {
-                const position = idx + 1;
-                const posObj = dynamicPositions[Math.min(idx, dynamicPositions.length - 1)];
+                // Issue #8: Use authoritative qualification positionNumber (identical to Commission History!)
+                const position = ref.positionNumber ?? null;
+                const posObj = position ? dynamicPositions[Math.min(position - 1, dynamicPositions.length - 1)] : null;
                 return (
                   <div key={ref.id || idx} className="relative">
                     {/* Horizontal branch connector */}
@@ -385,9 +412,15 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
                       <div className="space-y-0.5 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-bold text-slate-900 truncate">{ref.fullName}</span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600">
-                            #{position} · {posObj?.ratePercent ?? 15}% tier
-                          </span>
+                          {position !== null ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
+                              Position #{position} · {posObj?.ratePercent ?? 15}% tier
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                              Awaiting qualification
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs text-slate-500">
                           {maskEmail(ref.email)} · Joined {formatDate(ref.createdAt)}
@@ -438,7 +471,14 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
             {data.commissions.map((comm: any) => (
               <div key={comm.id} className="px-5 py-3.5 flex items-center justify-between gap-4 text-xs">
                 <div>
-                  <div className="font-bold text-slate-900">{comm.sourceUserName}</div>
+                  <div className="font-bold text-slate-900 flex items-center gap-2">
+                    <span>{comm.sourceUserName}</span>
+                    {comm.positionNumber && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                        Position #{comm.positionNumber}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-slate-500 mt-0.5">
                     {comm.ratePercent}% commission · {formatDateTime(comm.createdAt)}
                   </div>

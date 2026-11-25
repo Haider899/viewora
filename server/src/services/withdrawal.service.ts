@@ -132,7 +132,7 @@ export class WithdrawalService {
     adminId: string,
     withdrawalId: string,
     action: 'UNDER_REVIEW' | 'APPROVE' | 'PROCESSING' | 'PAID' | 'COMPLETE' | 'REJECT' | 'FAILED',
-    payload?: { payoutRef?: string; rejectionReason?: string }
+    payload?: { payoutRef?: string; payoutProofUrl?: string; rejectionReason?: string }
   ) {
     const withdrawal = await prisma.withdrawalRequest.findUnique({
       where: { id: withdrawalId },
@@ -140,6 +140,22 @@ export class WithdrawalService {
 
     if (!withdrawal) {
       throw { statusCode: 404, code: 'NOT_FOUND', message: 'Withdrawal request not found.' };
+    }
+
+    // Issue #5: Once a withdrawal decision is finalized (COMPLETED, PAID, REJECTED, FAILED, CANCELLED), lock it permanently!
+    const finalizedStatuses = [
+      WithdrawalStatus.COMPLETED,
+      WithdrawalStatus.PAID,
+      WithdrawalStatus.REJECTED,
+      WithdrawalStatus.FAILED,
+      WithdrawalStatus.CANCELLED,
+    ];
+    if (finalizedStatuses.includes(withdrawal.status as WithdrawalStatus)) {
+      throw {
+        statusCode: 400,
+        code: 'ALREADY_FINALIZED',
+        message: `This withdrawal decision is finalized (${withdrawal.status}) and locked. Historical decisions cannot be modified.`,
+      };
     }
 
     const cur = Currency.USD;
@@ -318,6 +334,7 @@ export class WithdrawalService {
           data: {
             status: WithdrawalStatus.COMPLETED,
             payoutRef,
+            payoutProofUrl: payload?.payoutProofUrl?.trim() || null,
             settleLedgerTxId: settleLedgerTx.id,
             completedAt: new Date(),
             reviewedById: adminId,

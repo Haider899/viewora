@@ -144,11 +144,14 @@ export class VideoService {
 
       return {
         ...v,
+        // API Security: never expose stream URL for locked / next-level videos
+        videoUrl: hasTierAccess ? v.videoUrl : '',
         hasAccess: hasTierAccess,
         isAssignedToUser,
         isWatched: watchedVideoIds.has(v.id),
         hasClaimedReward: claimedVideoIds.has(v.id),
-        isYouTube: !!extractYouTubeId(v.videoUrl),
+        isYouTube: hasTierAccess ? !!extractYouTubeId(v.videoUrl) : false,
+        userVideoLimit,
       };
     });
   }
@@ -235,21 +238,35 @@ export class VideoService {
 
     return {
       ...video,
+      // API Security: strip video stream URL when user does not have access
+      videoUrl: hasAccess ? video.videoUrl : '',
       hasAccess,
       isAssignedToUser,
       isWatched,
       hasClaimedReward,
-      isYouTube: !!extractYouTubeId(video.videoUrl),
+      isYouTube: hasAccess ? !!extractYouTubeId(video.videoUrl) : false,
     };
   }
 
   static async startSession(userId: string, videoId: string) {
+    // Check account status / lock before allowing playback
+    const userRecord = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true, accountLockedUntil: true },
+    });
+    if (!userRecord || userRecord.status === 'SUSPENDED') {
+      throw { statusCode: 403, code: 'ACCOUNT_SUSPENDED', message: 'Your account is suspended.' };
+    }
+    if (userRecord.accountLockedUntil && userRecord.accountLockedUntil > new Date()) {
+      throw { statusCode: 403, code: 'ACCOUNT_LOCKED', message: 'Your account is temporarily locked.' };
+    }
+
     const video = await this.getVideoById(videoId, userId);
     if (!video.hasAccess) {
       throw {
         statusCode: 403,
         code: 'ACCESS_RESTRICTED',
-        message: `Your current account level or access plan does not unlock this video. Upgrade your plan or level to watch.`,
+        message: `Increase your account level or upgrade your plan to unlock this video.`,
       };
     }
 
@@ -270,7 +287,7 @@ export class VideoService {
 
   /**
    * Heartbeat endpoint: validates real playback progress against actual video duration & wall-clock time.
-   * No short-circuit bypasses: requires full actual duration completion (>= 95% of videoDuration).
+   * Also strictly enforces server-side video access so next-level videos cannot be spoofed via API.
    */
   static async recordHeartbeat(
     userId: string,
@@ -279,6 +296,15 @@ export class VideoService {
     clientWatchSeconds: number,
     actualDurationSeconds?: number
   ) {
+    const accessCheck = await this.getVideoById(videoId, userId);
+    if (!accessCheck.hasAccess) {
+      throw {
+        statusCode: 403,
+        code: 'ACCESS_RESTRICTED',
+        message: 'Increase your account level to access this video.',
+      };
+    }
+
     const session = await prisma.videoSession.findUnique({
       where: { sessionToken },
       include: { video: true },
@@ -357,6 +383,16 @@ export class VideoService {
       }
     }
 
+    // Strict API security: verify member still holds access to this video level
+    const accessCheck = await this.getVideoById(videoId, userId);
+    if (!accessCheck.hasAccess) {
+      throw {
+        statusCode: 403,
+        code: 'ACCESS_RESTRICTED',
+        message: 'Your current account level does not grant access to claim rewards for this video.',
+      };
+    }
+
     const video = await prisma.video.findUnique({
       where: { id: videoId },
     });
@@ -398,7 +434,28 @@ export class VideoService {
       }
     }
 
-    const rewardAmountCents = video.rewardAmountCents;
+    // Preserve existing reward priority:
+    // If Admin set an individual per-video rewardPercentageBps (> 0), apply it to user's qualifying volume (with rewardAmountCents floor);
+    // otherwise use the video's configured fixed rewardAmountCents.
+    let rewardAmountCents = video.rewardAmountCents;
+    const videoPctBps = (video as any).rewardPercentageBps;
+    if (typeof videoPctBps === 'number' && videoPctBps > 0) {
+      const [approvedDeps, activePkgs] = await Promise.all([
+        prisma.depositRequest.aggregate({
+          where: { userId, status: 'APPROVED', currency: 'USD' },
+          _sum: { amountCents: true },
+        }),
+        prisma.packagePurchase.aggregate({
+          where: { userId, status: 'ACTIVE', currency: 'USD' },
+          _sum: { priceCentsPaid: true },
+        }),
+      ]);
+      const baseCents = Math.max(approvedDeps._sum.amountCents || 0, activePkgs._sum.priceCentsPaid || 0);
+      const pctCents = Math.floor((baseCents * videoPctBps) / 10000);
+      if (pctCents > 0) {
+        rewardAmountCents = pctCents;
+      }
+    }
 
     const existingBefore = await prisma.rewardClaim.findUnique({
       where: { userId_videoId: { userId, videoId } },
@@ -634,6 +691,7 @@ export class VideoService {
     orderIndex?: number;
     rewardEligible?: boolean;
     rewardAmountCents?: number;
+    rewardPercentageBps?: number | null;
     assignedUserId?: string | null;
     isPublished?: boolean;
     isLocked?: boolean;
@@ -663,6 +721,7 @@ export class VideoService {
         orderIndex: data.orderIndex ?? count + 1,
         rewardEligible: data.rewardEligible ?? true,
         rewardAmountCents: data.rewardAmountCents ?? 50,
+        rewardPercentageBps: data.rewardPercentageBps ?? null,
         assignedUserId: data.assignedUserId ? data.assignedUserId : null,
         isPublished: data.isPublished ?? true,
         isLocked: data.isLocked ?? false,

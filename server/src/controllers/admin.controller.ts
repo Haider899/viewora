@@ -12,6 +12,7 @@ export const reviewDepositSchema = z.object({
 export const reviewWithdrawalSchema = z.object({
   action: z.enum(['UNDER_REVIEW', 'APPROVE', 'PROCESSING', 'PAID', 'COMPLETE', 'REJECT', 'FAILED']),
   payoutRef: z.string().optional(),
+  payoutProofUrl: z.string().optional(),
   rejectionReason: z.string().optional(),
 });
 
@@ -125,6 +126,7 @@ export class AdminController {
         req.body.action,
         {
           payoutRef: req.body.payoutRef,
+          payoutProofUrl: req.body.payoutProofUrl,
           rejectionReason: req.body.rejectionReason,
         }
       );

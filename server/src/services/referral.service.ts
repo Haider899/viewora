@@ -457,6 +457,39 @@ export class ReferralService {
 
     const rankProgress = await this.getReferralRankAndProgress(userId);
 
+    // Issue #8: Single consistent position number matching qualification/commission chronological order!
+    const commissionsAsc = [...user.referralCommissions].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+    );
+    const positionBySourceUserId = new Map<string, number>();
+    commissionsAsc.forEach((c, idx) => {
+      if (!positionBySourceUserId.has(c.sourceUserId)) {
+        positionBySourceUserId.set(c.sourceUserId, idx + 1);
+      }
+    });
+
+    // Sort referrals: qualified first by their true qualification position, then pending by join date
+    const enrichedReferrals = user.referrals.map((r) => {
+      const isQualified = r.isQualifiedReferral || r.packagePurchases.length > 0;
+      const positionNumber = positionBySourceUserId.get(r.id) ?? null;
+      return {
+        id: r.id,
+        fullName: r.fullName,
+        email: r.email,
+        status: r.status,
+        isQualified,
+        positionNumber,
+        createdAt: r.createdAt.toISOString(),
+        hasActivePackage: r.packagePurchases.length > 0,
+      };
+    });
+    enrichedReferrals.sort((a, b) => {
+      if (a.positionNumber !== null && b.positionNumber !== null) return a.positionNumber - b.positionNumber;
+      if (a.positionNumber !== null) return -1;
+      if (b.positionNumber !== null) return 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
     return {
       referralCode: user.referralCode,
       referralLink: `${env.CORS_ORIGIN === '*' ? 'https://u-ads.com' : env.CORS_ORIGIN}/register?ref=${user.referralCode}`,
@@ -466,18 +499,12 @@ export class ReferralService {
       currency: 'USD',
       rankProgress,
       referralConfig: rankProgress.config,
-      referrals: user.referrals.map((r) => ({
-        id: r.id,
-        fullName: r.fullName,
-        email: r.email,
-        status: r.status,
-        isQualified: r.isQualifiedReferral || r.packagePurchases.length > 0,
-        createdAt: r.createdAt.toISOString(),
-        hasActivePackage: r.packagePurchases.length > 0,
-      })),
+      referrals: enrichedReferrals,
       commissions: user.referralCommissions.map((c) => ({
         id: c.id,
+        sourceUserId: c.sourceUserId,
         sourceUserName: c.sourceUser.fullName,
+        positionNumber: positionBySourceUserId.get(c.sourceUserId) ?? null,
         commissionCents: c.commissionCents,
         currency: 'USD',
         ratePercent: c.ratePercent,

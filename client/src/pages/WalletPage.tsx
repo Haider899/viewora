@@ -1,16 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
-import { LedgerEntryItem } from '../types/index.js';
+import { Video } from '../types/index.js';
 import { useToast } from '../components/ToastProvider.js';
 import {
   formatUSD,
-  formatDateTime,
   formatAccountLevelLabel,
-  getAccountLevelProgress,
-  groupLedgerEntries,
-  getTonePillClass,
-  humanizeWalletName,
+  formatDurationMMSS,
 } from '../utils/formatters.js';
 import {
   ArrowRight,
@@ -29,61 +25,77 @@ import {
   Users,
   Copy,
   Check,
-  ChevronRight,
-  ChevronDown,
-  Sparkles,
-  Layers,
-  Repeat,
+  Clock,
+  Play,
+  Lock,
   Receipt,
+  Sparkles,
 } from 'lucide-react';
 
 interface WalletProps {
-  navigate?: (route: string) => void;
+  navigate?: (route: string, state?: any) => void;
   referralRank?: string;
 }
 
 export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'New' }) => {
-  const { user, wallet, refreshWallet } = useAuth();
+  const { user, wallet, refreshWallet, refreshUser } = useAuth();
   const { showToast } = useToast();
-  const [entries, setEntries] = useState<LedgerEntryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  const [videos, setVideos] = useState<Video[]>([]);
+  const [loadingVideos, setLoadingVideos] = useState(true);
+  const [dailyStatus, setDailyStatus] = useState<any>(null);
+  const [loadingDaily, setLoadingDaily] = useState(true);
+  const [claimingDaily, setClaimingDaily] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [copiedInvite, setCopiedInvite] = useState(false);
-  const [expandedRef, setExpandedRef] = useState<string | null>(null);
+
+  // Locked video upgrade prompt modal (Requirement #4)
+  const [lockedModalVideo, setLockedModalVideo] = useState<Video | null>(null);
 
   // Transfer Modal (Video Rewards or Referral Wallet -> Main Account)
   const [transferSource, setTransferSource] = useState<'REFERRAL' | 'VIDEO_REWARDS' | null>(null);
   const [transferAmountInput, setTransferAmountInput] = useState('');
   const [transferring, setTransferring] = useState(false);
-  const [transferSuccess, setTransferSuccess] = useState<string | null>(null);
+  const [transferSuccess, setTransferSuccess] = useState<{ msg: string; updatedMainCents: number } | null>(null);
   const [transferError, setTransferError] = useState<string | null>(null);
 
-  const fetchTransactions = async (isManual = false) => {
+  const loadDashboardData = async (isManual = false) => {
     if (isManual) setRefreshing(true);
-    else setLoading(true);
+    else {
+      setLoadingVideos(true);
+      setLoadingDaily(true);
+    }
     try {
-      const res = await api.getTransactions(1, 20);
-      if (res.success && res.data) {
-        setEntries(res.data.entries || []);
+      const [vidRes, dailyRes] = await Promise.all([
+        api.getVideos(),
+        api.getDailyVideoStatus(),
+      ]);
+      if (vidRes.success && Array.isArray(vidRes.data)) {
+        setVideos(vidRes.data);
+      }
+      if (dailyRes.success && dailyRes.data) {
+        setDailyStatus(dailyRes.data);
       }
       if (isManual) {
-        await refreshWallet();
-        showToast('Balances and recent activity refreshed.', 'success');
+        await Promise.all([refreshWallet(), refreshUser()]);
+        showToast('Balances and campaigns refreshed.', 'success');
       }
     } catch (err) {
-      console.error('Failed to load transaction history:', err);
+      console.error('Failed to load dashboard data:', err);
       if (isManual) showToast('Could not refresh right now.', 'error');
     } finally {
-      setLoading(false);
+      setLoadingVideos(false);
+      setLoadingDaily(false);
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
     refreshWallet();
-    fetchTransactions(false);
+    loadDashboardData(false);
   }, []);
 
+  const walletLoaded = wallet !== null;
   const mainAvailableCents = wallet?.USD?.availableCents ?? 0;
   const mainReservedCents = wallet?.USD?.reservedCents ?? 0;
   const videoRewardsCents = wallet?.USD?.videoRewardsCents ?? 0;
@@ -92,11 +104,18 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
   const combinedCents =
     mainAvailableCents + videoRewardsCents + referralAvailableCents + otherRewardsCents;
 
-  const levelProgress = getAccountLevelProgress(user?.accountLevel, combinedCents);
+  // Authoritative server-calculated Level Progress (strictly from qualifying volume — never cash balance!)
+  const lp = user?.levelProgress;
+  const currentLevelLabel = lp?.currentLevelName || formatAccountLevelLabel(user?.accountLevel);
+  const nextLevelLabel = lp?.nextLevelName || null;
+  const levelPercent = lp?.progressPercent ?? 0;
+  const levelNeededCents = lp?.neededCents ?? 0;
+
   const activeSourceCents =
     transferSource === 'VIDEO_REWARDS' ? videoRewardsCents : referralAvailableCents;
 
-  const recentEvents = useMemo(() => groupLedgerEntries(entries).slice(0, 6), [entries]);
+  // All 10 published videos shown in a 2-column grid (no video hidden — Requirement #2)
+  const homeVideos = videos.slice(0, 10);
 
   const handleCopyInvite = () => {
     const code = user?.referralCode || '';
@@ -116,9 +135,8 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
 
   const handleExecuteTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!transferSource) return;
+    if (!transferSource || transferring) return;
     setTransferError(null);
-    setTransferSuccess(null);
 
     const parsedUSD = parseFloat(transferAmountInput);
     if (isNaN(parsedUSD) || parsedUSD <= 0) {
@@ -132,6 +150,7 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
       return;
     }
 
+    const expectedMainAfter = mainAvailableCents + amountCents;
     setTransferring(true);
     try {
       const res =
@@ -140,10 +159,13 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
           : await api.transferReferralToMainBalance(amountCents);
 
       if (res.success) {
-        await refreshWallet();
-        await fetchTransactions(false);
-        setTransferSuccess(`Moved ${formatUSD(amountCents)} into your Main Account.`);
+        // Set success state BEFORE refreshWallet() so zero-frame wrong-balance flash never happens (#9)
+        setTransferSuccess({
+          msg: `Moved ${formatUSD(amountCents)} into your Main Account.`,
+          updatedMainCents: expectedMainAfter,
+        });
         showToast(`${formatUSD(amountCents)} transferred to Main Account.`, 'success');
+        await refreshWallet();
       } else {
         setTransferError(res.error?.message || 'Transfer could not be completed.');
       }
@@ -154,36 +176,45 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
     }
   };
 
-  const getEventIcon = (cat: string) => {
-    switch (cat) {
-      case 'deposit':
-        return <ArrowDownLeft className="w-4 h-4 text-emerald-600" />;
-      case 'withdrawal':
-        return <ArrowUpRight className="w-4 h-4 text-slate-600" />;
-      case 'reward':
-      case 'referral':
-        return <Sparkles className="w-4 h-4 text-emerald-600" />;
-      case 'package':
-        return <Layers className="w-4 h-4 text-slate-600" />;
-      default:
-        return <Repeat className="w-4 h-4 text-slate-500" />;
+  const handleClaimDailyReward = async () => {
+    if (claimingDaily) return;
+    setClaimingDaily(true);
+    try {
+      const res = await api.claimDailyVideoReward();
+      if (res.success) {
+        showToast(res.message || 'Daily reward claimed!', 'success');
+        await Promise.all([refreshWallet(), loadDashboardData(false)]);
+      } else {
+        showToast(res.error?.message || 'Unable to claim daily reward yet.', 'error');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Could not claim daily reward.', 'error');
+    } finally {
+      setClaimingDaily(false);
     }
+  };
+
+  const formatLocalDeadline = (iso?: string) => {
+    if (!iso) return '8:00 AM';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '8:00 AM';
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
   const firstName = (user?.fullName || 'Member').split(' ')[0];
 
   return (
-    <div className="space-y-6 animate-page-in">
-      {/* Greeting Row with Level, Rank & Progress Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-5 animate-page-in">
+      {/* Greeting Row with Authoritative Level Progress */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
+            <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
               Good to see you, {firstName}
             </h2>
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
               <Award className="w-3 h-3" />
-              {formatAccountLevelLabel(user?.accountLevel)}
+              {currentLevelLabel}
             </span>
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
               <Users className="w-3 h-3 text-slate-500" />
@@ -191,44 +222,44 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
             </span>
           </div>
 
-          <div className="flex items-center gap-3 max-w-md">
-            <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-emerald-600 transition-all duration-300"
-                style={{ width: `${levelProgress.percent}%` }}
-              />
+          {lp ? (
+            <div className="flex items-center gap-3 max-w-md">
+              <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-emerald-600 transition-all duration-300"
+                  style={{ width: `${levelPercent}%` }}
+                />
+              </div>
+              <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap tabular-nums">
+                {nextLevelLabel
+                  ? `${formatUSD(levelNeededCents)} qualifying volume to ${nextLevelLabel}`
+                  : 'Top Level Achieved'}
+              </span>
             </div>
-            <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap tabular-nums">
-              {levelProgress.nextLabel
-                ? `${formatUSD(levelProgress.neededCents)} to ${levelProgress.nextLabel}`
-                : 'Top Level Achieved'}
-            </span>
-          </div>
+          ) : (
+            <div className="h-3 w-52 rounded skeleton-shimmer" />
+          )}
         </div>
 
-        {/* Quick Actions Strip */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => navigate?.('videos')}
-            className="btn-secondary"
+            onClick={() => loadDashboardData(true)}
+            disabled={refreshing}
+            className="btn-secondary !h-9"
           >
-            <PlaySquare className="w-4 h-4 text-emerald-600" />
-            <span>Watch Videos</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>{refreshing ? 'Refreshing…' : 'Refresh'}</span>
           </button>
-          <button
-            type="button"
-            onClick={handleCopyInvite}
-            className="btn-secondary"
-          >
+          <button type="button" onClick={handleCopyInvite} className="btn-secondary !h-9">
             {copiedInvite ? (
               <>
-                <Check className="w-4 h-4 text-emerald-600" />
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
                 <span className="text-emerald-700">Copied</span>
               </>
             ) : (
               <>
-                <Copy className="w-4 h-4 text-slate-500" />
+                <Copy className="w-3.5 h-3.5 text-slate-500" />
                 <span>Invite Link</span>
               </>
             )}
@@ -236,93 +267,97 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
         </div>
       </div>
 
-      {/* Restrained Emerald -> Navy Gradient Balance Hero (ONE primary CTA) */}
-      <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 text-white p-6 sm:p-7 shadow-md border border-slate-800 relative overflow-hidden">
-        <div className="absolute -right-12 -top-12 w-56 h-56 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
-        <div className="relative z-10 flex flex-col sm:flex-row sm:items-end justify-between gap-6">
-          <div className="space-y-2">
-            <div className="text-xs font-semibold text-emerald-300/90 uppercase tracking-wider">
+      {/* Restrained Emerald -> Navy Balance Hero */}
+      <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 text-white p-5 sm:p-6 shadow-md border border-slate-800 relative overflow-hidden">
+        <div className="absolute -right-12 -top-12 w-52 h-52 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-semibold text-emerald-300/90 uppercase tracking-wider">
               Total Available Balance (USD)
             </div>
-            <div className="text-4xl sm:text-5xl font-black tracking-tight tabular-nums">
-              {formatUSD(combinedCents)}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300 pt-1">
-              <span>
-                Main: <strong className="text-white tabular-nums">{formatUSD(mainAvailableCents)}</strong>
-              </span>
-              <span>
-                Video Rewards:{' '}
-                <strong className="text-emerald-300 tabular-nums">{formatUSD(videoRewardsCents)}</strong>
-              </span>
-              <span>
-                Referral:{' '}
-                <strong className="text-emerald-300 tabular-nums">{formatUSD(referralAvailableCents)}</strong>
-              </span>
-              {mainReservedCents > 0 && (
-                <span className="text-amber-300">
-                  Pending payout hold: <strong className="tabular-nums">{formatUSD(mainReservedCents)}</strong>
-                </span>
-              )}
-            </div>
+            {walletLoaded ? (
+              <>
+                <div className="text-3xl sm:text-4xl font-black tracking-tight tabular-nums">
+                  {formatUSD(combinedCents)}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300 pt-0.5">
+                  <span>
+                    Main: <strong className="text-white tabular-nums">{formatUSD(mainAvailableCents)}</strong>
+                  </span>
+                  <span>
+                    Video:{' '}
+                    <strong className={videoRewardsCents > 0 ? 'text-emerald-300 tabular-nums' : 'text-slate-400 tabular-nums'}>
+                      {formatUSD(videoRewardsCents)}
+                    </strong>
+                  </span>
+                  <span>
+                    Referral:{' '}
+                    <strong className={referralAvailableCents > 0 ? 'text-emerald-300 tabular-nums' : 'text-slate-400 tabular-nums'}>
+                      {formatUSD(referralAvailableCents)}
+                    </strong>
+                  </span>
+                  {mainReservedCents > 0 && (
+                    <span className="text-amber-300">
+                      Hold: <strong className="tabular-nums">{formatUSD(mainReservedCents)}</strong>
+                    </span>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="h-10 w-44 rounded-xl bg-white/10 animate-pulse" />
+            )}
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => navigate?.('deposit')}
-              className="inline-flex items-center justify-center gap-2 h-11 px-5 rounded-[10px] text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-950/30 transition-all duration-200 ease-out active:scale-[0.99] cursor-pointer"
-            >
-              <ArrowDownLeft className="w-4 h-4" />
-              <span>Deposit USD</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate?.('deposit')}
+            className="btn-primary !h-10 !px-5 !bg-emerald-500 hover:!bg-emerald-400 !text-slate-950 shrink-0"
+          >
+            <ArrowDownLeft className="w-4 h-4" />
+            <span>Deposit USD</span>
+          </button>
         </div>
       </div>
 
-      {/* Three Identical Wallet Cards (consistent buttons, zero truncation, designed empty states) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      {/* Three Compact USD Wallet Cards (~15% more compact per Requirement #6) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* 1. Main Account */}
-        <div className="card-white card-hover p-5 flex flex-col justify-between gap-5">
-          <div className="space-y-3.5">
+        <div className="card-white card-hover p-4 flex flex-col justify-between gap-3.5">
+          <div className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
                   <CreditCard className="w-4 h-4" />
                 </div>
                 <h3 className="text-sm font-bold text-slate-900">Main Account</h3>
               </div>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
                 Primary
               </span>
             </div>
 
-            <div className="text-3xl font-extrabold text-slate-900 tracking-tight tabular-nums">
-              {formatUSD(mainAvailableCents)}
-            </div>
-
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Used for deposits, membership plans, and direct USD withdrawals.
-            </p>
-
-            <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
-              <span className="text-slate-500">Pending payout hold</span>
-              <span
-                className={`font-bold tabular-nums ${
-                  mainReservedCents > 0 ? 'text-amber-600' : 'text-slate-400'
+            {walletLoaded ? (
+              <div
+                className={`text-2xl font-extrabold tracking-tight tabular-nums ${
+                  mainAvailableCents > 0 ? 'text-slate-900' : 'text-slate-400'
                 }`}
               >
+                {formatUSD(mainAvailableCents)}
+              </div>
+            ) : (
+              <div className="h-8 w-28 rounded-lg skeleton-shimmer" />
+            )}
+
+            <div className="flex items-center justify-between text-[11px] pt-2 border-t border-slate-100">
+              <span className="text-slate-500">Pending payout hold</span>
+              <span className={`font-bold tabular-nums ${mainReservedCents > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
                 {formatUSD(mainReservedCents)}
               </span>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              type="button"
-              onClick={() => navigate?.('deposit')}
-              className="btn-primary w-full"
-            >
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => navigate?.('deposit')} className="btn-primary !h-9 w-full">
               <ArrowDownLeft className="w-3.5 h-3.5" />
               <span>Deposit</span>
             </button>
@@ -330,8 +365,8 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
               type="button"
               onClick={() => navigate?.('withdrawal')}
               disabled={mainAvailableCents <= 0}
-              title={mainAvailableCents <= 0 ? 'Add USD funds before requesting a withdrawal' : 'Request withdrawal'}
-              className="btn-secondary w-full"
+              title={mainAvailableCents <= 0 ? 'Deposit USD before withdrawing' : 'Request withdrawal'}
+              className="btn-secondary !h-9 w-full"
             >
               <ArrowUpRight className="w-3.5 h-3.5" />
               <span>Withdraw</span>
@@ -340,53 +375,46 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
         </div>
 
         {/* 2. Video Rewards */}
-        <div className="card-white card-hover p-5 flex flex-col justify-between gap-5">
-          <div className="space-y-3.5">
+        <div className="card-white card-hover p-4 flex flex-col justify-between gap-3.5">
+          <div className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
                   <PlaySquare className="w-4 h-4" />
                 </div>
                 <h3 className="text-sm font-bold text-slate-900">Video Rewards</h3>
               </div>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
                 Earnings
               </span>
             </div>
 
-            <div className="text-3xl font-extrabold text-slate-900 tracking-tight tabular-nums">
-              {formatUSD(videoRewardsCents)}
-            </div>
-
-            {videoRewardsCents > 0 ? (
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Earned from completed video campaigns. Move to Main or withdraw anytime.
-              </p>
-            ) : (
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600 flex items-center justify-between gap-2">
-                <span>Watch a campaign to earn your first USD credit.</span>
-                <button
-                  type="button"
-                  onClick={() => navigate?.('videos')}
-                  className="text-emerald-700 font-bold hover:underline whitespace-nowrap cursor-pointer"
-                >
-                  Browse →
-                </button>
+            {walletLoaded ? (
+              <div
+                className={`text-2xl font-extrabold tracking-tight tabular-nums ${
+                  videoRewardsCents > 0 ? 'text-emerald-700' : 'text-slate-400'
+                }`}
+              >
+                {formatUSD(videoRewardsCents)}
               </div>
+            ) : (
+              <div className="h-8 w-28 rounded-lg skeleton-shimmer" />
             )}
+
+            <p className="text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+              {videoRewardsCents > 0
+                ? 'Credited from completed video campaigns.'
+                : 'Complete campaigns below to start earning.'}
+            </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => openTransferModal('VIDEO_REWARDS')}
               disabled={videoRewardsCents <= 0}
-              title={
-                videoRewardsCents <= 0
-                  ? 'Complete a video campaign to earn rewards first'
-                  : 'Move Video Rewards into Main Account'
-              }
-              className="btn-primary w-full"
+              title={videoRewardsCents <= 0 ? 'Watch a campaign to earn rewards first' : 'Move to Main Account'}
+              className="btn-primary !h-9 w-full"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>To Main</span>
@@ -395,12 +423,8 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
               type="button"
               onClick={() => navigate?.('withdrawal')}
               disabled={videoRewardsCents <= 0}
-              title={
-                videoRewardsCents <= 0
-                  ? 'Earn video rewards before requesting a withdrawal'
-                  : 'Withdraw from Video Rewards'
-              }
-              className="btn-secondary w-full"
+              title={videoRewardsCents <= 0 ? 'Earn video rewards first' : 'Withdraw video rewards'}
+              className="btn-secondary !h-9 w-full"
             >
               <ArrowUpRight className="w-3.5 h-3.5" />
               <span>Withdraw</span>
@@ -409,53 +433,46 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
         </div>
 
         {/* 3. Referral Wallet */}
-        <div className="card-white card-hover p-5 flex flex-col justify-between gap-5">
-          <div className="space-y-3.5">
+        <div className="card-white card-hover p-4 flex flex-col justify-between gap-3.5">
+          <div className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
                   <Share2 className="w-4 h-4" />
                 </div>
                 <h3 className="text-sm font-bold text-slate-900">Referral Wallet</h3>
               </div>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
                 Network
               </span>
             </div>
 
-            <div className="text-3xl font-extrabold text-slate-900 tracking-tight tabular-nums">
-              {formatUSD(referralAvailableCents)}
-            </div>
-
-            {referralAvailableCents > 0 ? (
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Earned from invited members&apos; qualifying plans and rank milestones.
-              </p>
-            ) : (
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600 flex items-center justify-between gap-2">
-                <span>Invite your first member to earn 5%–15% USD commissions.</span>
-                <button
-                  type="button"
-                  onClick={() => navigate?.('referrals')}
-                  className="text-emerald-700 font-bold hover:underline whitespace-nowrap cursor-pointer"
-                >
-                  Invite →
-                </button>
+            {walletLoaded ? (
+              <div
+                className={`text-2xl font-extrabold tracking-tight tabular-nums ${
+                  referralAvailableCents > 0 ? 'text-emerald-700' : 'text-slate-400'
+                }`}
+              >
+                {formatUSD(referralAvailableCents)}
               </div>
+            ) : (
+              <div className="h-8 w-28 rounded-lg skeleton-shimmer" />
             )}
+
+            <p className="text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+              {referralAvailableCents > 0
+                ? 'Commissions & rank milestone payouts.'
+                : 'Invite members to earn 5%–15% commissions.'}
+            </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => openTransferModal('REFERRAL')}
               disabled={referralAvailableCents <= 0}
-              title={
-                referralAvailableCents <= 0
-                  ? 'Invite a qualifying referral to earn commissions first'
-                  : 'Move Referral Wallet into Main Account'
-              }
-              className="btn-primary w-full"
+              title={referralAvailableCents <= 0 ? 'Earn referral commissions first' : 'Move to Main Account'}
+              className="btn-primary !h-9 w-full"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>To Main</span>
@@ -464,12 +481,8 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
               type="button"
               onClick={() => navigate?.('withdrawal')}
               disabled={referralAvailableCents <= 0}
-              title={
-                referralAvailableCents <= 0
-                  ? 'Earn referral commissions before requesting a withdrawal'
-                  : 'Withdraw from Referral Wallet'
-              }
-              className="btn-secondary w-full"
+              title={referralAvailableCents <= 0 ? 'Earn referral commissions first' : 'Withdraw referral balance'}
+              className="btn-secondary !h-9 w-full"
             >
               <ArrowUpRight className="w-3.5 h-3.5" />
               <span>Withdraw</span>
@@ -478,182 +491,318 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
         </div>
       </div>
 
-      {/* Optional Approved Bonus Rewards Strip */}
-      {otherRewardsCents > 0 && (
-        <div className="card-white p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-emerald-200 bg-emerald-50/40">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-              <Gift className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-sm font-bold text-slate-900">Bonus Rewards Available</div>
-              <div className="text-xs text-slate-600">
-                Daily level bonuses and special account credits ready for withdrawal.
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">
-              {formatUSD(otherRewardsCents)}
+      {/* Requirement #1: Only a clean "View Recent Activity" button below Referral Wallet (opens separate Transactions history page) */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => navigate?.('transactions')}
+          className="btn-secondary w-full sm:w-auto justify-between sm:justify-center !px-5"
+        >
+          <span className="flex items-center gap-2">
+            <Receipt className="w-4 h-4 text-emerald-600" />
+            <span>View Recent Activity</span>
+          </span>
+          <ArrowRight className="w-4 h-4 text-slate-400" />
+        </button>
+
+        {otherRewardsCents > 0 && (
+          <div className="px-4 py-2 rounded-[10px] bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-3 text-xs">
+            <span className="font-semibold text-emerald-900 flex items-center gap-1.5">
+              <Gift className="w-4 h-4 text-emerald-600" />
+              Bonus Rewards: <strong className="tabular-nums">{formatUSD(otherRewardsCents)}</strong>
             </span>
-            <button type="button" onClick={() => navigate?.('withdrawal')} className="btn-primary">
-              Withdraw
+            <button
+              type="button"
+              onClick={() => navigate?.('withdrawal')}
+              className="font-bold text-emerald-700 hover:underline cursor-pointer"
+            >
+              Withdraw →
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Human-Readable Recent Activity (1 row per event, green credits / red debits, expandable legs) */}
-      <div className="card-white overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+      {/* Requirement #5: Daily Video Completion Reward Status & Claim (resets daily at configured hour e.g. 8 AM, expires — no carry forward) */}
+      <div className="card-white p-4 sm:p-5">
+        {loadingDaily ? (
+          <div className="h-14 rounded-xl skeleton-shimmer" />
+        ) : dailyStatus ? (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1.5 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-600" />
+                <span className="text-sm font-bold text-slate-900">Daily Video Reward</span>
+                {dailyStatus.videosRequired > 0 && (
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 tabular-nums">
+                    {Math.min(dailyStatus.videosCompletedToday, dailyStatus.videosRequired)} / {dailyStatus.videosRequired} completed today
+                  </span>
+                )}
+                {dailyStatus.alreadyClaimedToday && (
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    Claimed Today
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">
+                {dailyStatus.videosRequired <= 0 ? (
+                  'Upgrade to Level 1 or higher to unlock daily video rewards.'
+                ) : dailyStatus.alreadyClaimedToday ? (
+                  `You claimed ${formatUSD(dailyStatus.claimedAmountCents)} today. Next cycle starts at ${formatLocalDeadline(dailyStatus.windowEnd)}.`
+                ) : (
+                  <>
+                    Complete all <strong>{dailyStatus.videosRequired}</strong> eligible videos before{' '}
+                    <strong>{formatLocalDeadline(dailyStatus.windowEnd)}</strong> to claim{' '}
+                    <strong className="text-emerald-700 tabular-nums">
+                      {formatUSD(dailyStatus.estimatedRewardCents)}
+                    </strong>{' '}
+                    ({((dailyStatus.dailyBonusRateBps || 0) / 100).toFixed(2)}% daily rate). Unclaimed daily rewards expire at reset and do not carry forward.
+                  </>
+                )}
+              </p>
+            </div>
+
+            <div className="shrink-0">
+              {dailyStatus.videosRequired <= 0 ? (
+                <button type="button" onClick={() => navigate?.('packages')} className="btn-primary w-full sm:w-auto">
+                  Upgrade Plan
+                </button>
+              ) : dailyStatus.alreadyClaimedToday ? (
+                <button type="button" disabled className="btn-secondary w-full sm:w-auto">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Claimed</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleClaimDailyReward}
+                  disabled={!dailyStatus.eligibleToClaim || claimingDaily}
+                  title={
+                    !dailyStatus.eligibleToClaim
+                      ? `Watch ${Math.max(0, dailyStatus.videosRequired - dailyStatus.videosCompletedToday)} more eligible video(s) today to unlock claim`
+                      : 'Claim today’s daily reward'
+                  }
+                  className="btn-primary w-full sm:w-auto"
+                >
+                  <Gift className="w-4 h-4" />
+                  <span>{claimingDaily ? 'Claiming…' : 'Claim Daily Reward'}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Requirement #2 & #4 & #6: ALL 10 Videos in Two-Column Mobile-Friendly Grid (no video hidden!) */}
+      <section className="space-y-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 className="text-base font-bold text-slate-900">Recent Activity</h3>
+            <h3 className="text-base font-extrabold text-slate-900">
+              Video Campaigns ({homeVideos.length})
+            </h3>
             <p className="text-xs text-slate-500">
-              One clear line per event — click any row to inspect the full double-entry record.
+              {lp && lp.videoLimit > 0
+                ? `${lp.videoLimit} of ${homeVideos.length} campaigns unlocked on ${currentLevelLabel}. Upgrade to unlock more.`
+                : 'Activate Level 1 or a membership plan to unlock video campaigns and earn USD.'}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => fetchTransactions(true)}
-              disabled={refreshing}
-              className="btn-secondary !h-9 !px-3"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-              <span>{refreshing ? 'Refreshing…' : 'Refresh'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate?.('transactions')}
-              className="btn-secondary !h-9 !px-3"
-            >
-              <span>View all</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate?.('videos')}
+            className="btn-secondary !h-9"
+          >
+            <span>Open Full Library</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
 
-        {loading ? (
-          <div className="p-5 space-y-3">
-            {[1, 2, 3, 4].map((n) => (
-              <div key={n} className="h-14 rounded-xl skeleton-shimmer" />
+        {loadingVideos ? (
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <div key={n} className="h-56 rounded-2xl skeleton-shimmer border border-slate-200" />
             ))}
           </div>
-        ) : recentEvents.length === 0 ? (
-          <div className="py-12 px-6 text-center space-y-3">
-            <div className="w-11 h-11 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
-              <Receipt className="w-5 h-5" />
-            </div>
-            <div className="text-sm font-bold text-slate-900">No activity yet</div>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Once you deposit USD, unlock a plan, or finish a video campaign, every movement shows up here clearly.
-            </p>
-            <div className="pt-1">
-              <button type="button" onClick={() => navigate?.('deposit')} className="btn-primary">
-                Deposit USD
-              </button>
-            </div>
-          </div>
         ) : (
-          <div className="divide-y divide-slate-100">
-            {recentEvents.map((row) => {
-              const isExpanded = expandedRef === row.reference;
-              const isCredit = row.signedCents > 0 && !row.isInternalTransfer;
-              const isDebit = row.signedCents < 0;
-
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            {homeVideos.map((video, idx) => {
+              const isUnlocked = Boolean(video.hasAccess);
               return (
-                <div key={row.id}>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedRef(isExpanded ? null : row.reference)}
-                    className="w-full text-left px-5 py-3.5 hover:bg-slate-50/80 transition-colors flex items-center justify-between gap-4 cursor-pointer"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-xl bg-slate-100 border border-slate-200/80 flex items-center justify-center shrink-0">
-                        {getEventIcon(row.category)}
-                      </div>
-                      <div className="min-w-0 space-y-0.5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-bold text-slate-900">{row.label}</span>
-                          <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getTonePillClass(
-                              row.tone
-                            )}`}
-                          >
-                            {row.walletLabel}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-600 leading-snug">{row.description}</p>
-                        <div className="text-[11px] text-slate-400">
-                          {formatDateTime(row.createdAt)} ·{' '}
-                          <span className="font-mono text-slate-500">{row.shortReference}</span>
-                        </div>
-                      </div>
-                    </div>
+                <div
+                  key={video.id}
+                  onClick={() => {
+                    if (isUnlocked) navigate?.('player', { videoId: video.id });
+                    else setLockedModalVideo(video);
+                  }}
+                  className="group card-white card-hover overflow-hidden flex flex-col justify-between cursor-pointer"
+                >
+                  {/* Video Poster */}
+                  <div className="relative aspect-video bg-slate-900 overflow-hidden">
+                    <img
+                      src={video.thumbnailUrl}
+                      alt={video.title}
+                      loading="lazy"
+                      className={`w-full h-full object-cover transition-transform duration-300 ${
+                        isUnlocked ? 'group-hover:scale-105 opacity-95' : 'opacity-45'
+                      }`}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/15 to-transparent" />
 
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <span
-                        className={`text-sm font-extrabold tabular-nums ${
-                          row.isInternalTransfer
-                            ? 'text-slate-800'
-                            : isCredit
-                            ? 'text-emerald-600'
-                            : isDebit
-                            ? 'text-rose-600'
-                            : 'text-slate-900'
-                        }`}
-                      >
-                        {row.isInternalTransfer
-                          ? formatUSD(row.amountCents)
-                          : formatUSD(row.signedCents, true)}
+                    {/* Top badges */}
+                    <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-1">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/95 text-slate-900">
+                        #{idx + 1} · {formatAccountLevelLabel(video.minAccountLevel || 'LEVEL_1')}
                       </span>
-                      {isExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-slate-400" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-slate-300" />
-                      )}
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-950/80 text-white flex items-center gap-0.5 tabular-nums">
+                        <Clock className="w-2.5 h-2.5" />
+                        {formatDurationMMSS(video.durationSeconds)}
+                      </span>
                     </div>
-                  </button>
 
-                  {isExpanded && (
-                    <div className="px-5 pb-4 pt-2 bg-slate-50/80 border-t border-slate-100 space-y-2 animate-dropdown-in">
-                      <div className="text-[11px] text-slate-500 flex flex-wrap justify-between gap-2">
-                        <span>Reference:</span>
-                        <span className="font-mono font-semibold text-slate-700">{row.reference}</span>
+                    {/* Center Play or Lock */}
+                    {isUnlocked ? (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-emerald-600/95 group-hover:bg-emerald-500 text-white flex items-center justify-center shadow-lg transition-transform group-hover:scale-105">
+                          <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current ml-0.5" />
+                        </span>
                       </div>
-                      <div className="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100">
-                        {row.legs.map((leg) => (
-                          <div key={leg.id} className="px-3 py-2 flex items-center justify-between text-xs">
-                            <span className="font-semibold text-slate-700">
-                              {humanizeWalletName(leg.account?.accountType)} ({leg.entryType === 'CREDIT' ? 'Credit' : 'Debit'})
-                            </span>
-                            <span
-                              className={`font-bold tabular-nums ${
-                                leg.entryType === 'CREDIT' ? 'text-emerald-600' : 'text-rose-600'
-                              }`}
-                            >
-                              {leg.entryType === 'CREDIT' ? '+' : '-'}
-                              {formatUSD(leg.amountCents)}
-                            </span>
-                          </div>
-                        ))}
+                    ) : (
+                      <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px] flex flex-col items-center justify-center p-2 text-center gap-1">
+                        <span className="w-9 h-9 rounded-full bg-white/15 border border-white/30 text-white flex items-center justify-center">
+                          <Lock className="w-4 h-4" />
+                        </span>
+                        <span className="text-[10px] sm:text-[11px] font-bold text-white leading-tight">
+                          Locked
+                        </span>
                       </div>
+                    )}
+
+                    {/* Bottom status / reward */}
+                    {video.isWatched && (
+                      <span className="absolute bottom-2 left-2 text-[10px] font-bold text-white bg-emerald-600 px-2 py-0.5 rounded flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Done
+                      </span>
+                    )}
+                    {video.rewardEligible && (
+                      <span className="absolute bottom-2 right-2 text-[10px] font-bold text-white bg-slate-900/90 border border-white/15 px-2 py-0.5 rounded tabular-nums">
+                        {video.rewardPercentageBps && video.rewardPercentageBps > 0
+                          ? `${(video.rewardPercentageBps / 100).toFixed(2)}%`
+                          : `+${formatUSD(video.rewardAmountCents)}`}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Card Body */}
+                  <div className="p-3 sm:p-4 flex-1 flex flex-col justify-between gap-2.5">
+                    <div className="space-y-0.5">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900 line-clamp-1">
+                        {video.title}
+                      </h4>
+                      <p className="text-[11px] text-slate-500 line-clamp-1">{video.category}</p>
                     </div>
-                  )}
+
+                    {isUnlocked ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate?.('player', { videoId: video.id });
+                        }}
+                        className="btn-primary !h-8 sm:!h-9 w-full !text-[11px]"
+                      >
+                        <Play className="w-3 h-3 fill-current" />
+                        <span>{video.isWatched ? 'Watch Again' : 'Watch'}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setLockedModalVideo(video);
+                        }}
+                        className="btn-secondary !h-8 sm:!h-9 w-full !text-[11px]"
+                      >
+                        <Lock className="w-3 h-3 text-slate-500" />
+                        <span>Unlock Level</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Transfer to Main Modal (always has X + Cancel, real post-action figures, smooth animation) */}
+      {/* Requirement #4: Locked Video -> "Increase Your Account Level" Modal with Upgrade Button -> Plans Page */}
+      {lockedModalVideo && (
+        <div
+          onClick={() => setLockedModalVideo(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/55 backdrop-blur-xs"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-sm w-full border border-slate-200 p-6 space-y-5 shadow-2xl relative animate-modal-in text-center"
+          >
+            <button
+              type="button"
+              onClick={() => setLockedModalVideo(null)}
+              className="absolute top-4 right-4 w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer"
+              aria-label="Close dialog"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
+              <Lock className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-extrabold text-slate-900">
+                Increase Your Account Level
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                <strong>&ldquo;{lockedModalVideo.title}&rdquo;</strong> is locked on your current tier ({currentLevelLabel} — {lp?.videoLimit ?? 0} videos allowed). Upgrade your account level or select a higher plan to unlock this campaign.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setLockedModalVideo(null)}
+                className="btn-secondary flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLockedModalVideo(null);
+                  navigate?.('packages');
+                }}
+                className="btn-primary flex-1"
+              >
+                <span>Upgrade Plan</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Zero-Flash Transfer to Main Modal (#9) */}
       {transferSource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 p-6 space-y-5 shadow-2xl relative animate-modal-in">
+        <div
+          onClick={() => !transferring && setTransferSource(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-md w-full border border-slate-200 p-6 space-y-5 shadow-2xl relative animate-modal-in"
+          >
             <button
               type="button"
               onClick={() => setTransferSource(null)}
+              disabled={transferring}
               className="absolute top-4 right-4 w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
               aria-label="Close dialog"
             >
@@ -676,11 +825,11 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
                 <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs space-y-1.5">
                   <div className="flex items-center gap-2 font-bold">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>{transferSuccess}</span>
+                    <span>{transferSuccess.msg}</span>
                   </div>
                   <div className="pl-6 text-emerald-800">
                     Updated Main Account balance:{' '}
-                    <strong className="tabular-nums">{formatUSD(mainAvailableCents)}</strong>
+                    <strong className="tabular-nums">{formatUSD(transferSuccess.updatedMainCents)}</strong>
                   </div>
                 </div>
                 <button
@@ -690,6 +839,11 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
                 >
                   Done
                 </button>
+              </div>
+            ) : transferring ? (
+              <div className="py-8 text-center space-y-3">
+                <div className="w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                <div className="text-xs font-semibold text-slate-600">Completing instant transfer…</div>
               </div>
             ) : (
               <form onSubmit={handleExecuteTransfer} noValidate className="space-y-4">
@@ -761,10 +915,10 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
                   </button>
                   <button
                     type="submit"
-                    disabled={transferring || !(parseFloat(transferAmountInput) > 0)}
+                    disabled={!(parseFloat(transferAmountInput) > 0)}
                     className="btn-primary flex-1"
                   >
-                    <span>{transferring ? 'Moving…' : 'Confirm Transfer'}</span>
+                    <span>Confirm Transfer</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>

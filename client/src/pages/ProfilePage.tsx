@@ -46,13 +46,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     setPhone(user?.phone || '');
   }, [user?.fullName, user?.phone]);
 
-  const totalCents =
-    (wallet?.USD?.availableCents ?? 0) +
-    (wallet?.USD?.videoRewardsCents ?? 0) +
-    (wallet?.USD?.referralCents ?? 0) +
-    (wallet?.USD?.otherRewardsCents ?? 0);
-
-  const levelInfo = getAccountLevelProgress(user?.accountLevel, totalCents);
+  // Issue #6: Single authoritative server-calculated Level Progress (same across Sidebar, Dashboard & Profile)
+  const lp = user?.levelProgress;
+  const levelInfo = lp
+    ? {
+        currentLabel: lp.currentLevelName,
+        nextLabel: lp.nextLevelName,
+        percent: lp.progressPercent,
+        neededCents: lp.neededCents,
+      }
+    : getAccountLevelProgress(user?.accountLevel, 0);
 
   const copyText = (value: string, field: 'id' | 'ref', label: string) => {
     if (!value) return;

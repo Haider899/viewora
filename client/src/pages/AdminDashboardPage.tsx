@@ -73,6 +73,7 @@ interface AdminDashboardProps {
 
 export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const { user, logout } = useAuth();
+  const isSupportAgentOnly = user?.role === 'SUPPORT_AGENT';
   const [activeTab, setActiveTab] = useState<
     | 'kpis'
     | 'deposits'
@@ -89,7 +90,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     | 'support'
     | 'reports'
     | 'settings'
-  >('kpis');
+  >(isSupportAgentOnly ? 'support' : 'kpis');
   const [soundAlertsEnabled, setSoundAlertsEnabled] = useState(true);
   const [chimeIntervalSec, setChimeIntervalSec] = useState<number>(3);
   const [receiptZoomed, setReceiptZoomed] = useState(false);
@@ -107,6 +108,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const [adminReplyAttachmentName, setAdminReplyAttachmentName] = useState<string | null>(null);
   const [sendingAdminReply, setSendingAdminReply] = useState(false);
   const [waitingSupportCount, setWaitingSupportCount] = useState(0);
+  const [supportAgentsList, setSupportAgentsList] = useState<any[]>([]);
+  const [assigningAgent, setAssigningAgent] = useState(false);
 
   // Live Notification Badges (polled continuously)
   const [pendingDepositsCount, setPendingDepositsCount] = useState(0);
@@ -124,10 +127,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const [pendingWithdrawals, setPendingWithdrawals] = useState<WithdrawalRequest[]>([]);
   const [loadingWithdrawals, setLoadingWithdrawals] = useState(false);
 
-  // Users Queue
+  // Users Queue & IP Grouping (Items #18–#21)
   const [usersList, setUsersList] = useState<any[]>([]);
   const [userSearch, setUserSearch] = useState('');
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [usersSubView, setUsersSubView] = useState<'members' | 'ip_groups'>('members');
+  const [ipGroups, setIpGroups] = useState<any[]>([]);
+  const [loadingIpGroups, setLoadingIpGroups] = useState(false);
 
   // Gateways & Wallet Addresses
   const [gateways, setGateways] = useState<any[]>([]);
@@ -156,6 +162,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   // Complete withdrawal modal
   const [completeModal, setCompleteModal] = useState<string | null>(null);
   const [payoutRefInput, setPayoutRefInput] = useState('');
+  const [payoutProofUrl, setPayoutProofUrl] = useState<string | null>(null);
+  const [payoutProofName, setPayoutProofName] = useState<string | null>(null);
 
   // User Financial Dossier & Audit Trail (Audio 2)
   const [dossierUserId, setDossierUserId] = useState<string | null>(null);
@@ -240,6 +248,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const [formVideoIsPublished, setFormVideoIsPublished] = useState(true);
   const [formVideoIsLocked, setFormVideoIsLocked] = useState(false);
   const [formVideoDuration, setFormVideoDuration] = useState(180);
+  const [formVideoRewardPct, setFormVideoRewardPct] = useState('');
   const [formVideoTarget, setFormVideoTarget] = useState<'ALL' | 'USER'>('USER');
   const [formAssignedUserId, setFormAssignedUserId] = useState('');
   const [savingVideo, setSavingVideo] = useState(false);
@@ -290,6 +299,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
 
   const refreshNotificationBadges = async () => {
     try {
+      if (isSupportAgentOnly) {
+        const supRes = await api.getAdminSupportConversations({ status: 'ALL' });
+        if (supRes.success && supRes.data) {
+          const waiting = supRes.data.filter((c: any) => c.status === 'WAITING_FOR_AGENT').length;
+          setWaitingSupportCount(waiting);
+        }
+        return;
+      }
+
       const [depRes, wdrRes, supRes] = await Promise.allSettled([
         api.getAdminDeposits('PENDING'),
         api.getAdminWithdrawals('PENDING'),
@@ -357,6 +375,68 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     } finally {
       setLoadingUsers(false);
     }
+  };
+
+  const loadIpGroups = async () => {
+    setLoadingIpGroups(true);
+    try {
+      const res = await api.getAdminIpGroups();
+      if (res.success && Array.isArray(res.data)) {
+        setIpGroups(res.data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingIpGroups(false);
+    }
+  };
+
+  const loadSupportAgentsDropdown = async () => {
+    if (user?.role !== 'SUPER_ADMIN') return;
+    try {
+      const res = await api.getSupportAgents();
+      if (res.success && Array.isArray(res.data)) {
+        setSupportAgentsList(res.data);
+      }
+    } catch {
+      // silent
+    }
+  };
+
+  const handleAssignSupportAgent = async (convoId: string, agentId: string) => {
+    if (!agentId) return;
+    setAssigningAgent(true);
+    setActionSuccess(null);
+    setActionError(null);
+    try {
+      const res = await api.adminAssignSupportConversation(convoId, agentId);
+      if (res.success && res.data) {
+        setSelectedConvo(res.data);
+        setActionSuccess('Conversation assigned to selected support agent.');
+        loadSupportConversations(true);
+      } else {
+        setActionError(res.error?.message || 'Failed to assign support agent.');
+      }
+    } catch {
+      setActionError('Error assigning support agent.');
+    } finally {
+      setAssigningAgent(false);
+    }
+  };
+
+  const handlePayoutProofSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setActionError('Payout proof image must be under 5 MB.');
+      return;
+    }
+    setPayoutProofName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPayoutProofUrl(reader.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
   const loadGateways = async () => {
@@ -467,6 +547,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     setFormVideoIsPublished(true);
     setFormVideoIsLocked(false);
     setFormVideoDuration(52);
+    setFormVideoRewardPct('');
     setFormVideoTarget('ALL');
     setFormAssignedUserId(allUsersDropdown.length > 0 ? allUsersDropdown[0].id : '');
     setVideoModalOpen(true);
@@ -483,6 +564,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     setFormVideoIsPublished(vid.isPublished !== false);
     setFormVideoIsLocked(Boolean(vid.isLocked));
     setFormVideoDuration(vid.durationSeconds);
+    setFormVideoRewardPct(
+      vid.rewardPercentageBps != null && vid.rewardPercentageBps > 0
+        ? (vid.rewardPercentageBps / 100).toString()
+        : ''
+    );
     setFormVideoTarget(vid.assignedUserId ? 'USER' : 'ALL');
     setFormAssignedUserId(vid.assignedUserId || (allUsersDropdown.length > 0 ? allUsersDropdown[0].id : ''));
     setVideoModalOpen(true);
@@ -525,6 +611,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     setActionSuccess(null);
     setActionError(null);
     try {
+      const parsedRewardPct = formVideoRewardPct.trim() === '' ? null : Number(formVideoRewardPct);
+      const rewardPercentageBps =
+        parsedRewardPct !== null && Number.isFinite(parsedRewardPct) && parsedRewardPct > 0
+          ? Math.round(parsedRewardPct * 100)
+          : null;
+
       const payload: any = {
         title: formVideoTitle.trim(),
         description: formVideoDescription.trim() || 'Verified U-Ads video campaign',
@@ -535,6 +627,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         isPublished: formVideoIsPublished,
         isLocked: formVideoIsLocked,
         durationSeconds: Number(formVideoDuration) || 60,
+        rewardPercentageBps,
         assignedUserId: formVideoTarget === 'USER' ? formAssignedUserId : null,
       };
 
@@ -788,13 +881,22 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
+  // Enforce RBAC for SUPPORT_AGENT (never show finance/admin tabs)
+  useEffect(() => {
+    if (isSupportAgentOnly && activeTab !== 'support') {
+      setActiveTab('support');
+    }
+  }, [isSupportAgentOnly, activeTab]);
+
   // Initial badge check & recurring live counter polling
   useEffect(() => {
     refreshNotificationBadges();
-    loadLevels(); // Preload unified level tiers for Adjust Level modal (F1)
+    if (!isSupportAgentOnly) {
+      loadLevels(); // Preload unified level tiers for Adjust Level modal (F1)
+    }
     const badgeInterval = setInterval(refreshNotificationBadges, 4000);
     return () => clearInterval(badgeInterval);
-  }, []);
+  }, [isSupportAgentOnly]);
 
   // Configurable 2–5 second repeating Web Audio notification chime when live support chats await an agent (F17)
   useEffect(() => {
@@ -828,14 +930,21 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   }, [waitingSupportCount, soundAlertsEnabled, chimeIntervalSec]);
 
   useEffect(() => {
+    if (isSupportAgentOnly && activeTab !== 'support') {
+      return;
+    }
     if (activeTab === 'kpis') loadKpis();
     else if (activeTab === 'deposits') loadDeposits();
     else if (activeTab === 'withdrawals') loadWithdrawals();
-    else if (activeTab === 'users') loadUsers();
-    else if (activeTab === 'gateways') loadGateways();
+    else if (activeTab === 'users') {
+      loadUsers();
+      if (usersSubView === 'ip_groups') loadIpGroups();
+    } else if (activeTab === 'gateways') loadGateways();
     else if (activeTab === 'settings') loadSettings();
-    else if (activeTab === 'support') loadSupportConversations();
-    else if (activeTab === 'videos') {
+    else if (activeTab === 'support') {
+      loadSupportConversations();
+      loadSupportAgentsDropdown();
+    } else if (activeTab === 'videos') {
       loadAdminVideos();
       loadDropdownUsers();
     } else if (activeTab === 'documents') {
@@ -843,7 +952,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     } else if (activeTab === 'levels') {
       loadLevels();
     }
-  }, [activeTab]);
+  }, [activeTab, isSupportAgentOnly, usersSubView]);
 
   useEffect(() => {
     if (activeTab === 'videos') {
@@ -1110,13 +1219,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     try {
       const res = await api.reviewWithdrawal(completeModal, 'COMPLETE', {
         payoutRef: payoutRefInput.trim(),
+        payoutProofUrl: payoutProofUrl || undefined,
       });
       if (res.success) {
-        setActionSuccess('Withdrawal marked as completed with confirmed external payout reference.');
+        setActionSuccess('Withdrawal marked as completed with confirmed external payout reference & proof.');
         loadWithdrawals();
         refreshNotificationBadges();
         setCompleteModal(null);
         setPayoutRefInput('');
+        setPayoutProofUrl(null);
+        setPayoutProofName(null);
       } else {
         setActionError(res.error?.message || 'Failed to complete payout.');
       }
@@ -1310,7 +1422,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  const adminNavGroups: Array<{
+  const allAdminNavGroups: Array<{
     label: string;
     items: Array<{ id: typeof activeTab; label: string; icon: React.ReactNode; badge?: number }>;
   }> = [
@@ -1348,6 +1460,17 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       ],
     },
   ];
+
+  const adminNavGroups = isSupportAgentOnly
+    ? [
+        {
+          label: 'Support Desk',
+          items: [
+            { id: 'support' as const, label: 'Live Support', icon: <MessageSquare className="w-4 h-4" />, badge: waitingSupportCount },
+          ],
+        },
+      ]
+    : allAdminNavGroups;
 
   const activeAdminItem = adminNavGroups.flatMap((g) => g.items).find((i) => i.id === activeTab);
 
@@ -1781,7 +1904,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                               View Slip
                             </button>
                           ) : (
-                            <span className="text-[11px] text-slate-400 font-medium">No Slip</span>
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-300 text-[10px] font-extrabold">
+                              <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                              Missing Slip — Verify Manually
+                            </span>
                           )}
                         </td>
 
@@ -1940,9 +2066,21 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                             </>
                           )}
                           {(w.status === 'COMPLETED' || w.status === 'PAID') && (
-                            <span className="text-[10px] font-mono text-emerald-700 font-semibold ml-2">
-                              Tx: {w.payoutRef}
-                            </span>
+                            <div className="inline-flex items-center gap-2 ml-2">
+                              <span className="text-[10px] font-mono text-emerald-700 font-semibold">
+                                Tx: {w.payoutRef}
+                              </span>
+                              {w.payoutProofUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() => setReceiptModal(w.payoutProofUrl)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 cursor-pointer"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  Proof
+                                </button>
+                              )}
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -1954,29 +2092,71 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           </div>
         )}
 
-        {/* TAB 4: USERS MANAGEMENT */}
+        {/* TAB 4: USERS MANAGEMENT (Online-First, Last Seen, IP Address & IP Groups) */}
         {activeTab === 'users' && (
           <div className="rounded-3xl bg-white border border-slate-200/90 shadow-xs overflow-hidden space-y-4">
-            <div className="p-6 pb-2 flex items-center justify-between border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Users className="w-5 h-5 text-purple-600" />
-                User Profiles & Account Control
-              </h3>
+            <div className="p-6 pb-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100">
+              <div className="flex flex-wrap items-center gap-3">
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-purple-600" />
+                  User Profiles &amp; IP Monitoring
+                </h3>
+                <div className="inline-flex rounded-xl bg-slate-100 p-0.5 border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setUsersSubView('members')}
+                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                      usersSubView === 'members'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Members List ({usersList.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUsersSubView('ip_groups');
+                      loadIpGroups();
+                    }}
+                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                      usersSubView === 'ip_groups'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    IP Address Groups
+                  </button>
+                </div>
+              </div>
               <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  placeholder="Search users..."
-                  value={userSearch}
-                  onChange={(e) => setUserSearch(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && loadUsers()}
-                  className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-purple-500"
-                />
-                <button
-                  onClick={loadUsers}
-                  className="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200"
-                >
-                  <Search className="w-4 h-4" />
-                </button>
+                {usersSubView === 'members' ? (
+                  <>
+                    <input
+                      type="text"
+                      placeholder="Search users..."
+                      value={userSearch}
+                      onChange={(e) => setUserSearch(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && loadUsers()}
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-purple-500"
+                    />
+                    <button
+                      onClick={loadUsers}
+                      className="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer"
+                    >
+                      <Search className="w-4 h-4" />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={loadIpGroups}
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Refresh IP Groups
+                  </button>
+                )}
 
                 {user?.role === 'SUPER_ADMIN' && (
                   <button
@@ -1992,15 +2172,141 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               </div>
             </div>
 
+            {usersSubView === 'ip_groups' ? (
+              <div className="p-5 pt-1 space-y-4">
+                {loadingIpGroups ? (
+                  <div className="py-12 text-center text-xs text-slate-500">
+                    Loading IP address groups...
+                  </div>
+                ) : ipGroups.length === 0 ? (
+                  <div className="py-12 text-center text-xs text-slate-500">
+                    No recorded IP addresses found yet. IP addresses are logged on registration, login, and active sessions.
+                  </div>
+                ) : (
+                  ipGroups.map((group) => (
+                    <div
+                      key={group.ipAddress}
+                      className={`rounded-2xl border overflow-hidden ${
+                        group.accountCount > 1
+                          ? 'border-amber-300 bg-amber-50/30'
+                          : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2.5">
+                          <span className="font-mono font-extrabold text-slate-900">
+                            {group.ipAddress}
+                          </span>
+                          <span
+                            className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                              group.accountCount > 1
+                                ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                : 'bg-slate-200 text-slate-700'
+                            }`}
+                          >
+                            {group.accountCount} {group.accountCount === 1 ? 'Account' : 'Accounts'}
+                          </span>
+                          {group.onlineCount > 0 && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              ● {group.onlineCount} Online
+                            </span>
+                          )}
+                          {group.restrictedCount > 0 && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+                              {group.restrictedCount} Restricted
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {group.accounts.map((acc: any) => (
+                          <div
+                            key={acc.id}
+                            className="px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs bg-white"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-bold text-slate-900 flex items-center gap-2">
+                                <span
+                                  className={`w-2 h-2 rounded-full shrink-0 ${
+                                    acc.isOnline ? 'bg-emerald-500' : 'bg-slate-300'
+                                  }`}
+                                  title={acc.isOnline ? 'Online Now' : 'Offline'}
+                                />
+                                <span>{acc.fullName}</span>
+                                {acc.memberCode && (
+                                  <span className="text-[10px] font-mono text-slate-500">
+                                    {acc.memberCode}
+                                  </span>
+                                )}
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700">
+                                  {acc.accountLevel}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500">
+                                {acc.email} · Last Seen:{' '}
+                                {acc.lastSeenAt
+                                  ? new Date(acc.lastSeenAt).toLocaleString()
+                                  : 'Never'}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                  acc.isRestricted
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                }`}
+                              >
+                                {acc.status === 'SUSPENDED'
+                                  ? 'SUSPENDED'
+                                  : acc.isLocked
+                                  ? 'LOCKED'
+                                  : 'ACTIVE'}
+                              </span>
+                              {acc.isRestricted && user?.role === 'SUPER_ADMIN' && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (acc.status === 'SUSPENDED') {
+                                      await handleToggleUserStatus(acc.id, 'SUSPENDED');
+                                    }
+                                    if (acc.isLocked) {
+                                      await api.unlockUserAccount(acc.id, 'IP Group restriction removed by admin');
+                                      setActionSuccess(`Restriction removed for ${acc.fullName}.`);
+                                    }
+                                    loadIpGroups();
+                                    loadUsers();
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer"
+                                >
+                                  Remove Restriction
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => openUserDossier(acc.id)}
+                                className="px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[11px] font-bold cursor-pointer"
+                              >
+                                Dossier
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
                   <tr>
-                    <th className="py-3 px-6">Full Name / Email</th>
-                    <th className="py-3 px-6">Role</th>
-                    <th className="py-3 px-6">Account Level</th>
-                    <th className="py-3 px-6">Status / Lock</th>
-                    <th className="py-3 px-6">Active Package</th>
+                    <th className="py-3 px-6">Full Name / Presence</th>
+                    <th className="py-3 px-4">IP Address / Last Seen</th>
+                    <th className="py-3 px-4">Account Level</th>
+                    <th className="py-3 px-4">Status / Lock</th>
+                    <th className="py-3 px-4">Active Package</th>
                     <th className="py-3 px-6 text-right">Administrative Actions</th>
                   </tr>
                 </thead>
@@ -2011,15 +2317,31 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                     return (
                       <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-4 px-6">
-                          <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                          <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className={`w-2 h-2 rounded-full shrink-0 ${
+                                u.isOnline ? 'bg-emerald-500' : 'bg-slate-300'
+                              }`}
+                              title={u.isOnline ? 'Online Now' : 'Offline'}
+                            />
                             <span>{u.fullName}</span>
+                            {u.isOnline && (
+                              <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                Online
+                              </span>
+                            )}
                             {u.memberCode && (
                               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
                                 {u.memberCode}
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] text-slate-500">{u.email}</div>
+                          <div className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                            <span>{u.email}</span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                              {u.role}
+                            </span>
+                          </div>
                           {u.createdAt && (
                             <div className="text-[10px] text-slate-400">
                               Joined: {new Date(u.createdAt).toLocaleDateString()}
@@ -2027,19 +2349,31 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                           )}
                         </td>
 
-                        <td className="py-4 px-6">
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                            {u.role}
-                          </span>
+                        <td className="py-4 px-4">
+                          <div className="font-mono text-[11px] font-semibold text-slate-800">
+                            {u.ipAddress || u.lastLoginIp || u.registrationIp || '—'}
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {u.isOnline
+                              ? 'Active now'
+                              : u.lastSeenAt
+                              ? `Seen ${new Date(u.lastSeenAt).toLocaleString([], {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}`
+                              : 'Offline'}
+                          </div>
                         </td>
 
-                        <td className="py-4 px-6">
+                        <td className="py-4 px-4">
                           <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
                             {u.accountLevel || 'NEW_USER'}
                           </span>
                         </td>
 
-                        <td className="py-4 px-6 space-y-1">
+                        <td className="py-4 px-4 space-y-1">
                           <div>
                             <span
                               className={`text-[10px] font-bold px-2 py-0.5 rounded ${
@@ -2058,7 +2392,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                           )}
                         </td>
 
-                        <td className="py-4 px-6">
+                        <td className="py-4 px-4">
                           {u.packagePurchases && u.packagePurchases.length > 0 ? (
                             <span className="text-[11px] font-bold text-emerald-700">
                               {u.packagePurchases[0].packageName}
@@ -2131,6 +2465,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 </tbody>
               </table>
             </div>
+            )}
           </div>
         )}
 
@@ -2293,6 +2628,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                     MIN_DEPOSIT_USD_CENTS: { title: 'Minimum Deposit Amount', unit: 'USD cents (2000 = $20.00)' },
                     DEPOSIT_VERIFICATION_TIME_TEXT: { title: 'Expected Deposit Verification Time', unit: 'Display label' },
                     SUPPORT_REASSIGN_TIMEOUT_SECONDS: { title: 'Support Auto-Reassign Timeout', unit: 'Seconds' },
+                    DAILY_RESET_HOUR: { title: 'Daily Video Reward Cutoff Hour (0–23)', unit: '8 = 8:00 AM to next 8:00 AM' },
                   };
                   const meta = humanMeta[s.key] || {
                     title: s.key.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
@@ -2620,8 +2956,24 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         </div>
                       </div>
 
-                      {/* Status Selector & Resolution Controls */}
-                      <div className="flex items-center gap-2">
+                      {/* Status Selector, Manual Agent Assign & Resolution Controls */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {user?.role === 'SUPER_ADMIN' && supportAgentsList.length > 0 && (
+                          <select
+                            value={selectedConvo.assignedToId || ''}
+                            disabled={assigningAgent}
+                            onChange={(e) => handleAssignSupportAgent(selectedConvo.id, e.target.value)}
+                            title="Manually assign this chat to a support agent"
+                            className="bg-slate-800 border border-slate-700 text-white text-xs font-bold rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-purple-500 cursor-pointer"
+                          >
+                            <option value="">Assign Agent...</option>
+                            {supportAgentsList.map((ag: any) => (
+                              <option key={ag.id} value={ag.id}>
+                                {ag.fullName} ({ag.agentAvailability || 'OFFLINE'})
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         {(selectedConvo.userId || selectedConvo.user?.id) && (
                           <button
                             type="button"
@@ -3904,6 +4256,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                                 {w.approvedByName && <div className="text-slate-600">Approved By: <strong>{w.approvedByName}</strong></div>}
                                 {w.paidByName && <div className="text-emerald-700">Paid By: <strong>{w.paidByName}</strong></div>}
                                 <div className="font-mono text-slate-500">TxRef: {w.payoutRef || '-'}</div>
+                                {w.payoutProofUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setReceiptModal(w.payoutProofUrl)}
+                                    className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold hover:bg-emerald-100 cursor-pointer"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    View Payout Proof
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))
@@ -4507,29 +4869,72 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       {completeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-3xl bg-white border border-slate-200 p-8 space-y-5 shadow-2xl">
-            <h3 className="text-lg font-bold text-slate-900">Settle Payout with External Ref</h3>
+            <h3 className="text-lg font-bold text-slate-900">Settle Payout with External Ref &amp; Proof</h3>
             <p className="text-xs text-slate-500">
-              Enter the authentic bank transfer reference or blockchain TxHash before finalizing settlement.
+              Enter the authentic bank transfer reference or blockchain TxHash and attach the payout confirmation screenshot before finalizing settlement.
             </p>
-            <input
-              type="text"
-              placeholder="e.g. 129038472918 or 0x48f93... or 3737 ID"
-              value={payoutRefInput}
-              onChange={(e) => setPayoutRefInput(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 font-mono focus:outline-none focus:border-purple-500"
-            />
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">
+                External Payout Reference / TxHash <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 129038472918 or 0x48f93... or Wire Ref"
+                value={payoutRefInput}
+                onChange={(e) => setPayoutRefInput(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 font-mono focus:outline-none focus:border-purple-500"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">
+                Payout Confirmation Receipt / Screenshot (Audit Proof)
+              </label>
+              <label className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-dashed border-slate-300 hover:border-emerald-500 cursor-pointer text-xs text-slate-600">
+                <span className="truncate font-semibold">
+                  {payoutProofName || 'Upload payout receipt image (PNG/JPG, max 5 MB)'}
+                </span>
+                <Upload className="w-4 h-4 text-slate-400 shrink-0" />
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePayoutProofSelect}
+                  className="hidden"
+                />
+              </label>
+              {payoutProofUrl && (
+                <div className="flex items-center justify-between text-[11px] text-emerald-700 font-semibold">
+                  <span>Receipt attached</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPayoutProofUrl(null);
+                      setPayoutProofName(null);
+                    }}
+                    className="text-rose-600 hover:underline cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="flex gap-3">
               <button
-                onClick={() => setCompleteModal(null)}
-                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
+                onClick={() => {
+                  setCompleteModal(null);
+                  setPayoutRefInput('');
+                  setPayoutProofUrl(null);
+                  setPayoutProofName(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmCompleteWithdrawal}
-                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
+                disabled={!payoutRefInput.trim()}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white cursor-pointer"
               >
-                Settle & Close
+                Settle &amp; Close
               </button>
             </div>
           </div>
@@ -4772,6 +5177,29 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Individual Per-Video Reward Percentage (Optional — leaves Account Level % intact) */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/50 border border-emerald-200 space-y-1.5">
+                <label className="block text-[11px] font-bold text-emerald-900">
+                  Individual Video Reward % (Optional Override)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    placeholder="Leave blank to use default reward / Account Level %"
+                    value={formVideoRewardPct}
+                    onChange={(e) => setFormVideoRewardPct(e.target.value)}
+                    className="flex-1 bg-white border border-emerald-300 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
+                  />
+                  <span className="text-xs font-extrabold text-emerald-800 px-2">%</span>
+                </div>
+                <p className="text-[10px] text-emerald-800/80">
+                  Set an individual percentage (e.g. 0.50 for 0.50%) for this specific video regardless of account level, or leave empty to keep standard reward &amp; level percentage logic unchanged.
+                </p>
               </div>
 
               {/* Category & Duration */}

@@ -296,7 +296,11 @@ export function groupLedgerEntries(entries: LedgerEntryItem[]): HumanActivityRow
       walletKey,
       signedCents,
       amountCents: primary.amountCents,
-      isInternalTransfer: isTransfer && (txType === 'VIDEO_REWARD_CONVERT' || txType === 'REFERRAL_CONVERT'),
+      isInternalTransfer:
+        isTransfer &&
+        (txType === 'VIDEO_REWARD_CONVERT' ||
+          txType === 'REFERRAL_CONVERT' ||
+          txType === 'WITHDRAWAL_RELEASE'),
       legs,
     };
   });

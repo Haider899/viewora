@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { VideoService } from '../services/video.service.js';
+import { AccountLevelService } from '../services/accountLevel.service.js';
 
 export const heartbeatSchema = z.object({
   sessionToken: z.string().min(10),
@@ -82,6 +83,28 @@ export class VideoController {
         success: true,
         data: result,
         message: 'Reward claimed and credited to your wallet.',
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async getDailyStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const status = await AccountLevelService.getUserDailyRewardStatus(req.user!.userId);
+      res.json({ success: true, data: status });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async claimDailyReward(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await AccountLevelService.claimDailyVideoReward(req.user!.userId);
+      res.json({
+        success: true,
+        data: result,
+        message: `Daily reward of $${(result.amountCents / 100).toFixed(2)} USD credited to your wallet!`,
       });
     } catch (err) {
       next(err);

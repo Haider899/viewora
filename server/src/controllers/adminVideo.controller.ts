@@ -16,6 +16,7 @@ export const createVideoSchema = z.object({
   isLocked: z.boolean().optional(),
   rewardEligible: z.boolean().optional(),
   rewardAmountCents: z.number().int().nonnegative().optional(),
+  rewardPercentageBps: z.number().int().min(0).max(10000).nullable().optional(),
 });
 
 export const updateVideoSchema = z.object({
@@ -32,6 +33,7 @@ export const updateVideoSchema = z.object({
   isLocked: z.boolean().optional(),
   rewardEligible: z.boolean().optional(),
   rewardAmountCents: z.number().int().nonnegative().optional(),
+  rewardPercentageBps: z.number().int().min(0).max(10000).nullable().optional(),
 });
 
 export class AdminVideoController {

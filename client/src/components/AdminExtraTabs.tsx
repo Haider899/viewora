@@ -1858,8 +1858,8 @@ export const AdminSupportAgentsPanel: React.FC<ExtraTabProps> = ({ onSuccess, on
                 </div>
               </div>
 
-              {/* Agent Performance Strip */}
-              <div className="grid grid-cols-4 gap-1 text-center bg-white rounded-lg p-1.5 border border-slate-200 text-[10px]">
+              {/* Agent Performance Strip (Assigned, Active, Resolved, Replies, Avg 1st Reply & Avg Resolution) */}
+              <div className="grid grid-cols-3 gap-1.5 text-center bg-white rounded-lg p-2 border border-slate-200 text-[10px]">
                 <div>
                   <div className="font-black text-slate-800">{perf.totalAssigned}</div>
                   <div className="text-slate-400">Assigned</div>
@@ -1875,6 +1875,22 @@ export const AdminSupportAgentsPanel: React.FC<ExtraTabProps> = ({ onSuccess, on
                 <div>
                   <div className="font-black text-indigo-600">{perf.totalReplies}</div>
                   <div className="text-slate-400">Replies</div>
+                </div>
+                <div>
+                  <div className="font-black text-purple-700">
+                    {perf.avgFirstResponseMinutes !== null && perf.avgFirstResponseMinutes !== undefined
+                      ? `${perf.avgFirstResponseMinutes}m`
+                      : '—'}
+                  </div>
+                  <div className="text-slate-400">Avg 1st Reply</div>
+                </div>
+                <div>
+                  <div className="font-black text-teal-700">
+                    {perf.avgResolutionMinutes !== null && perf.avgResolutionMinutes !== undefined
+                      ? `${perf.avgResolutionMinutes}m`
+                      : '—'}
+                  </div>
+                  <div className="text-slate-400">Avg Resolve</div>
                 </div>
               </div>
 

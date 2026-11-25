@@ -2,6 +2,20 @@ export type UserRole = 'SUPER_ADMIN' | 'FINANCE_ADMIN' | 'CONTENT_ADMIN' | 'SUPP
 export type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'PENDING_VERIFICATION';
 export type Currency = 'USD';
 
+export interface UserLevelProgress {
+  currentLevel: string;
+  currentLevelName: string;
+  nextLevel: string | null;
+  nextLevelName: string | null;
+  qualifyingVolumeCents: number;
+  currentLevelMinCents: number;
+  nextLevelMinCents: number | null;
+  neededCents: number;
+  progressPercent: number;
+  videoLimit: number;
+  dailyBonusRateBps: number;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -16,6 +30,9 @@ export interface User {
   accountLevel?: string;
   accountLockedUntil?: string | null;
   agentAvailability?: 'ONLINE' | 'BUSY' | 'OFFLINE';
+  lastSeenAt?: string | null;
+  lastLoginIp?: string | null;
+  levelProgress?: UserLevelProgress | null;
   createdAt: string;
 }
 
@@ -83,6 +100,8 @@ export interface Video {
   isLocked?: boolean;
   rewardEligible: boolean;
   rewardAmountCents: number;
+  rewardPercentageBps?: number | null;
+  userVideoLimit?: number;
   assignedUserId?: string | null;
   assignedUser?: {
     id: string;

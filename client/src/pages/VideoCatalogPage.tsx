@@ -10,6 +10,8 @@ import {
   CheckCircle2,
   Sparkles,
   PlaySquare,
+  X,
+  ArrowUpRight,
 } from 'lucide-react';
 
 interface VideoCatalogProps {
@@ -22,6 +24,7 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [lockedVideoModal, setLockedVideoModal] = useState<Video | null>(null);
 
   const fetchVideos = async () => {
     setLoading(true);
@@ -236,19 +239,23 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
                       </button>
                     </div>
                   ) : (
-                    <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-[1.5px] flex flex-col items-center justify-center p-4 text-center space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setLockedVideoModal(video)}
+                      className="absolute inset-0 bg-slate-950/70 backdrop-blur-[1.5px] flex flex-col items-center justify-center p-4 text-center space-y-2 cursor-pointer w-full"
+                    >
                       <div className="w-10 h-10 rounded-full bg-white/15 border border-white/25 text-white flex items-center justify-center">
                         <Lock className="w-4 h-4" />
                       </div>
                       <div className="space-y-0.5">
                         <div className="text-xs font-bold text-white">
-                          Requires {video.minPackageTier} Plan
+                          Locked · {video.minPackageTier} Plan
                         </div>
                         <div className="text-[11px] text-slate-200">
-                          Upgrade your plan to unlock &amp; earn {formatUSD(video.rewardAmountCents)}
+                          Click to see how to unlock this video
                         </div>
                       </div>
-                    </div>
+                    </button>
                   )}
 
                   {/* Completed Pill */}
@@ -262,7 +269,9 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
                   {/* Reward Pill */}
                   {video.rewardEligible && (
                     <div className="absolute bottom-2.5 right-3 text-[11px] font-bold text-white bg-slate-900/90 border border-white/15 px-2.5 py-0.5 rounded-md tabular-nums">
-                      +{formatUSD(video.rewardAmountCents)}
+                      {video.rewardPercentageBps && video.rewardPercentageBps > 0
+                        ? `${(video.rewardPercentageBps / 100).toFixed(2)}%`
+                        : `+${formatUSD(video.rewardAmountCents)}`}
                     </div>
                   )}
                 </div>
@@ -289,17 +298,85 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => navigate('packages')}
+                      onClick={() => setLockedVideoModal(video)}
                       className="btn-secondary w-full"
                     >
                       <Lock className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Unlock with {video.minPackageTier}</span>
+                      <span>Unlock ({video.minPackageTier})</span>
                     </button>
                   )}
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* LOCKED VIDEO — INCREASE YOUR ACCOUNT LEVEL MODAL */}
+      {lockedVideoModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs"
+          onClick={() => setLockedVideoModal(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white border border-slate-200 shadow-2xl p-6 space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Increase Your Account Level
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    This video is beyond your current account level video limit.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLockedVideoModal(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1 text-xs">
+              <div className="font-bold text-slate-900">{lockedVideoModal.title}</div>
+              <div className="text-slate-500">
+                Required Tier: <strong className="text-slate-800">{lockedVideoModal.minPackageTier} Plan</strong>
+              </div>
+              <p className="text-[11px] text-slate-500 pt-1">
+                Upgrade your plan or increase your account level to unlock more daily campaign videos and higher rewards.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setLockedVideoModal(null)}
+                className="btn-secondary flex-1"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLockedVideoModal(null);
+                  navigate('packages');
+                }}
+                className="btn-primary flex-1"
+              >
+                <span>Upgrade Plan</span>
+                <ArrowUpRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

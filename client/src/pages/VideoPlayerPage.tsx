@@ -51,6 +51,8 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const claimLockRef = useRef(false);
   const maxWatchedRef = useRef(0);
+  const startedSessionForRef = useRef<string | null>(null);
+  const autoPlayedVideoRef = useRef<string | null>(null);
 
   const targetDuration = Math.max(1, actualDuration || video?.durationSeconds || 30);
   const progressPct = Math.min(100, Math.round((watchSeconds / targetDuration) * 100));
@@ -74,23 +76,29 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
     fetchVideo();
   }, [videoId]);
 
+  // Start playback session ONCE per video mount (never reset by background refreshUser() polling!)
   useEffect(() => {
-    if (!video || !user || !video.hasAccess) return;
+    if (!video?.id || !user?.id || !video.hasAccess) return;
+    if (startedSessionForRef.current === video.id) return;
+    startedSessionForRef.current = video.id;
+
     const initSession = async () => {
       try {
-        const res = await api.startVideoSession(videoId);
+        const res = await api.startVideoSession(video.id);
         if (res.success && res.data) {
           setSessionToken(res.data.sessionToken);
           setIsPlaying(true);
         } else {
+          startedSessionForRef.current = null;
           setErrorMsg(res.error?.message || 'Access restricted. Upgrade your plan to watch.');
         }
       } catch {
+        startedSessionForRef.current = null;
         setErrorMsg('Unable to start verified playback session.');
       }
     };
     initSession();
-  }, [video, user, videoId]);
+  }, [video?.id, user?.id, video?.hasAccess]);
 
   // Block pause/seek shortcuts during verified playback
   useEffect(() => {
@@ -113,7 +121,9 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
 
   useEffect(() => {
     const el = videoRef.current;
-    if (!el || !video || !video.hasAccess) return;
+    if (!el || !video?.id || !video.hasAccess) return;
+    if (autoPlayedVideoRef.current === video.id) return;
+    autoPlayedVideoRef.current = video.id;
     el.muted = isMuted;
     const playPromise = el.play();
     if (playPromise && typeof playPromise.catch === 'function') {
@@ -127,7 +137,7 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
         });
       });
     }
-  }, [video]);
+  }, [video?.id, video?.hasAccess]);
 
   const triggerAutomaticReward = async (finalSec?: number) => {
     if (claimLockRef.current || !sessionToken || hasClaimed || claiming) return;

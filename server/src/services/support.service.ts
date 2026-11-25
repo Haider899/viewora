@@ -719,4 +719,77 @@ Feel free to share your transaction reference or attach a receipt screenshot.`,
 
     return updated;
   }
+
+  /**
+   * Issue #11: Admin / Super Admin manually assigns or reassigns a conversation to a chosen agent.
+   */
+  public static async adminAssignConversation(params: {
+    conversationId: string;
+    agentId: string;
+    adminId: string;
+  }) {
+    const [convo, targetAgent, adminUser] = await Promise.all([
+      prisma.supportConversation.findUnique({ where: { id: params.conversationId } }),
+      prisma.user.findUnique({ where: { id: params.agentId }, select: { id: true, fullName: true, role: true, status: true } }),
+      prisma.user.findUnique({ where: { id: params.adminId }, select: { id: true, fullName: true } }),
+    ]);
+
+    if (!convo) {
+      throw { statusCode: 404, code: 'NOT_FOUND', message: 'Conversation not found.' };
+    }
+    if (!targetAgent || !['SUPPORT_AGENT', 'SUPER_ADMIN'].includes(targetAgent.role)) {
+      throw { statusCode: 400, code: 'INVALID_AGENT', message: 'Selected user is not an active support agent.' };
+    }
+
+    const previousAgentId = convo.assignedToId;
+    const nextStatus = convo.status === 'BOT' ? 'WAITING_FOR_AGENT' : convo.status;
+
+    const updated = await prisma.supportConversation.update({
+      where: { id: params.conversationId },
+      data: {
+        assignedToId: targetAgent.id,
+        status: nextStatus,
+        lastMessageAt: new Date(),
+      },
+      include: {
+        messages: { orderBy: { createdAt: 'asc' } },
+        user: { select: { id: true, fullName: true, email: true, role: true } },
+        assignedTo: { select: { id: true, fullName: true, role: true } },
+      },
+    });
+
+    await prisma.supportMessage.create({
+      data: {
+        conversationId: params.conversationId,
+        senderType: 'BOT',
+        senderName: 'System Assignment',
+        message: `Conversation assigned to **${targetAgent.fullName}** by ${adminUser?.fullName || 'Administrator'}.`,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId: targetAgent.id,
+        title: 'Support Conversation Assigned',
+        message: `Administrator assigned ticket #${convo.id.slice(0, 8).toUpperCase()} to you.`,
+        type: 'INFO',
+      },
+    }).catch(() => {});
+
+    await prisma.auditLog.create({
+      data: {
+        userId: params.adminId,
+        action: 'SUPPORT_MANUAL_ASSIGN',
+        resourceType: 'SupportConversation',
+        resourceId: params.conversationId,
+        details: JSON.stringify({
+          previousAgentId,
+          newAgentId: targetAgent.id,
+          newAgentName: targetAgent.fullName,
+        }),
+      },
+    }).catch(() => {});
+
+    return await this.getConversation(updated.id);
+  }
 }

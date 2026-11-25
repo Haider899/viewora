@@ -254,13 +254,28 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({ navigate }) 
                 ? 'Your USD deposits, video rewards, referrals, and withdrawals will appear here with full transparency.'
                 : 'Try clearing one of your filters or search terms to see more transactions.'}
             </p>
-            {entries.length === 0 && navigate && (
+            {entries.length === 0 && navigate ? (
               <div className="pt-2">
                 <button type="button" onClick={() => navigate('deposit')} className="btn-primary">
                   Make Your First Deposit
                 </button>
               </div>
-            )}
+            ) : entries.length > 0 ? (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWalletFilter('ALL');
+                    setTypeFilter('ALL');
+                    setDateFilter('ALL');
+                    setSearchQuery('');
+                  }}
+                  className="btn-secondary"
+                >
+                  Clear Filters
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="divide-y divide-slate-100">

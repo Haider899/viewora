@@ -27,7 +27,7 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
   const [selectedPackage, setSelectedPackage] = useState<Package | null>(null);
   const [purchasing, setPurchasing] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [successInfo, setSuccessInfo] = useState<{ msg: string; remainingCents: number } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchPackagesData = async () => {
@@ -57,21 +57,26 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
     }
     setSelectedPackage(pkg);
     setErrorMsg(null);
-    setSuccessMsg(null);
+    setSuccessInfo(null);
     setModalOpen(true);
   };
 
   const handleConfirmPurchase = async () => {
-    if (!selectedPackage) return;
+    if (!selectedPackage || purchasing) return;
+    const availBefore = wallet?.USD?.availableCents ?? 0;
+    const expectedRemaining = Math.max(0, availBefore - selectedPackage.priceCents);
     setPurchasing(true);
     setErrorMsg(null);
     try {
       const res = await api.purchasePackage(selectedPackage.id, 'USD');
       if (res.success && res.data) {
-        await refreshWallet();
-        await fetchPackagesData();
-        setSuccessMsg(`${selectedPackage.name} plan is now active on your account.`);
+        // Set success state BEFORE refreshWallet() so "insufficient balance" NEVER flashes (#9)
+        setSuccessInfo({
+          msg: `${selectedPackage.name} plan is now active on your account.`,
+          remainingCents: expectedRemaining,
+        });
         showToast(`${selectedPackage.name} plan activated!`, 'success');
+        await Promise.all([refreshWallet(), fetchPackagesData()]);
       } else {
         setErrorMsg(res.error?.message || 'Unable to activate plan.');
       }
@@ -198,13 +203,20 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
         </div>
       )}
 
-      {/* Purchase Dialog — X + Cancel always present, NEVER shows a negative balance! */}
+      {/* Purchase Dialog — X + Cancel always present, processing state, NEVER flashes negative/insufficient balance (#9) */}
       {modalOpen && selectedPackage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white border border-slate-200 p-6 space-y-5 shadow-2xl relative animate-modal-in">
+        <div
+          onClick={() => !purchasing && setModalOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-2xl bg-white border border-slate-200 p-6 space-y-5 shadow-2xl relative animate-modal-in"
+          >
             <button
               type="button"
               onClick={() => setModalOpen(false)}
+              disabled={purchasing}
               className="absolute top-4 right-4 w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
               aria-label="Close dialog"
             >
@@ -222,22 +234,17 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
             </div>
 
             {(() => {
-              const reqCents = selectedPackage.priceCents;
-              const availCents = wallet?.USD?.availableCents ?? 0;
-              const hasEnough = availCents >= reqCents;
-              const shortfallCents = Math.max(0, reqCents - availCents);
-
-              if (successMsg) {
+              if (successInfo) {
                 return (
                   <div className="space-y-4">
                     <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs space-y-1.5">
                       <div className="flex items-center gap-2 font-bold">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>{successMsg}</span>
+                        <span>{successInfo.msg}</span>
                       </div>
                       <div className="pl-6 text-emerald-800">
                         Remaining Main Account balance:{' '}
-                        <strong className="tabular-nums">{formatUSD(availCents)}</strong>
+                        <strong className="tabular-nums">{formatUSD(successInfo.remainingCents)}</strong>
                       </div>
                     </div>
                     <button
@@ -250,6 +257,25 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
                   </div>
                 );
               }
+
+              if (purchasing) {
+                return (
+                  <div className="py-8 text-center space-y-3">
+                    <div className="w-9 h-9 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                    <div className="text-xs font-bold text-slate-800">
+                      Activating your {selectedPackage.name} plan…
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Recording transaction on your USD ledger. Please wait.
+                    </p>
+                  </div>
+                );
+              }
+
+              const reqCents = selectedPackage.priceCents;
+              const availCents = wallet?.USD?.availableCents ?? 0;
+              const hasEnough = availCents >= reqCents;
+              const shortfallCents = Math.max(0, reqCents - availCents);
 
               return (
                 <div className="space-y-4">

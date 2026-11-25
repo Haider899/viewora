@@ -504,5 +504,244 @@ export class AccountLevelService {
       payouts,
     };
   }
+
+  /**
+   * Authoritative Level Progress computed strictly from total qualifying volume
+   * (approved USD deposits + active package purchases) — NEVER cash sitting in wallet (#6).
+   */
+  static async getUserLevelProgress(userId: string) {
+    const [user, levels] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          packagePurchases: { where: { status: 'ACTIVE' } },
+          depositRequests: { where: { status: 'APPROVED' } },
+        },
+      }),
+      this.getAllLevels(),
+    ]);
+
+    if (!user) return null;
+
+    let qualifyingVolumeCents = 0;
+    for (const dep of user.depositRequests) {
+      if (dep.currency === 'USD') qualifyingVolumeCents += dep.amountCents;
+    }
+    for (const pkg of user.packagePurchases) {
+      if (pkg.currency === 'USD') qualifyingVolumeCents += pkg.priceCentsPaid;
+    }
+
+    const activeLevels = levels.filter((l) => l.isActive);
+    const normalizedKey = !user.accountLevel || user.accountLevel === 'LEVEL_0' ? 'NEW_USER' : user.accountLevel;
+    const currentIdx = Math.max(0, activeLevels.findIndex((l) => l.levelKey === normalizedKey));
+    const currentLvl = activeLevels[currentIdx] || activeLevels[0];
+    const nextLvl = activeLevels[currentIdx + 1] || null;
+
+    const purchaseLimit = user.packagePurchases.reduce((m, p) => Math.max(m, p.videoLimitGranted || 0), 0);
+    const effectiveVideoLimit = Math.max(currentLvl?.videoLimit ?? 0, purchaseLimit);
+
+    if (!nextLvl) {
+      return {
+        currentLevel: currentLvl?.levelKey || 'LEVEL_5',
+        currentLevelName: currentLvl?.name || 'Level 5',
+        nextLevel: null,
+        nextLevelName: null,
+        qualifyingVolumeCents,
+        currentLevelMinCents: currentLvl?.minQualificationUSD ?? 0,
+        nextLevelMinCents: null,
+        neededCents: 0,
+        progressPercent: 100,
+        videoLimit: effectiveVideoLimit,
+        dailyBonusRateBps: currentLvl?.dailyBonusRateBps ?? 0,
+      };
+    }
+
+    const floorCents = currentLvl?.minQualificationUSD ?? 0;
+    const targetCents = nextLvl.minQualificationUSD;
+    const span = Math.max(1, targetCents - floorCents);
+    const gained = Math.max(0, qualifyingVolumeCents - floorCents);
+    const neededCents = Math.max(0, targetCents - qualifyingVolumeCents);
+    // Never show 100% while still needing more to reach next level
+    const rawPct = Math.round((gained / span) * 100);
+    const progressPercent = neededCents === 0 ? 100 : Math.min(99, Math.max(0, rawPct));
+
+    return {
+      currentLevel: currentLvl?.levelKey || 'NEW_USER',
+      currentLevelName: currentLvl?.name || 'New User',
+      nextLevel: nextLvl.levelKey,
+      nextLevelName: nextLvl.name,
+      qualifyingVolumeCents,
+      currentLevelMinCents: floorCents,
+      nextLevelMinCents: targetCents,
+      neededCents,
+      progressPercent,
+      videoLimit: effectiveVideoLimit,
+      dailyBonusRateBps: currentLvl?.dailyBonusRateBps ?? 0,
+    };
+  }
+
+  /**
+   * Configurable daily reward cycle window (default 8:00 AM -> next 8:00 AM).
+   * Unclaimed rewards expire strictly at windowEnd with ZERO carry forward.
+   */
+  static async getDailyResetHour(): Promise<number> {
+    const setting = await prisma.systemSetting.findUnique({ where: { key: 'DAILY_RESET_HOUR' } });
+    if (setting && !isNaN(parseInt(setting.value, 10))) {
+      const h = parseInt(setting.value, 10);
+      if (h >= 0 && h <= 23) return h;
+    }
+    return 8; // Default 8:00 AM -> next 8:00 AM
+  }
+
+  static getDailyWindow(resetHour: number, now = new Date()) {
+    const windowStart = new Date(now);
+    windowStart.setHours(resetHour, 0, 0, 0);
+    if (now < windowStart) {
+      windowStart.setDate(windowStart.getDate() - 1);
+    }
+    const windowEnd = new Date(windowStart);
+    windowEnd.setDate(windowEnd.getDate() + 1);
+    const y = windowStart.getFullYear();
+    const m = String(windowStart.getMonth() + 1).padStart(2, '0');
+    const d = String(windowStart.getDate()).padStart(2, '0');
+    const cycleKey = `${y}-${m}-${d}-H${String(resetHour).padStart(2, '0')}`;
+    return { cycleKey, windowStart, windowEnd, resetHour };
+  }
+
+  static async getUserDailyRewardStatus(userId: string) {
+    const [resetHour, progress, user] = await Promise.all([
+      this.getDailyResetHour(),
+      this.getUserLevelProgress(userId),
+      prisma.user.findUnique({ where: { id: userId }, select: { status: true, accountLockedUntil: true } }),
+    ]);
+
+    const { cycleKey, windowStart, windowEnd } = this.getDailyWindow(resetHour);
+    const videosRequired = progress?.videoLimit ?? 0;
+
+    // Count distinct videos completed during THIS active daily window only (no carry forward!)
+    const sessionsInWindow = await prisma.videoSession.findMany({
+      where: {
+        userId,
+        completed: true,
+        completedAt: { gte: windowStart, lt: windowEnd },
+      },
+      select: { videoId: true },
+    });
+    const completedIds = new Set(sessionsInWindow.map((s) => s.videoId));
+    const videosCompletedToday = completedIds.size;
+
+    const existingClaim = await prisma.dailyRewardClaim.findUnique({
+      where: { userId_cycleKey: { userId, cycleKey } },
+    });
+
+    // Preserve existing AccountLevelConfig dailyBonusRateBps calculation
+    const rateBps = progress?.dailyBonusRateBps ?? 0;
+    const baseCents = Math.max(progress?.currentLevelMinCents ?? 0, progress?.qualifyingVolumeCents ?? 0);
+    const estimatedRewardCents = rateBps > 0 ? Math.floor((baseCents * rateBps) / 10000) : 0;
+
+    const isLocked = Boolean(user?.accountLockedUntil && user.accountLockedUntil > new Date());
+    const eligibleToClaim =
+      !isLocked &&
+      user?.status === 'ACTIVE' &&
+      videosRequired > 0 &&
+      videosCompletedToday >= videosRequired &&
+      estimatedRewardCents > 0 &&
+      !existingClaim;
+
+    return {
+      cycleKey,
+      resetHour,
+      windowStart: windowStart.toISOString(),
+      windowEnd: windowEnd.toISOString(),
+      videosRequired,
+      videosCompletedToday,
+      dailyBonusRateBps: rateBps,
+      estimatedRewardCents,
+      alreadyClaimedToday: Boolean(existingClaim),
+      claimedAmountCents: existingClaim?.amountCents ?? 0,
+      eligibleToClaim,
+      isAccountLocked: isLocked,
+    };
+  }
+
+  static async claimDailyVideoReward(userId: string) {
+    const status = await this.getUserDailyRewardStatus(userId);
+
+    if (status.isAccountLocked) {
+      throw { statusCode: 403, code: 'ACCOUNT_LOCKED', message: 'Your account is currently locked.' };
+    }
+    if (status.alreadyClaimedToday) {
+      throw { statusCode: 400, code: 'ALREADY_CLAIMED_TODAY', message: 'You have already claimed your daily reward for this cycle.' };
+    }
+    if (status.videosRequired <= 0) {
+      throw { statusCode: 400, code: 'UPGRADE_REQUIRED', message: 'Upgrade to Level 1 or higher to unlock daily video rewards.' };
+    }
+    if (status.videosCompletedToday < status.videosRequired) {
+      throw {
+        statusCode: 400,
+        code: 'INCOMPLETE_DAILY_VIDEOS',
+        message: `Complete all ${status.videosRequired} eligible videos before claiming (${status.videosCompletedToday}/${status.videosRequired} completed in this cycle).`,
+      };
+    }
+    if (new Date() >= new Date(status.windowEnd)) {
+      throw { statusCode: 400, code: 'WINDOW_EXPIRED', message: 'This daily reward window has expired. Unclaimed daily rewards do not carry forward.' };
+    }
+    if (status.estimatedRewardCents <= 0) {
+      throw { statusCode: 400, code: 'NO_REWARD_CONFIGURED', message: 'No daily reward percentage is configured for your current level.' };
+    }
+
+    const amountCents = status.estimatedRewardCents;
+    const claim = await prisma.$transaction(async (tx) => {
+      const existing = await tx.dailyRewardClaim.findUnique({
+        where: { userId_cycleKey: { userId, cycleKey: status.cycleKey } },
+      });
+      if (existing) {
+        throw { statusCode: 400, code: 'ALREADY_CLAIMED_TODAY', message: 'Daily reward already claimed for this cycle.' };
+      }
+
+      const sysExpense = await LedgerService.getOrCreateAccount(tx, AccountType.SYSTEM_EXPENSE_REWARDS, Currency.USD, null);
+      const userAccount = await LedgerService.getOrCreateAccount(tx, AccountType.USER_VIDEO_REWARDS, Currency.USD, userId);
+
+      const ref = `DAILY-VID-REW-${userId.slice(0, 8)}-${status.cycleKey}`;
+      const ledgerTx = await LedgerService.postTransaction(
+        {
+          reference: ref,
+          transactionType: LedgerTransactionType.REWARD_CREDIT,
+          currency: Currency.USD,
+          description: `Daily video completion reward (${status.videosCompletedToday}/${status.videosRequired} videos, cycle ${status.cycleKey})`,
+          postedById: userId,
+          entries: [
+            { accountId: sysExpense.id, entryType: EntryType.DEBIT, amountCents },
+            { accountId: userAccount.id, entryType: EntryType.CREDIT, amountCents },
+          ],
+        },
+        tx
+      );
+
+      const created = await tx.dailyRewardClaim.create({
+        data: {
+          userId,
+          cycleKey: status.cycleKey,
+          amountCents,
+          videosCompleted: status.videosCompletedToday,
+          videosRequired: status.videosRequired,
+          ledgerTxId: ledgerTx.id,
+        },
+      });
+
+      await tx.notification.create({
+        data: {
+          userId,
+          title: 'Daily Reward Claimed!',
+          message: `+$${(amountCents / 100).toFixed(2)} USD daily reward credited to your Video Rewards wallet for completing ${status.videosCompletedToday}/${status.videosRequired} videos.`,
+          type: 'SUCCESS',
+        },
+      });
+
+      return created;
+    });
+
+    return claim;
+  }
 }
 

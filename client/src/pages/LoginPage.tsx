@@ -40,7 +40,6 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
   const [resetMode, setResetMode] = useState<'none' | 'request' | 'confirm'>('none');
   const [resetEmail, setResetEmail] = useState('');
   const [resetCode, setResetCode] = useState('');
-  const [generatedCodeHint, setGeneratedCodeHint] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
@@ -59,8 +58,10 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
     try {
       const res = await api.forgotPassword(resetEmail.trim());
       if (res.success) {
-        setResetMsg(res.data?.message || 'Recovery code generated.');
-        if (res.data?.resetCode) setGeneratedCodeHint(res.data.resetCode);
+        setResetMsg(
+          res.data?.message ||
+            'If an account exists for that email, a 6-digit verification code has been sent to your email address.'
+        );
         setResetMode('confirm');
       } else {
         setResetErr(res.error?.message || 'Unable to process recovery request.');
@@ -75,7 +76,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
     setResetErr(null);
     setResetMsg(null);
     if (!resetCode.trim()) {
-      setResetErr('Enter the 6-digit reset code.');
+      setResetErr('Enter the 6-digit reset code sent to your email.');
       return;
     }
     if (newPassword.length < 8) {
@@ -98,7 +99,6 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
           setResetMode('none');
           setResetCode('');
           setNewPassword('');
-          setGeneratedCodeHint(null);
         }, 1400);
       } else {
         setResetErr(res.error?.message || 'Reset failed. Check your code and try again.');
@@ -329,11 +329,9 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
               </form>
             ) : (
               <form onSubmit={handleConfirmReset} noValidate className="space-y-4">
-                {generatedCodeHint && (
-                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs">
-                    Recovery code: <span className="font-mono font-black">{generatedCodeHint}</span> (valid 15 min)
-                  </div>
-                )}
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs">
+                  Check your email inbox for the 6-digit recovery code (valid for 15 minutes).
+                </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     6-Digit Code <span className="text-rose-600">*</span>

@@ -44,7 +44,7 @@ export const DepositPage: React.FC<DepositProps> = () => {
   const [copied, setCopied] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ amount?: string; txRef?: string }>({});
+  const [fieldErrors, setFieldErrors] = useState<{ amount?: string; txRef?: string; proof?: string }>({});
   const [viewingSlipUrl, setViewingSlipUrl] = useState<string | null>(null);
 
   const fetchDepositData = async (isManualRefresh = false) => {
@@ -113,6 +113,7 @@ export const DepositPage: React.FC<DepositProps> = () => {
       return;
     }
     setErrorMsg(null);
+    setFieldErrors((f) => ({ ...f, proof: undefined }));
     setProofFileName(file.name);
     const reader = new FileReader();
     reader.onload = () => setProofImage(reader.result as string);
@@ -124,7 +125,7 @@ export const DepositPage: React.FC<DepositProps> = () => {
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    const nextFieldErrors: { amount?: string; txRef?: string } = {};
+    const nextFieldErrors: { amount?: string; txRef?: string; proof?: string } = {};
 
     if (!selectedMethod) {
       setErrorMsg('Please select a payment channel on the left before submitting.');
@@ -145,6 +146,11 @@ export const DepositPage: React.FC<DepositProps> = () => {
 
     if (!txRefInput.trim()) {
       nextFieldErrors.txRef = 'Enter your transaction ID, TxHash, or wire reference.';
+    }
+
+    // Issue #3: Payment receipt screenshot is strictly required
+    if (!proofImage) {
+      nextFieldErrors.proof = 'Please upload your payment receipt screenshot before submitting.';
     }
 
     if (Object.keys(nextFieldErrors).length > 0) {
@@ -393,15 +399,21 @@ export const DepositPage: React.FC<DepositProps> = () => {
               </div>
             </div>
 
-            {/* Receipt Upload */}
+            {/* Receipt Upload (Required — Issue #3) */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Payment Receipt Screenshot
+                Payment Receipt Screenshot <span className="text-rose-600">*</span>
               </label>
               {!proofImage ? (
-                <label className="border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded-xl p-4 flex flex-col items-center justify-center gap-1.5 cursor-pointer bg-slate-50/60 hover:bg-emerald-50/30 transition-all text-center">
-                  <UploadCloud className="w-5 h-5 text-slate-400" />
-                  <span className="text-xs font-bold text-slate-700">Upload receipt image</span>
+                <label
+                  className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all text-center ${
+                    fieldErrors.proof
+                      ? 'border-rose-400 bg-rose-50/40'
+                      : 'border-slate-200 hover:border-emerald-500 bg-slate-50/60 hover:bg-emerald-50/30'
+                  }`}
+                >
+                  <UploadCloud className={`w-5 h-5 ${fieldErrors.proof ? 'text-rose-500' : 'text-slate-400'}`} />
+                  <span className="text-xs font-bold text-slate-700">Upload receipt image (required)</span>
                   <span className="text-[11px] text-slate-400">PNG, JPG, or WEBP up to 5 MB</span>
                   <input type="file" accept="image/*" onChange={handleReceiptFileChange} className="hidden" />
                 </label>
@@ -434,6 +446,12 @@ export const DepositPage: React.FC<DepositProps> = () => {
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
+              )}
+              {fieldErrors.proof && (
+                <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {fieldErrors.proof}
+                </p>
               )}
             </div>
 

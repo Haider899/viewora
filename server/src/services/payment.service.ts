@@ -42,6 +42,15 @@ export class PaymentService {
       throw { statusCode: 400, code: 'INVALID_REFERENCE', message: 'Transaction ID / Reference is required.' };
     }
 
+    // Issue #3: Payment proof screenshot is required for every new deposit submission
+    if (!data.proofImageUrl || !data.proofImageUrl.trim()) {
+      throw {
+        statusCode: 400,
+        code: 'PROOF_REQUIRED',
+        message: 'A payment receipt screenshot / slip is required to submit a deposit.',
+      };
+    }
+
     // Strict duplicate transaction reference prevention across all deposits
     const existingRef = await prisma.depositRequest.findFirst({
       where: { transactionRef: cleanRef },

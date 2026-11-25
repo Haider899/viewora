@@ -224,7 +224,15 @@ export const UserDashboardPage: React.FC = () => {
   const referralCents = wallet?.USD?.referralCents ?? 0;
   const otherCents = wallet?.USD?.otherRewardsCents ?? 0;
   const totalCombinedCents = mainCents + videoCents + referralCents + otherCents;
-  const levelProgress = getAccountLevelProgress(user?.accountLevel, totalCombinedCents);
+  // Issue #6: Use authoritative backend qualifying-volume levelProgress (identical across Sidebar, Dashboard & Profile!)
+  const levelProgress = user?.levelProgress
+    ? {
+        currentLabel: user.levelProgress.currentLevelName,
+        nextLabel: user.levelProgress.nextLevelName,
+        percent: user.levelProgress.progressPercent,
+        neededCents: user.levelProgress.neededCents,
+      }
+    : getAccountLevelProgress(user?.accountLevel, 0);
 
   const navGroups: Array<{
     label: string;
@@ -267,6 +275,7 @@ export const UserDashboardPage: React.FC = () => {
   ];
 
   const pageMeta = PAGE_TITLES[activeTab] || PAGE_TITLES.overview;
+  // Issue #17a: Single unread count source (always matches bell badge & dropdown header)
   const unreadLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   return (
@@ -648,8 +657,11 @@ export const UserDashboardPage: React.FC = () => {
           </div>
         </header>
 
-        {/* MAIN PAGE CONTENT (max 1200px, generous bottom padding on mobile for bottom nav) */}
-        <main className="flex-1 w-full max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-10">
+        {/* MAIN PAGE CONTENT (key={activeTab} ensures smooth 200ms fade/slide on every page transition #16) */}
+        <main
+          key={activeTab}
+          className="flex-1 w-full max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-10 animate-page-in"
+        >
           {activeTab === 'overview' && (
             <WalletPage navigate={navigateInternal} referralRank={referralRank} />
           )}
@@ -708,9 +720,9 @@ export const UserDashboardPage: React.FC = () => {
           )}
         </main>
 
-        {/* Minimal Legal-Only Footer on Desktop */}
+        {/* Minimal Legal-Only Footer on Desktop (Issue #17c: clear spacing around year & brand) */}
         <footer className="hidden md:flex items-center justify-between px-8 py-4 border-t border-slate-200/80 bg-white text-[11px] text-slate-400">
-          <span>© {new Date().getFullYear()} U-Ads Platform · USD-only audited ledger</span>
+          <span>&copy; {new Date().getFullYear()} U-Ads Platform · USD-only audited ledger</span>
           <button
             type="button"
             onClick={() => navigateInternal('support')}
@@ -763,10 +775,16 @@ export const UserDashboardPage: React.FC = () => {
         })}
       </nav>
 
-      {/* Confirmed Sign Out Modal (eliminates accidental instant logout trap) */}
+      {/* Confirmed Sign Out Modal (onMouseDown stopPropagation ensures first-click always fires cleanly #17f) */}
       {signOutConfirmOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full border border-slate-200 p-6 space-y-5 shadow-2xl relative animate-modal-in">
+        <div
+          onClick={() => setSignOutConfirmOpen(false)}
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-sm w-full border border-slate-200 p-6 space-y-5 shadow-2xl relative animate-modal-in"
+          >
             <button
               type="button"
               onClick={() => setSignOutConfirmOpen(false)}

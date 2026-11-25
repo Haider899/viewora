@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { AuthService } from '../services/auth.service.js';
+import { extractClientIp } from '../middleware/auth.js';
 
 export const registerSchema = z.object({
   email: z.string().email(),
@@ -38,7 +39,8 @@ export const resetPasswordSchema = z.object({
 export class AuthController {
   static async register(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await AuthService.register(req.body);
+      const clientIp = extractClientIp(req);
+      const result = await AuthService.register({ ...req.body, ipAddress: clientIp });
       res.status(201).json({
         success: true,
         data: result,
@@ -51,7 +53,8 @@ export class AuthController {
 
   static async login(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await AuthService.login(req.body);
+      const clientIp = extractClientIp(req);
+      const result = await AuthService.login({ ...req.body, ipAddress: clientIp });
       res.json({
         success: true,
         data: result,

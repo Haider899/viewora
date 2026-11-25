@@ -427,6 +427,11 @@ export class BootstrapService {
         description: 'Auto-reassign support chat if assigned agent does not reply within timeout',
       },
       {
+        key: 'DAILY_RESET_HOUR',
+        value: '8',
+        description: 'Daily reward reset hour (0-23, default 8 = 8:00 AM to next 8:00 AM). Unclaimed rewards expire daily.',
+      },
+      {
         key: 'REFERRAL_CONFIG',
         value: JSON.stringify(DEFAULT_REFERRAL_CONFIG),
         description: 'Configurable referral rank ranges, position commission rates, milestones, and minimum qualifying transaction USD',

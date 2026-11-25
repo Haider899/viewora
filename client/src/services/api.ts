@@ -171,6 +171,16 @@ class ApiClient {
     });
   }
 
+  async getDailyVideoStatus() {
+    return this.request<any>('/videos/daily-status');
+  }
+
+  async claimDailyVideoReward() {
+    return this.request<any>('/videos/daily-claim', {
+      method: 'POST',
+    });
+  }
+
   // ─── Wallet & Ledger ─────────────────────────────────────────────────────
   async getWalletSummary() {
     return this.request<any>('/wallet/summary');
@@ -292,6 +302,17 @@ class ApiClient {
     return this.request<any>(`/admin/users/${userId}/financial-dossier`);
   }
 
+  async getAdminIpGroups() {
+    return this.request<any[]>('/admin/users/ip-groups');
+  }
+
+  async adminAssignSupportConversation(conversationId: string, agentId: string) {
+    return this.request<any>(`/admin/support/conversations/${conversationId}/assign`, {
+      method: 'PATCH',
+      body: JSON.stringify({ agentId }),
+    });
+  }
+
   async manualAdjustUserLevel(userId: string, newLevel: string, reason: string) {
     return this.request<any>(`/admin/users/${userId}/level`, {
       method: 'POST',
@@ -341,7 +362,7 @@ class ApiClient {
   async reviewWithdrawal(
     withdrawalId: string,
     action: 'UNDER_REVIEW' | 'APPROVE' | 'PROCESSING' | 'PAID' | 'COMPLETE' | 'REJECT' | 'FAILED',
-    payload?: { payoutRef?: string; rejectionReason?: string }
+    payload?: { payoutRef?: string; payoutProofUrl?: string; rejectionReason?: string }
   ) {
     return this.request<any>(`/admin/withdrawals/${withdrawalId}/review`, {
       method: 'POST',

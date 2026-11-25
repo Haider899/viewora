@@ -119,7 +119,7 @@ export class AdminService {
       ];
     }
 
-    const [users, total] = await Promise.all([
+    const [allMatched, total] = await Promise.all([
       prisma.user.findMany({
         where,
         select: {
@@ -135,6 +135,9 @@ export class AdminService {
           accountLockedUntil: true,
           agentAvailability: true,
           referralCode: true,
+          registrationIp: true,
+          lastLoginIp: true,
+          lastSeenAt: true,
           createdAt: true,
           packagePurchases: {
             where: { status: 'ACTIVE' },
@@ -146,13 +149,113 @@ export class AdminService {
           },
         },
         orderBy: { createdAt: 'desc' },
-        skip,
-        take: pageSize,
       }),
       prisma.user.count({ where }),
     ]);
 
+    const nowMs = Date.now();
+    const ONLINE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+    const enriched = allMatched.map((u) => {
+      const lastSeenMs = u.lastSeenAt ? u.lastSeenAt.getTime() : 0;
+      const isOnline = lastSeenMs > 0 && nowMs - lastSeenMs <= ONLINE_WINDOW_MS;
+      return {
+        ...u,
+        isOnline,
+        ipAddress: u.lastLoginIp || u.registrationIp || null,
+      };
+    });
+
+    // Issue #20 & #21: Online members ALWAYS first, then most recently seen, then newest joined
+    enriched.sort((a, b) => {
+      if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+      const aSeen = a.lastSeenAt ? a.lastSeenAt.getTime() : 0;
+      const bSeen = b.lastSeenAt ? b.lastSeenAt.getTime() : 0;
+      if (aSeen !== bSeen) return bSeen - aSeen;
+      return b.createdAt.getTime() - a.createdAt.getTime();
+    });
+
+    const users = enriched.slice(skip, skip + pageSize);
     return { users, total, page, pageSize };
+  }
+
+  /**
+   * Issues #18 & #19: Group accounts by IP address showing online/status/restriction details
+   */
+  static async getIpGroups() {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        memberCode: true,
+        fullName: true,
+        email: true,
+        role: true,
+        status: true,
+        accountLevel: true,
+        accountLockedUntil: true,
+        registrationIp: true,
+        lastLoginIp: true,
+        lastSeenAt: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const nowMs = Date.now();
+    const ONLINE_WINDOW_MS = 5 * 60 * 1000;
+    const byIp = new Map<string, any[]>();
+
+    for (const u of users) {
+      const ip = u.lastLoginIp || u.registrationIp || 'Not Recorded';
+      const lastSeenMs = u.lastSeenAt ? u.lastSeenAt.getTime() : 0;
+      const isOnline = lastSeenMs > 0 && nowMs - lastSeenMs <= ONLINE_WINDOW_MS;
+      const isLocked = Boolean(u.accountLockedUntil && u.accountLockedUntil.getTime() > nowMs);
+      const isSuspended = u.status === 'SUSPENDED';
+
+      const restriction = isSuspended
+        ? 'Suspended'
+        : isLocked
+        ? `Locked until ${u.accountLockedUntil!.toISOString().slice(0, 10)}`
+        : null;
+
+      if (!byIp.has(ip)) byIp.set(ip, []);
+      byIp.get(ip)!.push({
+        id: u.id,
+        memberCode: u.memberCode,
+        fullName: u.fullName,
+        email: u.email,
+        role: u.role,
+        status: u.status,
+        accountLevel: u.accountLevel,
+        isOnline,
+        isLocked,
+        isSuspended,
+        restriction,
+        accountLockedUntil: u.accountLockedUntil,
+        lastSeenAt: u.lastSeenAt,
+        createdAt: u.createdAt,
+      });
+    }
+
+    const groups = Array.from(byIp.entries()).map(([ip, accounts]) => {
+      accounts.sort((a, b) => (a.isOnline === b.isOnline ? 0 : a.isOnline ? -1 : 1));
+      return {
+        ip,
+        accountCount: accounts.length,
+        onlineCount: accounts.filter((a) => a.isOnline).length,
+        restrictedCount: accounts.filter((a) => a.isSuspended || a.isLocked).length,
+        accounts,
+      };
+    });
+
+    groups.sort((a, b) => {
+      if (a.ip === 'Not Recorded' && b.ip !== 'Not Recorded') return 1;
+      if (b.ip === 'Not Recorded' && a.ip !== 'Not Recorded') return -1;
+      if (b.accountCount !== a.accountCount) return b.accountCount - a.accountCount;
+      return b.onlineCount - a.onlineCount;
+    });
+
+    return groups;
   }
 
   static async updateUserStatus(adminId: string, userId: string, status: string, reason: string) {
@@ -248,9 +351,19 @@ export class AdminService {
         email: true,
         status: true,
         agentAvailability: true,
+        lastSeenAt: true,
         createdAt: true,
         assignedSupportTickets: {
-          select: { id: true, status: true },
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+            messages: {
+              select: { senderType: true, senderId: true, createdAt: true },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -268,7 +381,34 @@ export class AdminService {
       const activeTickets = a.assignedSupportTickets.filter((t) =>
         ['WAITING_FOR_AGENT', 'AGENT_ACTIVE'].includes(t.status)
       ).length;
-      const resolvedTickets = a.assignedSupportTickets.filter((t) => t.status === 'RESOLVED').length;
+      const resolvedList = a.assignedSupportTickets.filter((t) => t.status === 'RESOLVED');
+      const resolvedTickets = resolvedList.length;
+
+      // Issue #12: Compute real first-response time & average resolution time in minutes
+      const firstResponseMins: number[] = [];
+      for (const t of a.assignedSupportTickets) {
+        const firstUserMsg = t.messages.find((m) => m.senderType === 'USER');
+        const firstAgentMsg = t.messages.find((m) => m.senderType === 'AGENT' && m.senderId === a.id);
+        if (firstAgentMsg) {
+          const anchor = firstUserMsg ? firstUserMsg.createdAt.getTime() : t.createdAt.getTime();
+          const diffMin = Math.max(0, (firstAgentMsg.createdAt.getTime() - anchor) / 60000);
+          firstResponseMins.push(diffMin);
+        }
+      }
+
+      const resolutionMins: number[] = resolvedList.map((t) =>
+        Math.max(0, (t.updatedAt.getTime() - t.createdAt.getTime()) / 60000)
+      );
+
+      const avgFirstResponseMinutes =
+        firstResponseMins.length > 0
+          ? Number((firstResponseMins.reduce((s, v) => s + v, 0) / firstResponseMins.length).toFixed(1))
+          : null;
+      const avgResolutionMinutes =
+        resolutionMins.length > 0
+          ? Number((resolutionMins.reduce((s, v) => s + v, 0) / resolutionMins.length).toFixed(1))
+          : null;
+
       return {
         id: a.id,
         memberCode: a.memberCode,
@@ -276,12 +416,15 @@ export class AdminService {
         email: a.email,
         status: a.status,
         agentAvailability: a.agentAvailability,
+        lastSeenAt: a.lastSeenAt,
         createdAt: a.createdAt,
         performance: {
           totalAssigned,
           activeTickets,
           resolvedTickets,
           totalReplies: replyMap.get(a.id) || 0,
+          avgFirstResponseMinutes,
+          avgResolutionMinutes,
         },
       };
     });

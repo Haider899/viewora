@@ -22,6 +22,8 @@ const optionalAuth = (req: any, res: any, next: any) => {
 const router = Router();
 
 router.get('/', optionalAuth, VideoController.getVideos);
+router.get('/daily-status', authenticate, VideoController.getDailyStatus);
+router.post('/daily-claim', authenticate, VideoController.claimDailyReward);
 router.get('/:id', optionalAuth, VideoController.getVideo);
 router.post('/:id/session', authenticate, VideoController.startSession);
 router.post('/:id/heartbeat', authenticate, validateRequest(heartbeatSchema), VideoController.heartbeat);
