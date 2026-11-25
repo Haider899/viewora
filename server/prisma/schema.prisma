@@ -128,8 +128,10 @@ model Video {
   durationSeconds Int
   category        String          // Technology, Finance, Business, Creative, Health
   minPackageTier  String          @default("Starter") // Starter, Basic, Premium, VIP
+  minAccountLevel String          @default("LEVEL_1") // NEW_USER, LEVEL_1, LEVEL_2, LEVEL_3, LEVEL_4, LEVEL_5
   orderIndex      Int             @default(0)
   isPublished     Boolean         @default(true)
+  isLocked        Boolean         @default(false) // Separate lock/unlock control (active video can be locked)
   rewardEligible  Boolean         @default(true)
   rewardAmountCents Int           @default(50) // e.g. $0.50 cents reward when policy is enabled
   assignedUserId  String?

@@ -85,6 +85,34 @@ class ApiClient {
     return this.request<{ user: any }>('/auth/me');
   }
 
+  async updateProfile(data: { fullName?: string; phone?: string }) {
+    return this.request<{ user: any }>('/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async changePassword(data: { currentPassword: string; newPassword: string }) {
+    return this.request<any>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async forgotPassword(email: string) {
+    return this.request<any>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async resetPassword(data: { email: string; token: string; newPassword: string }) {
+    return this.request<any>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   // ─── Packages ────────────────────────────────────────────────────────────
   async getPackages() {
     return this.request<any[]>('/packages');
@@ -530,6 +558,17 @@ class ApiClient {
     });
   }
 
+  async toggleSupportAgentStatus(id: string, status: 'ACTIVE' | 'SUSPENDED') {
+    return this.request<any>(`/admin/support/agents/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async getDailyBonusBatches() {
+    return this.request<any>('/admin/bonuses/batches');
+  }
+
   async updateAgentAvailability(status: 'ONLINE' | 'BUSY' | 'OFFLINE') {
     return this.request<any>('/admin/support/agent-status', {
       method: 'PUT',
@@ -561,8 +600,10 @@ class ApiClient {
     durationSeconds?: number;
     category?: string;
     minPackageTier?: string;
+    minAccountLevel?: string;
     assignedUserId?: string | null;
     isPublished?: boolean;
+    isLocked?: boolean;
     rewardEligible?: boolean;
     rewardAmountCents?: number;
   }) {

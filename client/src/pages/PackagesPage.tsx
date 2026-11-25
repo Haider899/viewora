@@ -222,6 +222,28 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
               const availCents = wallet?.USD?.availableCents ?? 0;
               const hasEnough = availCents >= reqCents;
 
+              if (successMsg) {
+                return (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2.5">
+                      <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 mt-0.5" />
+                      <div className="space-y-1">
+                        <div className="font-bold">{successMsg}</div>
+                        <div className="text-emerald-700">
+                          Updated Main Account Credits: <strong>${(availCents / 100).toFixed(2)} USD</strong>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setModalOpen(false)}
+                      className="w-full py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
+                    >
+                      Done
+                    </button>
+                  </div>
+                );
+              }
+
               return (
                 <div className="space-y-4">
                   <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 text-xs">

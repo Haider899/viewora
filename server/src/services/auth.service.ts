@@ -178,6 +178,166 @@ export class AuthService {
     return user;
   }
 
+  static async updateProfile(userId: string, data: { fullName?: string; phone?: string }) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw { statusCode: 404, code: 'USER_NOT_FOUND', message: 'User not found.' };
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(data.fullName ? { fullName: data.fullName.trim() } : {}),
+        ...(data.phone !== undefined ? { phone: data.phone.trim() || null } : {}),
+      },
+      select: {
+        id: true,
+        memberCode: true,
+        email: true,
+        fullName: true,
+        phone: true,
+        role: true,
+        status: true,
+        emailVerified: true,
+        accountLevel: true,
+        accountLockedUntil: true,
+        agentAvailability: true,
+        referralCode: true,
+        referredById: true,
+        createdAt: true,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        action: 'PROFILE_UPDATED',
+        resourceType: 'User',
+        resourceId: userId,
+        details: JSON.stringify({ fullName: updated.fullName, phone: updated.phone }),
+      },
+    });
+
+    return updated;
+  }
+
+  static async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw { statusCode: 404, code: 'USER_NOT_FOUND', message: 'User not found.' };
+    }
+
+    const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isValid) {
+      throw { statusCode: 400, code: 'INVALID_PASSWORD', message: 'Current password is incorrect.' };
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+      prisma.auditLog.create({
+        data: {
+          userId,
+          action: 'PASSWORD_CHANGED',
+          resourceType: 'User',
+          resourceId: userId,
+          details: JSON.stringify({ method: 'self_service' }),
+        },
+      }),
+      prisma.notification.create({
+        data: {
+          userId,
+          title: 'Password Updated',
+          message: 'Your U-Ads account password was successfully changed.',
+          type: 'INFO',
+        },
+      }),
+    ]);
+
+    return { changed: true };
+  }
+
+  static async forgotPassword(email: string) {
+    const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+    if (!user) {
+      return {
+        sent: true,
+        message: 'If an account with that email exists, a 6-digit password reset code has been generated.',
+      };
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 15 * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetToken: code,
+        passwordResetExpires: expires,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId: user.id,
+        title: 'Password Reset Code Requested',
+        message: `Your 6-digit U-Ads password reset code is ${code}. It expires in 15 minutes.`,
+        type: 'WARNING',
+      },
+    });
+
+    return {
+      sent: true,
+      resetCode: code, // Exposed for self-service recovery while external SMTP is unconfigured
+      expiresInMinutes: 15,
+      message: 'A 6-digit password reset code has been generated (valid for 15 minutes).',
+    };
+  }
+
+  static async resetPassword(email: string, token: string, newPassword: string) {
+    const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+    if (
+      !user ||
+      !user.passwordResetToken ||
+      user.passwordResetToken !== token.trim() ||
+      !user.passwordResetExpires ||
+      user.passwordResetExpires < new Date()
+    ) {
+      throw { statusCode: 400, code: 'INVALID_RESET_TOKEN', message: 'Invalid or expired reset code.' };
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash,
+          passwordResetToken: null,
+          passwordResetExpires: null,
+        },
+      }),
+      prisma.auditLog.create({
+        data: {
+          userId: user.id,
+          action: 'PASSWORD_RESET',
+          resourceType: 'User',
+          resourceId: user.id,
+          details: JSON.stringify({ method: 'reset_code' }),
+        },
+      }),
+      prisma.notification.create({
+        data: {
+          userId: user.id,
+          title: 'Password Reset Completed',
+          message: 'Your U-Ads account password has been reset. You can now sign in with your new password.',
+          type: 'SUCCESS',
+        },
+      }),
+    ]);
+
+    return { reset: true };
+  }
+
   private static generateToken(payload: JWTPayload): string {
     return jwt.sign(payload, env.JWT_ACCESS_SECRET, {
       expiresIn: env.JWT_ACCESS_EXPIRES_IN as any,

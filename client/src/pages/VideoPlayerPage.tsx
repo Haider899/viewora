@@ -357,9 +357,21 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
               disablePictureInPicture
               controlsList="nodownload noplaybackrate nofullscreen"
               onLoadedMetadata={(e) => {
-                const dur = Math.round(e.currentTarget.duration);
+                const dur = Math.floor(e.currentTarget.duration);
                 if (dur > 0 && Number.isFinite(dur)) {
                   setActualDuration(dur);
+                }
+              }}
+              onTimeUpdate={(e) => {
+                const current = Math.floor(e.currentTarget.currentTime);
+                const dur = Math.floor(e.currentTarget.duration || targetDuration);
+                if (current > maxWatchedRef.current) {
+                  maxWatchedRef.current = current;
+                  setWatchSeconds(current);
+                }
+                if (dur > 0 && e.currentTarget.currentTime >= e.currentTarget.duration - 0.35 && !isCompleted) {
+                  setWatchSeconds(targetDuration);
+                  setIsCompleted(true);
                 }
               }}
               onPlay={() => {
@@ -384,8 +396,14 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
               }}
               onEnded={() => {
                 setIsPlaying(false);
+                setWatchSeconds(targetDuration);
+                maxWatchedRef.current = targetDuration;
                 setIsCompleted(true);
-                triggerAutomaticReward(Math.max(watchSeconds, targetDuration));
+                if (!hasClaimed) {
+                  triggerAutomaticReward(targetDuration);
+                } else {
+                  setClaimSuccessMsg('Replay completed! Reward was already credited once for this video (1 reward per video).');
+                }
               }}
               onContextMenu={(e) => e.preventDefault()}
               className="w-full h-full object-contain pointer-events-none"

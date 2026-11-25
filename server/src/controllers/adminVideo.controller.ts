@@ -10,8 +10,10 @@ export const createVideoSchema = z.object({
   durationSeconds: z.number().int().positive().optional(),
   category: z.string().optional(),
   minPackageTier: z.string().optional(),
+  minAccountLevel: z.string().optional(),
   assignedUserId: z.string().nullable().optional(),
   isPublished: z.boolean().optional(),
+  isLocked: z.boolean().optional(),
   rewardEligible: z.boolean().optional(),
   rewardAmountCents: z.number().int().nonnegative().optional(),
 });
@@ -24,8 +26,10 @@ export const updateVideoSchema = z.object({
   durationSeconds: z.number().int().positive().optional(),
   category: z.string().optional(),
   minPackageTier: z.string().optional(),
+  minAccountLevel: z.string().optional(),
   assignedUserId: z.string().nullable().optional(),
   isPublished: z.boolean().optional(),
+  isLocked: z.boolean().optional(),
   rewardEligible: z.boolean().optional(),
   rewardAmountCents: z.number().int().nonnegative().optional(),
 });

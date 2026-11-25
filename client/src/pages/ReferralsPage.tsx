@@ -84,24 +84,33 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
     }
   };
 
-  // Derive dynamic commission tiers from backend referralConfig if available
+  // Derive dynamic commission tiers & documented rank ladder directly from backend referralConfig
   const dynamicPositions = (() => {
     const cfg = data?.referralConfig;
-    if (cfg?.positionRates && Array.isArray(cfg.positionRates) && cfg.positionRates.length > 0) {
-      return cfg.positionRates.map((rate: number, idx: number) => ({
-        label: idx === cfg.positionRates.length - 1 ? `${idx + 1}th+ Referrals` : `${idx + 1}${idx === 0 ? 'st' : idx === 1 ? 'nd' : idx === 2 ? 'rd' : 'th'} Referral`,
-        ratePercent: rate,
-        sub: idx === cfg.positionRates.length - 1 ? 'Max Tier' : `Position #${idx + 1}`,
-      }));
-    }
-    if (cfg?.positions && Array.isArray(cfg.positions) && cfg.positions.length > 0) {
-      return cfg.positions.map((p: any, idx: number) => ({
-        label: idx === cfg.positions.length - 1 ? `${p.level}th+ Referrals` : `Position #${p.level}`,
-        ratePercent: Number(((p.rateBps ?? 500) / 100).toFixed(2)),
-        sub: idx === cfg.positions.length - 1 ? 'Max Tier' : `Tier ${p.level}`,
-      }));
+    if (cfg?.commissionRates) {
+      const r = cfg.commissionRates;
+      return [
+        { label: '1st Referral', ratePercent: Number(r.pos1 ?? 5), sub: 'Direct Rate' },
+        { label: '2nd Referral', ratePercent: Number(r.pos2 ?? 7), sub: 'Position #2' },
+        { label: '3rd Referral', ratePercent: Number(r.pos3 ?? 10), sub: 'Position #3' },
+        { label: '4th Referral', ratePercent: Number(r.pos4 ?? 12), sub: 'Position #4' },
+        { label: '5th+ Referrals', ratePercent: Number(r.pos5 ?? 15), sub: 'Max Tier' },
+      ];
     }
     return DEFAULT_POSITIONS;
+  })();
+
+  const documentedRanks = (() => {
+    const cfg = data?.referralConfig;
+    if (Array.isArray(cfg?.ranks) && cfg.ranks.length > 0) return cfg.ranks;
+    return [
+      { key: 'NEW', name: 'New', minQualified: 0, maxQualified: 0, milestoneAt: 0, milestoneRewardUSD: 0 },
+      { key: 'GOLD', name: 'Gold', minQualified: 1, maxQualified: 5, milestoneAt: 5, milestoneRewardUSD: 20 },
+      { key: 'PLATINUM', name: 'Platinum', minQualified: 6, maxQualified: 10, milestoneAt: 10, milestoneRewardUSD: 100 },
+      { key: 'DIAMOND', name: 'Diamond', minQualified: 11, maxQualified: 100, milestoneAt: 100, milestoneRewardUSD: 500 },
+      { key: 'RANK_4', name: 'Rank 4', minQualified: 101, maxQualified: 500, milestoneAt: 500, milestoneRewardUSD: 1000 },
+      { key: 'RANK_5', name: 'Rank 5', minQualified: 501, maxQualified: 10000, milestoneAt: 1000, milestoneRewardUSD: 2500 },
+    ];
   })();
 
   const progressPercent = rankProgress
@@ -176,9 +185,38 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
 
           <p className="text-[11px] text-indigo-200/80">
             {rankProgress?.remainingToNext && rankProgress.remainingToNext > 0
-              ? `${rankProgress.remainingToNext} more qualified referrals needed to unlock ${rankProgress.nextRank} rank & automatic USD reward.`
+              ? `Current Rank: ${rankProgress.currentRank} — ${rankProgress.remainingToNext} more qualified referral${rankProgress.remainingToNext === 1 ? '' : 's'} needed to unlock the $${rankProgress.nextRewardUSD || 20}.00 ${rankProgress.nextRank} Milestone Bonus (${rankProgress.targetQualified} qualified).`
               : `Maximum milestone achieved! You have qualified as a top-tier U-Ads affiliate.`}
           </p>
+        </div>
+
+        {/* Documented Rank Ladder Strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-2 border-t border-white/10 relative z-10">
+          {documentedRanks.map((rk: any) => {
+            const isCurrent = (rankProgress?.currentRank || 'New').toLowerCase() === (rk.name || '').toLowerCase();
+            return (
+              <div
+                key={rk.key || rk.name}
+                className={`p-2.5 rounded-xl border text-center text-[10px] ${
+                  isCurrent
+                    ? 'bg-amber-400/20 border-amber-300 text-white'
+                    : 'bg-white/5 border-white/10 text-indigo-200'
+                }`}
+              >
+                <div className="font-black text-xs">{rk.name}</div>
+                <div className="font-mono text-[10px] opacity-80">
+                  {rk.minQualified === 0 && rk.maxQualified === 0
+                    ? '0 qual.'
+                    : `${rk.minQualified}–${rk.maxQualified}`}
+                </div>
+                {rk.milestoneRewardUSD > 0 && (
+                  <div className="text-amber-300 font-bold mt-0.5">
+                    +${rk.milestoneRewardUSD} @ {rk.milestoneAt}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Claimed Milestones */}

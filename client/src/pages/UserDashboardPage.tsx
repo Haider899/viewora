@@ -24,12 +24,24 @@ import {
   Hash,
   CheckCheck,
   X,
+  User as UserIcon,
+  Lock,
+  CheckCircle2,
+  AlertCircle,
+  Save,
 } from 'lucide-react';
 
+export function formatAccountLevelLabel(level?: string | null): string {
+  if (!level || level === 'NEW_USER' || level === 'LEVEL_0') return 'New User';
+  const match = /^LEVEL_(\d+)$/i.exec(level);
+  if (match) return `Level ${match[1]}`;
+  return level.replace(/_/g, ' ');
+}
+
 export const UserDashboardPage: React.FC = () => {
-  const { user, wallet, logout } = useAuth();
+  const { user, wallet, logout, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'videos' | 'player' | 'packages' | 'deposit' | 'withdrawal' | 'referrals'
+    'overview' | 'videos' | 'player' | 'packages' | 'deposit' | 'withdrawal' | 'referrals' | 'profile'
   >('overview');
   const [activePlayerVideoId, setActivePlayerVideoId] = useState<string | null>(null);
 
@@ -37,6 +49,25 @@ export const UserDashboardPage: React.FC = () => {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
+
+  // Profile & Security State (F6)
+  const [profileName, setProfileName] = useState(user?.fullName || '');
+  const [profilePhone, setProfilePhone] = useState(user?.phone || '');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setProfileName(user?.fullName || '');
+    setProfilePhone(user?.phone || '');
+  }, [user?.fullName, user?.phone]);
 
   const loadNotifications = async () => {
     try {
@@ -55,9 +86,14 @@ export const UserDashboardPage: React.FC = () => {
     }
   };
 
+  // Refresh live user (accountLevel, status, phone) and notifications on mount and periodically (F2)
   useEffect(() => {
+    refreshUser();
     loadNotifications();
-    const interval = setInterval(loadNotifications, 20000);
+    const interval = setInterval(() => {
+      loadNotifications();
+      refreshUser();
+    }, 20000);
     return () => clearInterval(interval);
   }, []);
 
@@ -69,6 +105,55 @@ export const UserDashboardPage: React.FC = () => {
   const handleMarkAllRead = async () => {
     await api.markAllNotificationsRead().catch(() => {});
     loadNotifications();
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileError(null);
+    setProfileSuccess(null);
+    setSavingProfile(true);
+    try {
+      const res = await api.updateProfile({
+        fullName: profileName.trim(),
+        phone: profilePhone.trim(),
+      });
+      if (res.success) {
+        setProfileSuccess('Profile details updated successfully!');
+        await refreshUser();
+      } else {
+        setProfileError(res.error?.message || 'Failed to update profile.');
+      }
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    setPasswordSuccess(null);
+    if (newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters long.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New password and confirmation do not match.');
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      const res = await api.changePassword({ currentPassword, newPassword });
+      if (res.success) {
+        setPasswordSuccess('Password updated successfully!');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      } else {
+        setPasswordError(res.error?.message || 'Failed to update password.');
+      }
+    } finally {
+      setSavingPassword(false);
+    }
   };
 
   const navigateInternal = (target: string, state?: any) => {
@@ -85,14 +170,17 @@ export const UserDashboardPage: React.FC = () => {
       setActiveTab('withdrawal');
     } else if (target === 'wallet' || target === 'overview') {
       setActiveTab('overview');
+      refreshUser();
     } else if (target === 'referrals') {
       setActiveTab('referrals');
+    } else if (target === 'profile') {
+      setActiveTab('profile');
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const navItemClass = (tab: string) =>
-    `px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+    `px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
       activeTab === tab
         ? 'bg-emerald-600 text-white shadow-sm'
         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -108,7 +196,7 @@ export const UserDashboardPage: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
           {/* Logo */}
           <div
-            onClick={() => setActiveTab('overview')}
+            onClick={() => navigateInternal('overview')}
             className="flex items-center gap-3 cursor-pointer group shrink-0"
           >
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform">
@@ -128,7 +216,7 @@ export const UserDashboardPage: React.FC = () => {
           <div className="flex items-center gap-2.5 sm:gap-3">
             {/* Real-time USD Balance */}
             <div
-              onClick={() => setActiveTab('overview')}
+              onClick={() => navigateInternal('overview')}
               className="cursor-pointer flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:border-emerald-500 transition-colors shadow-2xs"
             >
               <div className="flex items-center gap-1 text-xs font-bold text-emerald-700">
@@ -210,7 +298,9 @@ export const UserDashboardPage: React.FC = () => {
                             <span className="font-bold text-slate-900">{n.title}</span>
                             {!n.isRead && <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />}
                           </div>
-                          <p className="text-[11px] text-slate-600 leading-relaxed">{n.body}</p>
+                          <p className="text-[11px] text-slate-600 leading-relaxed whitespace-pre-line">
+                            {n.message || n.body}
+                          </p>
                           <div className="text-[10px] text-slate-400">
                             {new Date(n.createdAt).toLocaleString()}
                           </div>
@@ -224,10 +314,15 @@ export const UserDashboardPage: React.FC = () => {
 
             {/* User Profile Info & Logout */}
             <div className="flex items-center gap-2">
-              <div className="hidden sm:block text-right">
+              <button
+                type="button"
+                onClick={() => navigateInternal('profile')}
+                className="hidden sm:block text-right hover:opacity-80 cursor-pointer"
+                title="Open Profile & Security Settings"
+              >
                 <div className="text-xs font-bold text-slate-900">{user?.fullName}</div>
                 <div className="text-[10px] text-slate-500 font-mono">{user?.memberCode || user?.email}</div>
-              </div>
+              </button>
               <button
                 onClick={logout}
                 title="Sign Out"
@@ -241,29 +336,33 @@ export const UserDashboardPage: React.FC = () => {
 
         {/* Portal Navigation Tabs */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-1 overflow-x-auto py-2 border-t border-slate-100 scrollbar-none">
-          <button onClick={() => setActiveTab('overview')} className={navItemClass('overview')}>
+          <button onClick={() => navigateInternal('overview')} className={navItemClass('overview')}>
             <Wallet className="w-4 h-4" />
-            Wallets & Overview
+            Wallets &amp; Overview
           </button>
-          <button onClick={() => setActiveTab('videos')} className={navItemClass('videos')}>
+          <button onClick={() => navigateInternal('videos')} className={navItemClass('videos')}>
             <PlaySquare className="w-4 h-4" />
             Video Catalog
           </button>
-          <button onClick={() => setActiveTab('packages')} className={navItemClass('packages')}>
+          <button onClick={() => navigateInternal('packages')} className={navItemClass('packages')}>
             <Layers className="w-4 h-4" />
-            Plans & Packages
+            Plans &amp; Packages
           </button>
-          <button onClick={() => setActiveTab('deposit')} className={navItemClass('deposit')}>
+          <button onClick={() => navigateInternal('deposit')} className={navItemClass('deposit')}>
             <ArrowDownLeft className="w-4 h-4" />
             Deposit USD
           </button>
-          <button onClick={() => setActiveTab('withdrawal')} className={navItemClass('withdrawal')}>
+          <button onClick={() => navigateInternal('withdrawal')} className={navItemClass('withdrawal')}>
             <ArrowUpRight className="w-4 h-4" />
             Withdraw USD
           </button>
-          <button onClick={() => setActiveTab('referrals')} className={navItemClass('referrals')}>
+          <button onClick={() => navigateInternal('referrals')} className={navItemClass('referrals')}>
             <Users className="w-4 h-4" />
-            Referrals & Ranks
+            Referrals &amp; Ranks
+          </button>
+          <button onClick={() => navigateInternal('profile')} className={navItemClass('profile')}>
+            <UserIcon className="w-4 h-4" />
+            Profile &amp; Security
           </button>
         </div>
       </header>
@@ -281,7 +380,7 @@ export const UserDashboardPage: React.FC = () => {
                   </span>
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
                     <Award className="w-3 h-3" />
-                    {(user?.accountLevel || 'LEVEL_0').replace('_', ' ')}
+                    {formatAccountLevelLabel(user?.accountLevel)}
                   </span>
                   {user?.memberCode && (
                     <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
@@ -306,21 +405,21 @@ export const UserDashboardPage: React.FC = () => {
 
               <div className="flex flex-wrap items-center gap-2.5">
                 <button
-                  onClick={() => setActiveTab('deposit')}
+                  onClick={() => navigateInternal('deposit')}
                   className="px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
                 >
                   <ArrowDownLeft className="w-4 h-4" />
                   Deposit USD
                 </button>
                 <button
-                  onClick={() => setActiveTab('withdrawal')}
+                  onClick={() => navigateInternal('withdrawal')}
                   className="px-4 py-2.5 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 transition-all flex items-center gap-1.5 cursor-pointer"
                 >
                   <ArrowUpRight className="w-4 h-4" />
                   Request Payout
                 </button>
                 <button
-                  onClick={() => setActiveTab('videos')}
+                  onClick={() => navigateInternal('videos')}
                   className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white transition-all flex items-center gap-1.5 cursor-pointer"
                 >
                   <PlaySquare className="w-4 h-4" />
@@ -367,6 +466,176 @@ export const UserDashboardPage: React.FC = () => {
         {activeTab === 'referrals' && (
           <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xs">
             <ReferralsPage navigate={navigateInternal} />
+          </div>
+        )}
+
+        {/* PROFILE & ACCOUNT SECURITY TAB (F6) */}
+        {activeTab === 'profile' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Personal Information */}
+            <form
+              onSubmit={handleSaveProfile}
+              className="p-6 sm:p-8 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-5"
+            >
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
+                  <UserIcon className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900">Profile &amp; Account Details</h2>
+                  <p className="text-xs text-slate-500">Update your display name and contact phone number.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-400">Unique Member ID</span>
+                  <div className="font-mono font-bold text-slate-900">{user?.memberCode || 'N/A'}</div>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-400">Account Level</span>
+                  <div className="font-bold text-indigo-700">{formatAccountLevelLabel(user?.accountLevel)}</div>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-400">Referral Code</span>
+                  <div className="font-mono font-bold text-emerald-700">{user?.referralCode}</div>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-400">Registration Date</span>
+                  <div className="font-semibold text-slate-700">
+                    {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Email Address (Read-only)</label>
+                <input
+                  type="email"
+                  value={user?.email || ''}
+                  disabled
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 border border-slate-200 text-xs text-slate-500 cursor-not-allowed"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  minLength={2}
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Phone Number</label>
+                <input
+                  type="text"
+                  value={profilePhone}
+                  onChange={(e) => setProfilePhone(e.target.value)}
+                  placeholder="e.g. +1 555 123 4567"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {profileError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{profileError}</span>
+                </div>
+              )}
+              {profileSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{profileSuccess}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={savingProfile}
+                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                {savingProfile ? 'Saving Changes...' : 'Save Profile Changes'}
+              </button>
+            </form>
+
+            {/* Change Password */}
+            <form
+              onSubmit={handleChangePassword}
+              className="p-6 sm:p-8 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-5"
+            >
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900">Change Account Password</h2>
+                  <p className="text-xs text-slate-500">Keep your USD account secure with a strong password.</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Current Password</label>
+                <input
+                  type="password"
+                  required
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">New Password (min 8 characters)</label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Confirm New Password</label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              {passwordError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{passwordError}</span>
+                </div>
+              )}
+              {passwordSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{passwordSuccess}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={savingPassword}
+                className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Lock className="w-4 h-4" />
+                {savingPassword ? 'Updating Password...' : 'Update Password'}
+              </button>
+            </form>
           </div>
         )}
       </main>

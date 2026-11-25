@@ -82,10 +82,14 @@ export class AdminService {
       totalVideoCompletions: totalViews,
       totalRewardClaimsCount: totalRewardClaims,
       totalEligibleRewardsCents: rewardClaimsAgg._sum.amountCents || 0,
+      totalReferrals: totalReferralsCount,
       totalReferralsCount,
       qualifiedReferralsCount,
+      activeSupportAgents: activeSupportAgentsCount,
       activeSupportAgentsCount,
+      onlineSupportAgents: onlineSupportAgentsCount,
       onlineSupportAgentsCount,
+      waitingSupportChats: waitingSupportChatsCount,
       waitingSupportChatsCount,
       ledgerIntegrity: ledgerAudit.isValid,
       ledgerAnomaliesCount: ledgerAudit.anomalies.length,
@@ -235,7 +239,7 @@ export class AdminService {
   // SUPPORT AGENT MANAGEMENT (MAX 10 AGENTS)
   // -------------------------------------------------------------
   static async getSupportAgents() {
-    return await prisma.user.findMany({
+    const agents = await prisma.user.findMany({
       where: { role: 'SUPPORT_AGENT' },
       select: {
         id: true,
@@ -245,10 +249,66 @@ export class AdminService {
         status: true,
         agentAvailability: true,
         createdAt: true,
-        _count: { select: { assignedSupportTickets: true } },
+        assignedSupportTickets: {
+          select: { id: true, status: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    const replyCounts = await prisma.supportMessage.groupBy({
+      by: ['senderId'],
+      where: { senderType: 'AGENT', senderId: { in: agents.map((a) => a.id) } },
+      _count: true,
+    });
+    const replyMap = new Map(replyCounts.map((r) => [r.senderId, r._count]));
+
+    return agents.map((a) => {
+      const totalAssigned = a.assignedSupportTickets.length;
+      const activeTickets = a.assignedSupportTickets.filter((t) =>
+        ['WAITING_FOR_AGENT', 'AGENT_ACTIVE'].includes(t.status)
+      ).length;
+      const resolvedTickets = a.assignedSupportTickets.filter((t) => t.status === 'RESOLVED').length;
+      return {
+        id: a.id,
+        memberCode: a.memberCode,
+        fullName: a.fullName,
+        email: a.email,
+        status: a.status,
+        agentAvailability: a.agentAvailability,
+        createdAt: a.createdAt,
+        performance: {
+          totalAssigned,
+          activeTickets,
+          resolvedTickets,
+          totalReplies: replyMap.get(a.id) || 0,
+        },
+      };
+    });
+  }
+
+  static async toggleSupportAgentStatus(adminId: string, agentId: string, status: 'ACTIVE' | 'SUSPENDED') {
+    const agent = await prisma.user.findUnique({ where: { id: agentId } });
+    if (!agent || agent.role !== 'SUPPORT_AGENT') {
+      throw { statusCode: 404, code: 'NOT_FOUND', message: 'Support agent not found.' };
+    }
+    const updated = await prisma.user.update({
+      where: { id: agentId },
+      data: {
+        status,
+        agentAvailability: status === 'ACTIVE' ? 'ONLINE' : 'OFFLINE',
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: status === 'ACTIVE' ? 'ACTIVATE_SUPPORT_AGENT' : 'DEACTIVATE_SUPPORT_AGENT',
+        resourceType: 'User',
+        resourceId: agentId,
+        details: JSON.stringify({ email: agent.email, status }),
+      },
+    });
+    return updated;
   }
 
   static async createSupportAgent(
@@ -545,7 +605,7 @@ export class AdminService {
     }
     const createdAtWhere = Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {};
 
-    const [deposits, withdrawals, purchases, rewardClaims, commissions, levelChanges, adjustments, usersByLevel] =
+    const [deposits, withdrawals, purchases, rewardClaims, commissions, levelChanges, adjustments, usersByLevel, walletLiabilities, ledgerAudit, dailyBonusTxs] =
       await Promise.all([
         prisma.depositRequest.findMany({ where: createdAtWhere, orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true, memberCode: true } }, paymentMethod: { select: { name: true } } } }),
         prisma.withdrawalRequest.findMany({ where: createdAtWhere, orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true, memberCode: true } } } }),
@@ -555,15 +615,62 @@ export class AdminService {
         prisma.accountLevelHistory.findMany({ where: createdAtWhere, orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }),
         prisma.auditLog.findMany({ where: { ...createdAtWhere, action: { startsWith: 'WALLET_ADJUSTMENT' } }, orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }),
         prisma.user.groupBy({ by: ['accountLevel'], _count: true }),
+        prisma.walletAccount.groupBy({
+          by: ['accountType'],
+          where: { userId: { not: null }, currency: 'USD' },
+          _sum: { balanceCents: true },
+        }),
+        LedgerService.auditLedgerIntegrity(),
+        prisma.ledgerTransaction.findMany({
+          where: {
+            ...createdAtWhere,
+            reference: { startsWith: 'DAILY-BONUS-' },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          include: {
+            entries: {
+              where: { entryType: 'CREDIT' },
+              include: {
+                account: {
+                  include: { user: { select: { fullName: true, email: true, accountLevel: true } } },
+                },
+              },
+            },
+          },
+        }),
       ]);
 
-    const approvedDepositsUSD = deposits.filter((d) => d.status === 'APPROVED').reduce((s, d) => s + d.amountCents, 0) / 100;
-    const completedWithdrawalsUSD = withdrawals.filter((w) => w.status === 'COMPLETED' || w.status === 'PAID').reduce((s, w) => s + w.amountCents, 0) / 100;
-    const packageRevenueUSD = purchases.reduce((s, p) => s + p.priceCentsPaid, 0) / 100;
-    const videoRewardsPaidUSD = rewardClaims.reduce((s, r) => s + r.amountCents, 0) / 100;
-    const referralCommissionsUSD = commissions.reduce((s, c) => s + c.commissionCents, 0) / 100;
+    const approvedDepositsCents = deposits.filter((d) => d.status === 'APPROVED').reduce((s, d) => s + d.amountCents, 0);
+    const completedWithdrawalsCents = withdrawals.filter((w) => w.status === 'COMPLETED' || w.status === 'PAID').reduce((s, w) => s + w.amountCents, 0);
+    const packageRevenueCents = purchases.reduce((s, p) => s + p.priceCentsPaid, 0);
+    const videoRewardsCents = rewardClaims.reduce((s, r) => s + r.amountCents, 0);
+    const referralCommissionsCents = commissions.reduce((s, c) => s + c.commissionCents, 0);
+    const dailyBonusCents = dailyBonusTxs.reduce((s, t) => s + (t.entries[0]?.amountCents || 0), 0);
+
+    const liabilityByType: Record<string, number> = {};
+    let totalUserLiabilityCents = 0;
+    for (const row of walletLiabilities) {
+      const val = row._sum.balanceCents || 0;
+      liabilityByType[row.accountType] = val;
+      totalUserLiabilityCents += val;
+    }
+
+    const approvedDepositsUSD = approvedDepositsCents / 100;
+    const completedWithdrawalsUSD = completedWithdrawalsCents / 100;
+    const packageRevenueUSD = packageRevenueCents / 100;
+    const videoRewardsPaidUSD = videoRewardsCents / 100;
+    const referralCommissionsUSD = referralCommissionsCents / 100;
 
     return {
+      // Top-level convenience fields + nested totals for full compatibility
+      approvedDepositsCents,
+      approvedDepositsCount: deposits.filter((d) => d.status === 'APPROVED').length,
+      completedWithdrawalsCents,
+      completedWithdrawalsCount: withdrawals.filter((w) => w.status === 'COMPLETED' || w.status === 'PAID').length,
+      videoRewardsCents,
+      videoCompletionsCount: rewardClaims.length,
+      referralCommissionsCents,
       totals: {
         approvedDepositsCount: deposits.filter((d) => d.status === 'APPROVED').length,
         approvedDepositsUSD,
@@ -577,9 +684,52 @@ export class AdminService {
         videoRewardsPaidUSD,
         referralCommissionsCount: commissions.length,
         referralCommissionsUSD,
+        dailyBonusPaidUSD: dailyBonusCents / 100,
         levelChangesCount: levelChanges.length,
         walletAdjustmentsCount: adjustments.length,
       },
+      reconciliation: {
+        ledgerBalanced: ledgerAudit.isValid,
+        anomaliesCount: ledgerAudit.anomalies.length,
+        totalApprovedDepositsUSD: approvedDepositsUSD,
+        totalSettledWithdrawalsUSD: completedWithdrawalsUSD,
+        netCashFlowUSD: (approvedDepositsCents - completedWithdrawalsCents) / 100,
+        totalUserLiabilityUSD: totalUserLiabilityCents / 100,
+        mainWalletsUSD: (liabilityByType['USER_AVAILABLE'] || 0) / 100,
+        videoRewardsWalletsUSD: (liabilityByType['USER_VIDEO_REWARDS'] || 0) / 100,
+        referralWalletsUSD: (liabilityByType['USER_REFERRAL'] || 0) / 100,
+        reservedHoldsUSD: (liabilityByType['USER_RESERVED'] || 0) / 100,
+        otherRewardsWalletsUSD: (liabilityByType['USER_OTHER_REWARDS'] || 0) / 100,
+      },
+      bonusHistory: [
+        ...dailyBonusTxs.map((t) => ({
+          id: t.id,
+          category: 'Daily Level Bonus',
+          userName: t.entries[0]?.account?.user?.fullName || 'Member',
+          userEmail: t.entries[0]?.account?.user?.email || '',
+          amountUSD: (t.entries[0]?.amountCents || 0) / 100,
+          description: t.description,
+          createdAt: t.createdAt,
+        })),
+        ...rewardClaims.slice(0, 30).map((r) => ({
+          id: r.id,
+          category: 'Video Reward',
+          userName: r.user?.fullName || 'Member',
+          userEmail: r.user?.email || '',
+          amountUSD: r.amountCents / 100,
+          description: `Completed: ${r.video?.title || 'Video'}`,
+          createdAt: r.claimedAt,
+        })),
+        ...commissions.slice(0, 30).map((c) => ({
+          id: c.id,
+          category: 'Referral Commission',
+          userName: c.beneficiary?.fullName || 'Member',
+          userEmail: c.beneficiary?.email || '',
+          amountUSD: c.commissionCents / 100,
+          description: `${c.ratePercent}% from ${c.sourceUser?.fullName || 'Referral'}`,
+          createdAt: c.createdAt,
+        })),
+      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
       usersByLevel,
       recentDeposits: deposits.slice(0, 50),
       recentWithdrawals: withdrawals.slice(0, 50),
@@ -694,7 +844,7 @@ export class AdminService {
       totalCents: 0,
     };
 
-    const [deposits, withdrawals, videoClaims, directReferrals, userTransactions, levelHistory] =
+    const [deposits, withdrawals, videoClaims, directReferrals, userTransactions, levelHistory, lockHistory, milestoneClaims, userAuditLogs] =
       await Promise.all([
         prisma.depositRequest.findMany({
           where: { userId },
@@ -731,9 +881,54 @@ export class AdminService {
         prisma.accountLevelHistory.findMany({
           where: { userId },
           orderBy: { createdAt: 'desc' },
-          take: 15,
+          take: 25,
+        }),
+        prisma.accountLockHistory.findMany({
+          where: { userId },
+          orderBy: { createdAt: 'desc' },
+          take: 25,
+        }),
+        prisma.referralMilestoneClaim.findMany({
+          where: { userId },
+          orderBy: { claimedAt: 'desc' },
+        }),
+        prisma.auditLog.findMany({
+          where: {
+            OR: [
+              { resourceId: userId },
+              { userId },
+              { details: { contains: userId } },
+            ],
+          },
+          include: { user: { select: { fullName: true, email: true, role: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: 40,
         }),
       ]);
+
+    // Resolve admin actor names for deposits, withdrawals, level changes, and locks
+    const actorIds = Array.from(
+      new Set(
+        [
+          ...deposits.map((d) => d.reviewedById),
+          ...withdrawals.map((w) => w.reviewedById),
+          ...levelHistory.map((h) => h.adjustedById),
+          ...lockHistory.map((l) => l.performedById),
+        ].filter((id): id is string => Boolean(id && id !== 'SYSTEM'))
+      )
+    );
+    const actors = actorIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, fullName: true, email: true, role: true },
+        })
+      : [];
+    const actorMap = new Map(actors.map((a) => [a.id, `${a.fullName} (${a.role})`]));
+    const resolveActor = (id?: string | null) => {
+      if (!id) return null;
+      if (id === 'SYSTEM') return 'System Auto';
+      return actorMap.get(id) || id;
+    };
 
     const totalDepositsApprovedUSD = deposits
       .filter((d) => d.status === 'APPROVED')
@@ -758,6 +953,48 @@ export class AdminService {
     else if (qualifiedReferralsCount >= 6) referralRank = 'Platinum';
     else if (qualifiedReferralsCount >= 1) referralRank = 'Gold';
 
+    // Unified Activity Timeline
+    const activityTimeline = [
+      ...levelHistory.map((h) => ({
+        type: 'LEVEL_CHANGE',
+        title: `Account Level: ${h.oldLevel} → ${h.newLevel}`,
+        detail: `${h.reason || 'Qualification update'} • By: ${resolveActor(h.adjustedById) || 'System'}`,
+        createdAt: h.createdAt,
+      })),
+      ...lockHistory.map((l) => ({
+        type: 'ACCOUNT_LOCK',
+        title: `Account ${l.action}${l.durationDays ? ` (${l.durationDays} days)` : ''}`,
+        detail: `${l.reason || ''} • By: ${resolveActor(l.performedById) || 'Admin'}`,
+        createdAt: l.createdAt,
+      })),
+      ...milestoneClaims.map((m) => ({
+        type: 'RANK_MILESTONE',
+        title: `Referral Milestone Unlocked: ${m.rankName} (+$${(m.rewardAmountCents / 100).toFixed(2)} USD)`,
+        detail: `${m.qualifiedCount} qualified referrals reached`,
+        createdAt: m.claimedAt,
+      })),
+      ...deposits.map((d) => ({
+        type: 'DEPOSIT',
+        title: `Deposit $${(d.amountCents / 100).toFixed(2)} USD — ${d.status}`,
+        detail: `Ref: ${d.transactionRef}${d.reviewedById ? ` • Reviewed by: ${resolveActor(d.reviewedById)}` : ''}${d.rejectionReason ? ` • Reason: ${d.rejectionReason}` : ''}`,
+        createdAt: d.reviewedAt || d.createdAt,
+      })),
+      ...withdrawals.map((w) => ({
+        type: 'WITHDRAWAL',
+        title: `Withdrawal $${(w.amountCents / 100).toFixed(2)} USD — ${w.status}`,
+        detail: `${w.payoutMethod}${w.payoutRef ? ` • Payout Ref: ${w.payoutRef}` : ''}${w.reviewedById ? ` • Processed by: ${resolveActor(w.reviewedById)}` : ''}${w.rejectionReason ? ` • Reason: ${w.rejectionReason}` : ''}`,
+        createdAt: w.completedAt || w.createdAt,
+      })),
+      ...userAuditLogs.map((a) => ({
+        type: a.action,
+        title: a.action.replace(/_/g, ' '),
+        detail: `Actor: ${a.user ? `${a.user.fullName} (${a.user.role})` : 'System'} • ${a.details || ''}`,
+        createdAt: a.createdAt,
+      })),
+    ]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 60);
+
     return {
       user: {
         ...user,
@@ -775,10 +1012,23 @@ export class AdminService {
       totals: {
         totalDepositsApprovedUSD: totalDepositsApprovedUSD / 100,
         totalWithdrawalsPaidUSD: totalWithdrawalsPaidUSD / 100,
-        totalVideoRewardsUSD: totalVideoRewardsUSD / 100,
+        totalVideoRewardsUSD: (usdSummary.videoRewardsCents || 0) / 100, // Show actual wallet balance including admin adjustments (F13)
+        totalVideoClaimsUSD: totalVideoRewardsUSD / 100,
         pendingWithdrawalUSD: pendingWithdrawalUSD / 100,
       },
-      levelHistory,
+      levelHistory: levelHistory.map((h) => ({
+        ...h,
+        adjustedByName: resolveActor(h.adjustedById),
+      })),
+      lockHistory: lockHistory.map((l) => ({
+        ...l,
+        performedByName: resolveActor(l.performedById),
+      })),
+      rankHistory: milestoneClaims.map((m) => ({
+        ...m,
+        rewardUSD: m.rewardAmountCents / 100,
+      })),
+      activityTimeline,
       deposits: deposits.map((d) => ({
         id: d.id,
         amountUSD: d.amountCents / 100,
@@ -791,6 +1041,7 @@ export class AdminService {
         rejectionReason: d.rejectionReason,
         createdAt: d.createdAt,
         reviewedAt: d.reviewedAt,
+        reviewedByName: resolveActor(d.reviewedById),
       })),
       withdrawals: withdrawals.map((w) => ({
         id: w.id,
@@ -805,6 +1056,8 @@ export class AdminService {
         rejectionReason: w.rejectionReason,
         createdAt: w.createdAt,
         completedAt: w.completedAt,
+        approvedByName: resolveActor(w.reviewedById),
+        paidByName: w.status === 'COMPLETED' || w.status === 'PAID' ? resolveActor(w.reviewedById) : null,
       })),
       videoRewards: videoClaims.map((c) => ({
         id: c.id,

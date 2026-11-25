@@ -272,13 +272,24 @@ export const SupportChatWidget: React.FC = () => {
             </div>
           </div>
 
-          {/* Status Alert Bar (if waiting for human agent) */}
+          {/* Status Alert Bar (if waiting for human agent — shows Ticket #, Queue Position, Est. Wait) */}
           {conversation?.status === 'WAITING_FOR_AGENT' && (
-            <div className="px-4 py-2 bg-amber-50 border-b border-amber-200/80 flex items-center justify-between text-[11px] text-amber-800">
-              <span className="flex items-center gap-1.5 font-medium">
-                <Clock className="w-3.5 h-3.5 text-amber-600 animate-spin" />
-                Request forwarded to support staff. Agent will reply here.
-              </span>
+            <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200/80 space-y-1 text-[11px] text-amber-900">
+              <div className="flex items-center justify-between font-bold">
+                <span className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                  Waiting for Support Agent
+                </span>
+                {conversation.ticketNumber && (
+                  <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-amber-100 border border-amber-300">
+                    {conversation.ticketNumber}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-amber-700">
+                <span>Queue Position: #{conversation.queuePosition || 1}</span>
+                <span>Est. Wait: ~{conversation.estimatedWaitMinutes || 3} min</span>
+              </div>
             </div>
           )}
 
@@ -370,20 +381,20 @@ export const SupportChatWidget: React.FC = () => {
             )}
           </div>
 
-          {/* Quick FAQ Suggestion Chips */}
-          {faqs.length > 0 && conversation?.status === 'BOT' && (
+          {/* Quick Account-Aware & FAQ Suggestion Chips */}
+          {conversation?.status === 'BOT' && (
             <div className="px-3 py-2 bg-slate-100/90 border-t border-slate-200 flex items-center gap-2 overflow-x-auto no-scrollbar">
               <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap flex items-center gap-1">
                 <Sparkles className="w-3 h-3 text-emerald-600" />
-                Suggested:
+                Quick:
               </span>
-              {faqs.slice(0, 4).map((faq) => (
+              {['What is my deposit status?', 'Check my referral progress', 'Check my wallet balance', ...faqs.slice(0, 2).map((f) => f.question)].map((promptText, idx) => (
                 <button
-                  key={faq.id}
-                  onClick={() => handleSendMessage(faq.question)}
-                  className="px-2.5 py-1 rounded-full bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 hover:text-emerald-700 text-[10px] font-semibold whitespace-nowrap transition-all shadow-2xs"
+                  key={idx}
+                  onClick={() => handleSendMessage(promptText)}
+                  className="px-2.5 py-1 rounded-full bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 hover:text-emerald-700 text-[10px] font-semibold whitespace-nowrap transition-all shadow-2xs cursor-pointer"
                 >
-                  {faq.question}
+                  {promptText}
                 </button>
               ))}
             </div>

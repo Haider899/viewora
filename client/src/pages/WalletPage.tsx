@@ -437,7 +437,7 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate }) => {
                 </div>
               </div>
 
-              {parseFloat(transferAmountInput) > 0 && (
+              {!transferSuccess && parseFloat(transferAmountInput) > 0 && (
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
                   <div className="flex justify-between text-slate-500">
                     <span>Source Wallet After:</span>
@@ -454,17 +454,22 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate }) => {
                 </div>
               )}
 
+              {transferSuccess && (
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs space-y-1">
+                  <div className="flex items-center gap-2 font-bold">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <span>{transferSuccess}</span>
+                  </div>
+                  <div className="text-[11px] text-emerald-700 pl-6">
+                    Updated Main Account Credits: <strong>{formatUSD(mainAvailableCents)}</strong>
+                  </div>
+                </div>
+              )}
+
               {transferError && (
                 <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
                   <span>{transferError}</span>
-                </div>
-              )}
-
-              {transferSuccess && (
-                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-                  <span>{transferSuccess}</span>
                 </div>
               )}
 

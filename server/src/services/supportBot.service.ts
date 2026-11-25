@@ -89,6 +89,21 @@ If more than 30 minutes have passed, attach your receipt here and click **"Talk 
   },
 ];
 
+export interface BotAccountContext {
+  fullName?: string;
+  memberCode?: string;
+  accountLevel?: string;
+  mainUSD: number;
+  videoRewardsUSD: number;
+  referralUSD: number;
+  reservedUSD: number;
+  totalReferrals: number;
+  qualifiedReferrals: number;
+  referralRank: string;
+  latestDeposits: Array<{ amountUSD: number; status: string; transactionRef: string; rejectionReason?: string | null; createdAt: string }>;
+  latestWithdrawals: Array<{ amountUSD: number; status: string; payoutRef?: string | null; rejectionReason?: string | null; createdAt: string }>;
+}
+
 export class SupportBotService {
   public static isEscalationRequest(text: string): boolean {
     const lower = text.toLowerCase().trim();
@@ -117,7 +132,10 @@ export class SupportBotService {
     return escalationTriggers.some((trigger) => lower.includes(trigger));
   }
 
-  public static matchFaq(query: string): {
+  public static matchFaq(
+    query: string,
+    ctx?: BotAccountContext | null
+  ): {
     answer: string;
     matchedFaqId?: string;
     quickPrompts: string[];
@@ -134,6 +152,112 @@ Feel free to share your transaction reference or attach a screenshot while waiti
         quickPrompts: ['Deposit verification issue', 'Withdrawal status check', 'Account level query'],
         suggestEscalation: true,
       };
+    }
+
+    // Account-aware read-only responses (Documentation §12.3)
+    if (ctx) {
+      const asksPersonal =
+        lower.includes('my ') ||
+        lower.includes('mera') ||
+        lower.includes('meri') ||
+        lower.includes('status') ||
+        lower.includes('balance') ||
+        lower.includes('progress') ||
+        lower.includes('how many');
+
+      if (asksPersonal && (lower.includes('deposit') || lower.includes('payment'))) {
+        if (ctx.latestDeposits.length === 0) {
+          return {
+            answer: `📊 **Your Deposit Status (${ctx.memberCode || ctx.fullName})**:
+You have no submitted USD deposit requests yet.
+• **Main Account Balance:** $${ctx.mainUSD.toFixed(2)} USD
+You can submit a deposit anytime from the **Deposit USD** tab (verified in 10–30 minutes).`,
+            matchedFaqId: 'account_deposit_status',
+            quickPrompts: ['How do I deposit USD?', 'Check my wallet balance', 'Talk to Agent'],
+            suggestEscalation: false,
+          };
+        }
+        const lines = ctx.latestDeposits.slice(0, 3).map(
+          (d) =>
+            `• **$${d.amountUSD.toFixed(2)} USD** — **${d.status}** (Ref: \`${d.transactionRef}\`)${
+              d.rejectionReason ? ` — Reason: ${d.rejectionReason}` : ''
+            }`
+        );
+        return {
+          answer: `📊 **Your Recent USD Deposits (${ctx.memberCode || ctx.fullName})**:
+${lines.join('\n')}
+
+• **Current Main Account Balance:** $${ctx.mainUSD.toFixed(2)} USD
+*(Pending deposits are normally verified within 10–30 minutes.)*`,
+          matchedFaqId: 'account_deposit_status',
+          quickPrompts: ['Check my withdrawal status', 'Check my referral progress', 'Talk to Agent'],
+          suggestEscalation: false,
+        };
+      }
+
+      if (asksPersonal && (lower.includes('withdraw') || lower.includes('payout'))) {
+        if (ctx.latestWithdrawals.length === 0) {
+          return {
+            answer: `💸 **Your Withdrawal Status**:
+You have no withdrawal requests on record yet.
+• **Main Balance:** $${ctx.mainUSD.toFixed(2)} USD | **Video Rewards:** $${ctx.videoRewardsUSD.toFixed(2)} USD | **Referral:** $${ctx.referralUSD.toFixed(2)} USD
+• **Reserved Hold:** $${ctx.reservedUSD.toFixed(2)} USD`,
+            matchedFaqId: 'account_withdrawal_status',
+            quickPrompts: ['What is the withdrawal process and minimum limit?', 'Check my deposit status', 'Talk to Agent'],
+            suggestEscalation: false,
+          };
+        }
+        const lines = ctx.latestWithdrawals.slice(0, 3).map(
+          (w) =>
+            `• **$${w.amountUSD.toFixed(2)} USD** — **${w.status}**${
+              w.payoutRef ? ` (Tx: \`${w.payoutRef}\`)` : ''
+            }${w.rejectionReason ? ` — Reason: ${w.rejectionReason}` : ''}`
+        );
+        return {
+          answer: `💸 **Your Recent USD Withdrawals**:
+${lines.join('\n')}
+
+• **Active Reserved Hold:** $${ctx.reservedUSD.toFixed(2)} USD`,
+          matchedFaqId: 'account_withdrawal_status',
+          quickPrompts: ['Check my wallet balance', 'Check my deposit status', 'Talk to Agent'],
+          suggestEscalation: false,
+        };
+      }
+
+      if (asksPersonal && (lower.includes('referral') || lower.includes('rank') || lower.includes('milestone') || lower.includes('invite'))) {
+        const nextTarget = ctx.qualifiedReferrals < 5 ? 5 : ctx.qualifiedReferrals < 10 ? 10 : ctx.qualifiedReferrals < 100 ? 100 : 500;
+        const remaining = Math.max(0, nextTarget - ctx.qualifiedReferrals);
+        return {
+          answer: `🤝 **Your Live Referral Progress (${ctx.memberCode || ctx.fullName})**:
+• **Current Rank:** ${ctx.referralRank}
+• **Total Direct Referrals:** ${ctx.totalReferrals}
+• **Qualified Referrals:** ${ctx.qualifiedReferrals}
+• **Next Milestone Target:** ${nextTarget} qualified (${remaining} more needed)
+• **Referral Wallet Balance:** $${ctx.referralUSD.toFixed(2)} USD`,
+          matchedFaqId: 'account_referral_progress',
+          quickPrompts: ['Check my wallet balance', 'Check my deposit status', 'Talk to Agent'],
+          suggestEscalation: false,
+        };
+      }
+
+      if (asksPersonal && (lower.includes('balance') || lower.includes('wallet') || lower.includes('level') || lower.includes('account'))) {
+        const prettyLevel =
+          !ctx.accountLevel || ctx.accountLevel === 'NEW_USER' || ctx.accountLevel === 'LEVEL_0'
+            ? 'New User'
+            : ctx.accountLevel.replace('_', ' ');
+        return {
+          answer: `💼 **Your U-Ads Account Summary (${ctx.memberCode || ctx.fullName})**:
+• **Account Level:** ${prettyLevel}
+• **Main Account Credits:** $${ctx.mainUSD.toFixed(2)} USD
+• **Video Rewards Wallet:** $${ctx.videoRewardsUSD.toFixed(2)} USD
+• **Referral Wallet:** $${ctx.referralUSD.toFixed(2)} USD
+• **Reserved (Withdrawal Hold):** $${ctx.reservedUSD.toFixed(2)} USD
+• **Referral Rank:** ${ctx.referralRank} (${ctx.qualifiedReferrals} qualified / ${ctx.totalReferrals} total)`,
+          matchedFaqId: 'account_summary',
+          quickPrompts: ['Check my deposit status', 'Check my referral progress', 'Talk to Agent'],
+          suggestEscalation: false,
+        };
+      }
     }
 
     let bestFaq: BotFaqItem | null = null;

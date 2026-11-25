@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma.js';
 import { AccountLevelService } from './accountLevel.service.js';
+import { CompanyDocumentService } from './companyDocument.service.js';
 
 export const DEFAULT_REFERRAL_CONFIG = {
   minQualifyingUSD: 20,
@@ -389,8 +390,9 @@ export class BootstrapService {
       }
     }
 
-    // 6. Account Levels
+    // 6. Account Levels & Official Company Documents
     await AccountLevelService.ensureDefaultLevels();
+    await CompanyDocumentService.ensureInitialDocuments();
 
     // 7. System Config Defaults (USD Only, Referral Config, Bonus Settings, Notifications, Landing CMS)
     const defaultJsonSettings: Array<{ key: string; value: string; description: string }> = [

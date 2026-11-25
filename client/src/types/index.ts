@@ -77,8 +77,10 @@ export interface Video {
   durationSeconds: number;
   category: string;
   minPackageTier: string;
+  minAccountLevel?: string;
   orderIndex: number;
   isPublished: boolean;
+  isLocked?: boolean;
   rewardEligible: boolean;
   rewardAmountCents: number;
   assignedUserId?: string | null;
@@ -116,7 +118,8 @@ export interface NotificationItem {
   id: string;
   userId: string;
   title: string;
-  body: string;
+  message?: string;
+  body?: string;
   type: string;
   isRead: boolean;
   relatedId?: string | null;
@@ -124,16 +127,24 @@ export interface NotificationItem {
 }
 
 export interface LandingContent {
+  badgeText?: string;
   heroTitle?: string;
+  heroHighlight?: string;
   heroSubtitle?: string;
   heroCtaText?: string;
+  videoPreviewHeading?: string;
+  videoPreviewSubtitle?: string;
+  rewardsHeading?: string;
   rewardsTitle?: string;
   rewardsSubtitle?: string;
   packagesTitle?: string;
   packagesSubtitle?: string;
+  contactHeading?: string;
+  contactSubtitle?: string;
   contactEmail?: string;
   contactPhone?: string;
   contactHours?: string;
+  contactAddress?: string;
   faqTitle?: string;
   announcementBanner?: string;
   announcementEnabled?: boolean;
@@ -348,6 +359,9 @@ export interface SupportConversation {
   lastMessageAt: string;
   createdAt: string;
   updatedAt: string;
+  ticketNumber?: string;
+  queuePosition?: number | null;
+  estimatedWaitMinutes?: number | null;
   messages: SupportMessage[];
   user?: {
     id: string;

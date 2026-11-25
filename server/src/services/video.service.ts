@@ -13,6 +13,16 @@ const TIER_RANK: Record<string, number> = {
   VIP: 4,
 };
 
+const LEVEL_RANK: Record<string, number> = {
+  NEW_USER: 0,
+  LEVEL_0: 0,
+  LEVEL_1: 1,
+  LEVEL_2: 2,
+  LEVEL_3: 3,
+  LEVEL_4: 4,
+  LEVEL_5: 5,
+};
+
 export class VideoService {
   static async getVideos(
     userId?: string,
@@ -116,12 +126,21 @@ export class VideoService {
       ],
     });
 
+    const userLevelRank = LEVEL_RANK[userAccountLevel] ?? 0;
+
     return videos.map((v, idx) => {
       const isAssignedToUser = !!userId && v.assignedUserId === userId;
-      const requiredRank = TIER_RANK[v.minPackageTier] || 1;
+      const requiredTierRank = TIER_RANK[v.minPackageTier] || 1;
+      const requiredLevelRank = LEVEL_RANK[(v as any).minAccountLevel || 'LEVEL_1'] ?? 1;
       const effectivePosition = v.orderIndex > 0 ? v.orderIndex : idx + 1;
       const isWithinLimit = effectivePosition <= userVideoLimit;
-      const hasTierAccess = isStaff || isAssignedToUser || (userVideoLimit > 0 && isWithinLimit && userTierRank >= requiredRank);
+      const meetsLevelOrPackage =
+        userLevelRank >= requiredLevelRank || (userActivePurchase && userTierRank >= requiredTierRank);
+      const isExplicitlyLocked = Boolean((v as any).isLocked);
+      const hasTierAccess =
+        isStaff ||
+        isAssignedToUser ||
+        (!isExplicitlyLocked && userVideoLimit > 0 && isWithinLimit && meetsLevelOrPackage);
 
       return {
         ...v,
@@ -187,8 +206,18 @@ export class VideoService {
         const levelLimit = levelLimits[userAccountLevel] ?? 0;
         const purchaseLimit = userActivePurchase?.videoLimitGranted || 0;
         const allowedLimit = Math.max(levelLimit, purchaseLimit);
+        const userLevelRank = LEVEL_RANK[userAccountLevel] ?? 0;
+        const requiredLevelRank = LEVEL_RANK[(video as any).minAccountLevel || 'LEVEL_1'] ?? 1;
+        const requiredTierRank = TIER_RANK[video.minPackageTier] || 1;
+        const userTierRank = userActivePurchase ? TIER_RANK[userActivePurchase.packageName] || 1 : 0;
+        const meetsLevelOrPackage =
+          userLevelRank >= requiredLevelRank || (!!userActivePurchase && userTierRank >= requiredTierRank);
 
-        hasAccess = allowedLimit > 0 && video.orderIndex <= allowedLimit;
+        hasAccess =
+          !Boolean((video as any).isLocked) &&
+          allowedLimit > 0 &&
+          video.orderIndex <= allowedLimit &&
+          meetsLevelOrPackage;
       }
 
       const [session, claim] = await Promise.all([
@@ -601,11 +630,13 @@ export class VideoService {
     durationSeconds?: number;
     category?: string;
     minPackageTier?: string;
+    minAccountLevel?: string;
     orderIndex?: number;
     rewardEligible?: boolean;
     rewardAmountCents?: number;
     assignedUserId?: string | null;
     isPublished?: boolean;
+    isLocked?: boolean;
   }) {
     const youtubeId = extractYouTubeId(data.videoUrl);
     let thumbnail = data.thumbnailUrl;
@@ -628,11 +659,13 @@ export class VideoService {
         durationSeconds: data.durationSeconds && data.durationSeconds > 0 ? data.durationSeconds : 60,
         category: data.category || 'Special Assignment',
         minPackageTier: data.minPackageTier || 'Starter',
+        minAccountLevel: data.minAccountLevel || 'LEVEL_1',
         orderIndex: data.orderIndex ?? count + 1,
         rewardEligible: data.rewardEligible ?? true,
         rewardAmountCents: data.rewardAmountCents ?? 50,
         assignedUserId: data.assignedUserId ? data.assignedUserId : null,
         isPublished: data.isPublished ?? true,
+        isLocked: data.isLocked ?? false,
       },
       include: {
         assignedUser: {

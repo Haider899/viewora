@@ -283,6 +283,14 @@ router.delete('/support/agents/:id', requireRole(UserRole.SUPER_ADMIN), async (r
   } catch (err) { next(err); }
 });
 
+router.patch('/support/agents/:id/status', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    const result = await AdminService.toggleSupportAgentStatus(req.user!.userId, req.params.id, status);
+    res.json({ success: true, data: result, message: `Support agent marked ${status}.` });
+  } catch (err) { next(err); }
+});
+
 router.put('/support/agent-status', requireRole(UserRole.SUPER_ADMIN, UserRole.SUPPORT_AGENT), async (req, res, next) => {
   try {
     const { status } = req.body;
@@ -411,7 +419,14 @@ router.post('/users/:id/role', requireRole(UserRole.SUPER_ADMIN), async (req, re
   }
 });
 
-// Daily Level Bonus Batch Execution
+// Daily Level Bonus Batch Execution & History
+router.get('/bonuses/batches', requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN), async (req, res, next) => {
+  try {
+    const data = await AccountLevelService.getDailyBonusBatches();
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
 router.post('/bonuses/daily-batch', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
   try {
     const result = await AccountLevelService.processDailyLevelBonuses(req.user!.userId);

@@ -91,6 +91,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     | 'settings'
   >('kpis');
   const [soundAlertsEnabled, setSoundAlertsEnabled] = useState(true);
+  const [chimeIntervalSec, setChimeIntervalSec] = useState<number>(3);
+  const [receiptZoomed, setReceiptZoomed] = useState(false);
 
   // Live Support Desk State
   const [supportConversations, setSupportConversations] = useState<SupportConversation[]>([]);
@@ -159,7 +161,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const [dossierUserId, setDossierUserId] = useState<string | null>(null);
   const [dossierData, setDossierData] = useState<any | null>(null);
   const [loadingDossier, setLoadingDossier] = useState(false);
-  const [dossierTab, setDossierTab] = useState<'overview' | 'deposits' | 'withdrawals' | 'videos' | 'referrals' | 'ledger'>('overview');
+  const [dossierTab, setDossierTab] = useState<
+    'overview' | 'deposits' | 'withdrawals' | 'videos' | 'referrals' | 'history' | 'timeline' | 'ledger'
+  >('overview');
 
   // Interactive UI Modals for User Management & Support (Replaces browser prompts)
   const [adjustLevelModal, setAdjustLevelModal] = useState<{
@@ -232,6 +236,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const [formVideoDescription, setFormVideoDescription] = useState('');
   const [formVideoCategory, setFormVideoCategory] = useState('Special Assignment');
   const [formVideoTier, setFormVideoTier] = useState('Starter');
+  const [formVideoMinLevel, setFormVideoMinLevel] = useState('LEVEL_1');
+  const [formVideoIsPublished, setFormVideoIsPublished] = useState(true);
+  const [formVideoIsLocked, setFormVideoIsLocked] = useState(false);
   const [formVideoDuration, setFormVideoDuration] = useState(180);
   const [formVideoTarget, setFormVideoTarget] = useState<'ALL' | 'USER'>('USER');
   const [formAssignedUserId, setFormAssignedUserId] = useState('');
@@ -452,12 +459,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const openAddVideoModal = () => {
     setEditingVideo(null);
     setFormVideoTitle('');
-    setFormVideoUrl('https://www.youtube.com/watch?v=aum88UHF3wk&list=RDaum88UHF3wk&start_radio=1');
+    setFormVideoUrl('https://media.w3.org/2010/05/sintel/trailer.mp4');
     setFormVideoDescription('');
     setFormVideoCategory('Special Assignment');
     setFormVideoTier('Starter');
-    setFormVideoDuration(180);
-    setFormVideoTarget('USER');
+    setFormVideoMinLevel('LEVEL_1');
+    setFormVideoIsPublished(true);
+    setFormVideoIsLocked(false);
+    setFormVideoDuration(52);
+    setFormVideoTarget('ALL');
     setFormAssignedUserId(allUsersDropdown.length > 0 ? allUsersDropdown[0].id : '');
     setVideoModalOpen(true);
   };
@@ -469,10 +479,35 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     setFormVideoDescription(vid.description);
     setFormVideoCategory(vid.category);
     setFormVideoTier(vid.minPackageTier);
+    setFormVideoMinLevel(vid.minAccountLevel || 'LEVEL_1');
+    setFormVideoIsPublished(vid.isPublished !== false);
+    setFormVideoIsLocked(Boolean(vid.isLocked));
     setFormVideoDuration(vid.durationSeconds);
     setFormVideoTarget(vid.assignedUserId ? 'USER' : 'ALL');
     setFormAssignedUserId(vid.assignedUserId || (allUsersDropdown.length > 0 ? allUsersDropdown[0].id : ''));
     setVideoModalOpen(true);
+  };
+
+  const handleToggleVideoActive = async (vid: Video) => {
+    const nextVal = !vid.isPublished;
+    const res = await api.adminUpdateVideo(vid.id, { isPublished: nextVal });
+    if (res.success) {
+      setActionSuccess(`Video "${vid.title}" ${nextVal ? 'activated' : 'deactivated'}.`);
+      loadAdminVideos();
+    } else {
+      setActionError(res.error?.message || 'Failed to update video status.');
+    }
+  };
+
+  const handleToggleVideoLock = async (vid: Video) => {
+    const nextVal = !vid.isLocked;
+    const res = await api.adminUpdateVideo(vid.id, { isLocked: nextVal });
+    if (res.success) {
+      setActionSuccess(`Video "${vid.title}" ${nextVal ? 'locked' : 'unlocked'}.`);
+      loadAdminVideos();
+    } else {
+      setActionError(res.error?.message || 'Failed to toggle video lock.');
+    }
   };
 
   const handleSaveVideo = async (e: React.FormEvent) => {
@@ -492,11 +527,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     try {
       const payload: any = {
         title: formVideoTitle.trim(),
-        description: formVideoDescription.trim() || 'Masterclass streaming module',
+        description: formVideoDescription.trim() || 'Verified U-Ads video campaign',
         videoUrl: formVideoUrl.trim(),
         category: formVideoCategory,
         minPackageTier: formVideoTier,
-        durationSeconds: Number(formVideoDuration) || 180,
+        minAccountLevel: formVideoMinLevel,
+        isPublished: formVideoIsPublished,
+        isLocked: formVideoIsLocked,
+        durationSeconds: Number(formVideoDuration) || 60,
         assignedUserId: formVideoTarget === 'USER' ? formAssignedUserId : null,
       };
 
@@ -707,8 +745,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const openEditLevelModal = (lvl: any) => {
     setEditingLevel(lvl);
     setLevelFormName(lvl.name || lvl.displayName || lvl.levelKey);
-    setLevelFormMinUSD(lvl.minQualificationUSD ?? (lvl.minAmountCents || 0) / 100);
-    setLevelFormMaxUSD(lvl.maxQualificationUSD ?? (lvl.maxAmountCents ? lvl.maxAmountCents / 100 : 0));
+    // Stored in USD cents in DB (e.g. 2000 = $20.00)
+    setLevelFormMinUSD((lvl.minQualificationUSD ?? lvl.minAmountCents ?? 0) / 100);
+    setLevelFormMaxUSD(
+      lvl.maxQualificationUSD != null
+        ? lvl.maxQualificationUSD / 100
+        : lvl.maxAmountCents
+        ? lvl.maxAmountCents / 100
+        : 0
+    );
     setLevelFormVideoLimit(lvl.videoLimit ?? lvl.dailyVideoLimit ?? 10);
     setLevelFormBonusBps(lvl.dailyBonusRateBps ?? lvl.dailyBonusBps ?? 0);
     setLevelModalOpen(true);
@@ -723,8 +768,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     try {
       const payload = {
         name: levelFormName.trim(),
-        minQualificationUSD: Number(levelFormMinUSD) || 0,
-        maxQualificationUSD: levelFormMaxUSD > 0 ? Number(levelFormMaxUSD) : null,
+        minQualificationUSD: Math.round((Number(levelFormMinUSD) || 0) * 100),
+        maxQualificationUSD: levelFormMaxUSD > 0 ? Math.round(Number(levelFormMaxUSD) * 100) : null,
         videoLimit: Number(levelFormVideoLimit),
         dailyBonusRateBps: Number(levelFormBonusBps),
       };
@@ -746,11 +791,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   // Initial badge check & recurring live counter polling
   useEffect(() => {
     refreshNotificationBadges();
+    loadLevels(); // Preload unified level tiers for Adjust Level modal (F1)
     const badgeInterval = setInterval(refreshNotificationBadges, 4000);
     return () => clearInterval(badgeInterval);
   }, []);
 
-  // Repeating 3-second Web Audio notification chime when live support chats await an agent
+  // Configurable 2–5 second repeating Web Audio notification chime when live support chats await an agent (F17)
   useEffect(() => {
     if (!soundAlertsEnabled || waitingSupportCount <= 0) return;
 
@@ -777,9 +823,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     };
 
     playChime();
-    const chimeInterval = setInterval(playChime, 3000);
+    const chimeInterval = setInterval(playChime, Math.max(2, Math.min(5, chimeIntervalSec)) * 1000);
     return () => clearInterval(chimeInterval);
-  }, [waitingSupportCount, soundAlertsEnabled]);
+  }, [waitingSupportCount, soundAlertsEnabled, chimeIntervalSec]);
 
   useEffect(() => {
     if (activeTab === 'kpis') loadKpis();
@@ -1283,20 +1329,55 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setSoundAlertsEnabled(!soundAlertsEnabled)}
-              title={soundAlertsEnabled ? 'Mute Support Alert Chime' : 'Enable Support Alert Chime'}
-              className={`p-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
-                soundAlertsEnabled
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : 'bg-slate-100 text-slate-500 border-slate-200'
-              }`}
-            >
-              {soundAlertsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-              <span className="hidden md:inline">{soundAlertsEnabled ? 'Alerts On' : 'Muted'}</span>
-            </button>
+          <div className="flex items-center gap-2.5">
+            {/* Agent Availability Selector (F17) */}
+            {(user?.role === 'SUPPORT_AGENT' || user?.role === 'SUPER_ADMIN') && (
+              <select
+                value={agentPresence}
+                onChange={async (e) => {
+                  const next = e.target.value as 'ONLINE' | 'BUSY' | 'OFFLINE';
+                  setAgentPresence(next);
+                  await api.updateAgentAvailability(next).catch(() => {});
+                  setActionSuccess(`Availability updated to ${next}.`);
+                }}
+                title="Live Support Availability"
+                className="px-2.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-800 cursor-pointer"
+              >
+                <option value="ONLINE">🟢 Online</option>
+                <option value="BUSY">🟡 Busy</option>
+                <option value="OFFLINE">⚫ Offline</option>
+              </select>
+            )}
+
+            {/* Configurable 2-5s Chime Interval + Mute Toggle (F17) */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setSoundAlertsEnabled(!soundAlertsEnabled)}
+                title={soundAlertsEnabled ? 'Mute Support Alert Chime' : 'Enable Support Alert Chime'}
+                className={`p-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                  soundAlertsEnabled
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-slate-100 text-slate-500 border-slate-200'
+                }`}
+              >
+                {soundAlertsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                <span className="hidden md:inline">{soundAlertsEnabled ? 'Alerts' : 'Muted'}</span>
+              </button>
+              {soundAlertsEnabled && (
+                <select
+                  value={chimeIntervalSec}
+                  onChange={(e) => setChimeIntervalSec(parseInt(e.target.value, 10) || 3)}
+                  title="Repeat ring interval (2–5 seconds)"
+                  className="px-2 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800 cursor-pointer"
+                >
+                  <option value={2}>2s</option>
+                  <option value={3}>3s</option>
+                  <option value={4}>4s</option>
+                  <option value={5}>5s</option>
+                </select>
+              )}
+            </div>
             <div className="hidden sm:block text-right">
               <div className="text-xs font-bold text-slate-900">{user?.fullName}</div>
               <div className="text-[10px] text-slate-500 font-medium">U-Ads Admin Console</div>
@@ -1667,12 +1748,22 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                           <div className="text-[10px] text-slate-500">{dep.user?.email}</div>
                           {dep.senderPhone && (
                             <div className="text-[10px] text-slate-400 font-mono">
-                              Ph: {dep.senderPhone}
+                              Sender Contact: {dep.senderPhone}
+                            </div>
+                          )}
+                          {dep.createdAt && (
+                            <div className="text-[10px] text-slate-400">
+                              {new Date(dep.createdAt).toLocaleString()}
                             </div>
                           )}
                         </td>
 
-                        <td className="py-4 px-6 font-semibold">{dep.paymentMethod?.name}</td>
+                        <td className="py-4 px-6">
+                          <div className="font-bold text-slate-900">{dep.paymentMethod?.name || 'USD Channel'}</div>
+                          <span className="text-[10px] font-mono text-emerald-700 font-bold">
+                            {dep.paymentMethod?.code || dep.currency}
+                          </span>
+                        </td>
 
                         <td className="py-4 px-6 font-mono font-bold text-slate-900">
                           {(dep.amountCents / 100).toFixed(2)} {dep.currency}
@@ -1748,6 +1839,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                   <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-6">Beneficiary / User</th>
+                      <th className="py-3 px-6">Submitted</th>
                       <th className="py-3 px-6">Amount</th>
                       <th className="py-3 px-6">Payout Channel</th>
                       <th className="py-3 px-6">Status</th>
@@ -1763,6 +1855,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                             {w.accountNumber}
                           </div>
                           <div className="text-[10px] text-slate-400">{w.user?.email}</div>
+                        </td>
+
+                        <td className="py-4 px-6 text-[11px] text-slate-500 whitespace-nowrap">
+                          {w.createdAt ? new Date(w.createdAt).toLocaleString() : '-'}
                         </td>
 
                         <td className="py-4 px-6 font-mono font-bold text-slate-900">
@@ -2882,12 +2978,30 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                               </div>
                             </div>
                           ) : (
-                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 space-y-0.5">
-                              <div className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
-                                Public Catalog
+                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 space-y-1">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                                  Public Catalog
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <span
+                                    className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded ${
+                                      video.isPublished
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : 'bg-rose-100 text-rose-700'
+                                    }`}
+                                  >
+                                    {video.isPublished ? 'ACTIVE' : 'INACTIVE'}
+                                  </span>
+                                  {video.isLocked && (
+                                    <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                                      LOCKED
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                              <div className="text-xs font-semibold">
-                                Min Tier: {video.minPackageTier}
+                              <div className="text-[11px] font-semibold">
+                                Tier: {video.minPackageTier} • Min Level: {(video.minAccountLevel || 'LEVEL_1').replace('_', ' ')}
                               </div>
                             </div>
                           )}
@@ -2895,19 +3009,41 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                       </div>
                     </div>
 
-                    {/* Card Actions Footer */}
-                    <div className="p-3 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between gap-2">
+                    {/* Card Actions Footer (Activate/Deactivate, Lock/Unlock, Test Play, Edit, Delete — F4) */}
+                    <div className="p-3 bg-slate-50/80 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
                       <button
                         onClick={() => setVideoPreviewModal(video)}
-                        className="text-xs font-bold text-purple-700 hover:text-purple-800 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-purple-100 transition-colors"
+                        className="text-xs font-bold text-purple-700 hover:text-purple-800 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-purple-100 transition-colors cursor-pointer"
                       >
                         <Play className="w-3 h-3 fill-current" />
                         Test Play
                       </button>
                       <div className="flex items-center gap-1">
                         <button
+                          onClick={() => handleToggleVideoActive(video)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold border cursor-pointer ${
+                            video.isPublished
+                              ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                          }`}
+                          title={video.isPublished ? 'Deactivate Video' : 'Activate Video'}
+                        >
+                          {video.isPublished ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button
+                          onClick={() => handleToggleVideoLock(video)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold border cursor-pointer ${
+                            video.isLocked
+                              ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                              : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                          }`}
+                          title={video.isLocked ? 'Unlock Video' : 'Lock Video'}
+                        >
+                          {video.isLocked ? 'Unlock' : 'Lock'}
+                        </button>
+                        <button
                           onClick={() => openEditVideoModal(video)}
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-purple-700 hover:bg-slate-200 transition-colors"
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-purple-700 hover:bg-slate-200 transition-colors cursor-pointer"
                           title="Edit Video or Reassign"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -2915,7 +3051,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         <button
                           onClick={() => handleDeleteVideo(video.id)}
                           disabled={deletingVideoId === video.id}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                           title="Delete Video"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -3089,11 +3225,19 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {levelsList.map((lvl: any) => {
-                      const minUSDNum = lvl.minQualificationUSD ?? (lvl.minAmountCents || 0) / 100;
-                      const maxUSDNum = lvl.maxQualificationUSD ?? (lvl.maxAmountCents ? lvl.maxAmountCents / 100 : null);
+                      const minUSDNum = (lvl.minQualificationUSD ?? lvl.minAmountCents ?? 0) / 100;
+                      const maxUSDNum =
+                        lvl.maxQualificationUSD != null
+                          ? lvl.maxQualificationUSD / 100
+                          : lvl.maxAmountCents
+                          ? lvl.maxAmountCents / 100
+                          : null;
                       const bonusBps = lvl.dailyBonusRateBps ?? lvl.dailyBonusBps ?? 0;
-                      const minUSD = Number(minUSDNum).toFixed(2);
-                      const maxUSD = maxUSDNum !== null && maxUSDNum !== undefined ? `$${Number(maxUSDNum).toFixed(2)}` : 'No Cap';
+                      const minUSD = Number(minUSDNum).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                      const maxUSD =
+                        maxUSDNum !== null && maxUSDNum !== undefined
+                          ? `$${Number(maxUSDNum).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : 'No Cap';
                       const bonusPercent = (Number(bonusBps) / 100).toFixed(2);
 
                       return (
@@ -3362,26 +3506,48 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               </button>
             </div>
 
-            <div className="bg-slate-950 rounded-2xl p-2 flex items-center justify-center max-h-[70vh] overflow-hidden">
+            <div className="bg-slate-950 rounded-2xl p-2 flex items-center justify-center max-h-[70vh] overflow-auto">
               <img
                 src={receiptModal}
                 alt="Payment slip receipt"
-                className="max-h-[65vh] w-auto object-contain rounded-xl"
+                onClick={() => setReceiptZoomed(!receiptZoomed)}
+                className={`rounded-xl transition-transform cursor-zoom-in ${
+                  receiptZoomed ? 'scale-150 origin-top' : 'max-h-[65vh] w-auto object-contain'
+                }`}
               />
             </div>
 
-            <div className="flex justify-between items-center pt-2">
-              <a
-                href={receiptModal}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-semibold text-purple-600 hover:text-purple-700 flex items-center gap-1"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> Open in New Tab
-              </a>
+            <div className="flex flex-wrap justify-between items-center gap-2 pt-2">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setReceiptZoomed(!receiptZoomed)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold cursor-pointer"
+                >
+                  {receiptZoomed ? 'Reset Zoom' : 'Zoom 150%'}
+                </button>
+                <a
+                  href={receiptModal}
+                  download={`uads-receipt-${Date.now()}.png`}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold"
+                >
+                  Download Slip
+                </a>
+                <a
+                  href={receiptModal}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-semibold text-purple-600 hover:text-purple-700 flex items-center gap-1"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Open in New Tab
+                </a>
+              </div>
               <button
-                onClick={() => setReceiptModal(null)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white"
+                onClick={() => {
+                  setReceiptModal(null);
+                  setReceiptZoomed(false);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white cursor-pointer"
               >
                 Close Viewer
               </button>
@@ -3440,43 +3606,48 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               </div>
             ) : (
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {/* KPI Summary Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {/* KPI Summary Cards (All USD Wallets including live Video Rewards balance — F13) */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200/80">
-                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Available Balance</span>
+                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Main Available</span>
                     <span className="text-lg font-black text-emerald-950 font-mono">${dossierData.balances.availableUSD.toFixed(2)}</span>
-                    <span className="text-[10px] text-emerald-700 block mt-0.5">Ready for withdrawal</span>
+                    <span className="text-[10px] text-emerald-700 block mt-0.5">Main USD Credits</span>
                   </div>
-                  <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200/80">
-                    <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Reserved Hold</span>
-                    <span className="text-lg font-black text-amber-950 font-mono">${dossierData.balances.reservedUSD.toFixed(2)}</span>
-                    <span className="text-[10px] text-amber-700 block mt-0.5">Pending withdrawal lock</span>
+                  <div className="p-3.5 rounded-2xl bg-teal-50/80 border border-teal-200/80">
+                    <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">Video Rewards</span>
+                    <span className="text-lg font-black text-teal-950 font-mono">${(dossierData.balances.videoRewardsUSD ?? 0).toFixed(2)}</span>
+                    <span className="text-[10px] text-teal-700 block mt-0.5">Live Video Wallet</span>
                   </div>
                   <div className="p-3.5 rounded-2xl bg-purple-50/80 border border-purple-200/80">
                     <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">Referral Wallet</span>
                     <span className="text-lg font-black text-purple-950 font-mono">${dossierData.balances.referralUSD.toFixed(2)}</span>
                     <span className="text-[10px] text-purple-700 block mt-0.5">Isolated commissions</span>
                   </div>
+                  <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200/80">
+                    <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Reserved Hold</span>
+                    <span className="text-lg font-black text-amber-950 font-mono">${dossierData.balances.reservedUSD.toFixed(2)}</span>
+                    <span className="text-[10px] text-amber-700 block mt-0.5">Withdrawal hold</span>
+                  </div>
                   <div className="p-3.5 rounded-2xl bg-slate-100 border border-slate-200">
-                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block">Total Deposits (Approved)</span>
+                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block">Approved Deposits</span>
                     <span className="text-lg font-black text-slate-900 font-mono">${dossierData.totals.totalDepositsApprovedUSD.toFixed(2)}</span>
                     <span className="text-[10px] text-slate-500 block mt-0.5">{dossierData.deposits.filter((d: any) => d.status === 'APPROVED').length} Approved txs</span>
                   </div>
                 </div>
 
                 {/* Sub-tab Navigation */}
-                <div className="flex items-center gap-1 border-b border-slate-200 pb-2">
+                <div className="flex items-center gap-1 border-b border-slate-200 pb-2 overflow-x-auto">
                   <button
                     onClick={() => setDossierTab('overview')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                       dossierTab === 'overview' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
-                    Overview & Origin
+                    Overview
                   </button>
                   <button
                     onClick={() => setDossierTab('deposits')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                       dossierTab === 'deposits' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
@@ -3484,7 +3655,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                   </button>
                   <button
                     onClick={() => setDossierTab('withdrawals')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                       dossierTab === 'withdrawals' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
@@ -3492,27 +3663,43 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                   </button>
                   <button
                     onClick={() => setDossierTab('videos')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                       dossierTab === 'videos' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
-                    Video Claims ({dossierData.videoRewards.length})
+                    Videos ({dossierData.videoRewards.length})
                   </button>
                   <button
                     onClick={() => setDossierTab('referrals')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                       dossierTab === 'referrals' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     Referrals ({dossierData.referrals.directCount})
                   </button>
                   <button
+                    onClick={() => setDossierTab('history')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      dossierTab === 'history' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Level / Rank / Locks ({(dossierData.levelHistory?.length || 0) + (dossierData.lockHistory?.length || 0)})
+                  </button>
+                  <button
+                    onClick={() => setDossierTab('timeline')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      dossierTab === 'timeline' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Activity Timeline ({dossierData.activityTimeline?.length || 0})
+                  </button>
+                  <button
                     onClick={() => setDossierTab('ledger')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                       dossierTab === 'ledger' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
-                    Ledger Trail ({dossierData.recentLedgerEntries.length})
+                    Ledger ({dossierData.recentLedgerEntries.length})
                   </button>
                 </div>
 
@@ -3565,12 +3752,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
                         <tr>
-                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Submitted / Verified</th>
                           <th className="py-2.5 px-3">Gateway</th>
                           <th className="py-2.5 px-3">Amount</th>
                           <th className="py-2.5 px-3">Ref ID</th>
-                          <th className="py-2.5 px-3">Proof Slip</th>
-                          <th className="py-2.5 px-3">Status</th>
+                          <th className="py-2.5 px-3">Proof</th>
+                          <th className="py-2.5 px-3">Status &amp; Verified By</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -3579,9 +3766,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         ) : (
                           dossierData.deposits.map((d: any) => (
                             <tr key={d.id} className="hover:bg-slate-50">
-                              <td className="py-2.5 px-3">{new Date(d.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                              <td className="py-2.5 px-3">
+                                <div>{new Date(d.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                                {d.reviewedAt && (
+                                  <div className="text-[10px] text-emerald-700">
+                                    Verified: {new Date(d.reviewedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                  </div>
+                                )}
+                              </td>
                               <td className="py-2.5 px-3 font-semibold">{d.gateway}</td>
-                              <td className="py-2.5 px-3 font-mono font-bold">${d.amountUSD.toFixed(2)} <span className="text-[10px] text-slate-400">({d.rawAmount} {d.currency})</span></td>
+                              <td className="py-2.5 px-3 font-mono font-bold">${d.amountUSD.toFixed(2)} USD</td>
                               <td className="py-2.5 px-3 font-mono text-[11px]">{d.transactionRef}</td>
                               <td className="py-2.5 px-3">
                                 {d.proofImageUrl ? (
@@ -3595,13 +3789,19 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                                   <span className="text-[10px] text-slate-400">No image</span>
                                 )}
                               </td>
-                              <td className="py-2.5 px-3">
+                              <td className="py-2.5 px-3 space-y-0.5">
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                                   d.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
                                   d.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
                                 }`}>
                                   {d.status}
                                 </span>
+                                {d.reviewedByName && (
+                                  <div className="text-[10px] text-slate-500">By: {d.reviewedByName}</div>
+                                )}
+                                {d.rejectionReason && (
+                                  <div className="text-[10px] text-rose-600">Reason: {d.rejectionReason}</div>
+                                )}
                               </td>
                             </tr>
                           ))
@@ -3617,40 +3817,144 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                       <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
                         <tr>
                           <th className="py-2.5 px-3">Date</th>
-                          <th className="py-2.5 px-3">Channel</th>
-                          <th className="py-2.5 px-3">Account Title / Number</th>
+                          <th className="py-2.5 px-3">Channel &amp; Destination</th>
                           <th className="py-2.5 px-3">Amount</th>
-                          <th className="py-2.5 px-3">Status</th>
-                          <th className="py-2.5 px-3">Payout Tx</th>
+                          <th className="py-2.5 px-3">Status &amp; Reason</th>
+                          <th className="py-2.5 px-3">Approved / Paid By &amp; TxRef</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-slate-700">
                         {dossierData.withdrawals.length === 0 ? (
-                          <tr><td colSpan={6} className="py-6 text-center text-slate-400">No withdrawals requested</td></tr>
+                          <tr><td colSpan={5} className="py-6 text-center text-slate-400">No withdrawals requested</td></tr>
                         ) : (
                           dossierData.withdrawals.map((w: any) => (
                             <tr key={w.id} className="hover:bg-slate-50">
-                              <td className="py-2.5 px-3">{new Date(w.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-                              <td className="py-2.5 px-3 font-semibold">{w.payoutMethod}</td>
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                <div>{new Date(w.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                                {w.completedAt && (
+                                  <div className="text-[10px] text-emerald-700">
+                                    Settled: {new Date(w.completedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                  </div>
+                                )}
+                              </td>
                               <td className="py-2.5 px-3">
-                                <span className="font-bold text-slate-900 block">{w.accountTitle}</span>
+                                <span className="font-bold text-slate-900 block">{w.payoutMethod} — {w.accountTitle}</span>
                                 <span className="font-mono text-[10px] text-slate-500">{w.accountNumber}</span>
                               </td>
-                              <td className="py-2.5 px-3 font-mono font-bold">${w.amountUSD.toFixed(2)}</td>
-                              <td className="py-2.5 px-3">
+                              <td className="py-2.5 px-3 font-mono font-bold">${w.amountUSD.toFixed(2)} USD</td>
+                              <td className="py-2.5 px-3 space-y-0.5">
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                                  w.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                  w.status === 'COMPLETED' || w.status === 'PAID' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
                                   w.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
                                 }`}>
                                   {w.status}
                                 </span>
+                                {w.rejectionReason && (
+                                  <div className="text-[10px] text-rose-600">Reason: {w.rejectionReason}</div>
+                                )}
                               </td>
-                              <td className="py-2.5 px-3 font-mono text-[10px] text-slate-500">{w.payoutRef || '-'}</td>
+                              <td className="py-2.5 px-3 text-[10px] space-y-0.5">
+                                {w.approvedByName && <div className="text-slate-600">Approved By: <strong>{w.approvedByName}</strong></div>}
+                                {w.paidByName && <div className="text-emerald-700">Paid By: <strong>{w.paidByName}</strong></div>}
+                                <div className="font-mono text-slate-500">TxRef: {w.payoutRef || '-'}</div>
+                              </td>
                             </tr>
                           ))
                         )}
                       </tbody>
                     </table>
+                  </div>
+                )}
+
+                {dossierTab === 'history' && (
+                  <div className="space-y-5 text-xs">
+                    {/* Account Level History */}
+                    <div className="space-y-2">
+                      <h4 className="font-bold text-slate-900 uppercase text-[11px] tracking-wider">
+                        Account Level History ({dossierData.levelHistory?.length || 0})
+                      </h4>
+                      {(!dossierData.levelHistory || dossierData.levelHistory.length === 0) ? (
+                        <p className="text-slate-400">No level transitions recorded.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {dossierData.levelHistory.map((h: any) => (
+                            <div key={h.id} className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                              <div>
+                                <div className="font-bold text-slate-900">{h.oldLevel} → {h.newLevel}</div>
+                                <div className="text-[11px] text-slate-500">{h.reason} • By: {h.adjustedByName || 'System'}</div>
+                              </div>
+                              <span className="text-[10px] text-slate-400 whitespace-nowrap">{new Date(h.createdAt).toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Referral Rank Milestone History */}
+                    <div className="space-y-2">
+                      <h4 className="font-bold text-slate-900 uppercase text-[11px] tracking-wider">
+                        Referral Rank &amp; Milestone History ({dossierData.rankHistory?.length || 0})
+                      </h4>
+                      {(!dossierData.rankHistory || dossierData.rankHistory.length === 0) ? (
+                        <p className="text-slate-400">Current Rank: {dossierData.user?.referralRank || 'New'} (No milestones claimed yet).</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {dossierData.rankHistory.map((m: any) => (
+                            <div key={m.id} className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200 flex items-center justify-between">
+                              <div>
+                                <div className="font-bold text-indigo-900">{m.rankName} (+${Number(m.rewardUSD).toFixed(2)} USD)</div>
+                                <div className="text-[11px] text-indigo-700">{m.qualifiedCount} qualified referrals</div>
+                              </div>
+                              <span className="text-[10px] text-indigo-500">{new Date(m.claimedAt).toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Account Lock / Unlock History */}
+                    <div className="space-y-2">
+                      <h4 className="font-bold text-slate-900 uppercase text-[11px] tracking-wider">
+                        Account Lock / Unlock History ({dossierData.lockHistory?.length || 0})
+                      </h4>
+                      {(!dossierData.lockHistory || dossierData.lockHistory.length === 0) ? (
+                        <p className="text-slate-400">No account locks recorded.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {dossierData.lockHistory.map((l: any) => (
+                            <div key={l.id} className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 flex items-center justify-between">
+                              <div>
+                                <div className="font-bold text-amber-900">
+                                  {l.action}{l.durationDays ? ` (${l.durationDays} Days)` : ''}
+                                </div>
+                                <div className="text-[11px] text-amber-800">{l.reason} • By: {l.performedByName || 'Admin'}</div>
+                              </div>
+                              <span className="text-[10px] text-amber-600">{new Date(l.createdAt).toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {dossierTab === 'timeline' && (
+                  <div className="space-y-2 text-xs">
+                    {(!dossierData.activityTimeline || dossierData.activityTimeline.length === 0) ? (
+                      <div className="py-6 text-center text-slate-400">No activity timeline entries yet.</div>
+                    ) : (
+                      dossierData.activityTimeline.map((ev: any, idx: number) => (
+                        <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-start justify-between gap-3">
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="font-bold text-slate-900">{ev.title}</div>
+                            <div className="text-[11px] text-slate-500 break-words">{ev.detail}</div>
+                          </div>
+                          <span className="text-[10px] font-mono text-slate-400 whitespace-nowrap shrink-0">
+                            {new Date(ev.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
 
@@ -3813,14 +4117,21 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-700">Select Target Tier</label>
               <div className="grid grid-cols-2 gap-2">
-                {[
-                  { key: 'LEVEL_0', name: 'Level 0 (New User)', min: '$0' },
-                  { key: 'LEVEL_1', name: 'Level 1', min: '$20' },
-                  { key: 'LEVEL_2', name: 'Level 2', min: '$100' },
-                  { key: 'LEVEL_3', name: 'Level 3', min: '$500' },
-                  { key: 'LEVEL_4', name: 'Level 4', min: '$1,000' },
-                  { key: 'LEVEL_5', name: 'Level 5', min: '$5,000' },
-                ].map((lvl) => (
+                {(levelsList.length > 0
+                  ? levelsList.map((l: any) => ({
+                      key: l.levelKey,
+                      name: l.name || l.levelKey,
+                      min: `$${((l.minQualificationUSD ?? 0) / 100).toLocaleString()}`,
+                    }))
+                  : [
+                      { key: 'NEW_USER', name: 'New User', min: '$0' },
+                      { key: 'LEVEL_1', name: 'Level 1', min: '$20' },
+                      { key: 'LEVEL_2', name: 'Level 2', min: '$100' },
+                      { key: 'LEVEL_3', name: 'Level 3', min: '$500' },
+                      { key: 'LEVEL_4', name: 'Level 4', min: '$2,000' },
+                      { key: 'LEVEL_5', name: 'Level 5', min: '$5,000' },
+                    ]
+                ).map((lvl) => (
                   <button
                     key={lvl.key}
                     type="button"
@@ -4357,22 +4668,61 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                   </div>
                 )}
 
-                {/* Package Tier Selector when 'ALL' is selected */}
+                {/* Package Tier & Account Level Eligibility + Lock/Active Controls (F4) */}
                 {formVideoTarget === 'ALL' && (
-                  <div className="p-3.5 rounded-2xl bg-slate-100 border border-slate-200 space-y-1.5 animate-in fade-in">
-                    <label className="block text-[11px] font-bold text-slate-800">
-                      Minimum Required Package Tier:
-                    </label>
-                    <select
-                      value={formVideoTier}
-                      onChange={(e) => setFormVideoTier(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-purple-500"
-                    >
-                      <option value="Starter">Starter ($20 - 2 videos)</option>
-                      <option value="Basic">Basic ($50 - 6 videos)</option>
-                      <option value="Premium">Premium ($100 - 15 videos)</option>
-                      <option value="VIP">VIP ($500 - 60 videos)</option>
-                    </select>
+                  <div className="p-3.5 rounded-2xl bg-slate-100 border border-slate-200 space-y-3 animate-in fade-in">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                          Minimum Package Tier:
+                        </label>
+                        <select
+                          value={formVideoTier}
+                          onChange={(e) => setFormVideoTier(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-purple-500"
+                        >
+                          <option value="Starter">Starter ($20 - 2 videos)</option>
+                          <option value="Basic">Basic ($50 - 6 videos)</option>
+                          <option value="Premium">Premium ($100 - 15 videos)</option>
+                          <option value="VIP">VIP ($500 - 60 videos)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                          Minimum Account Level Eligibility:
+                        </label>
+                        <select
+                          value={formVideoMinLevel}
+                          onChange={(e) => setFormVideoMinLevel(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-purple-500"
+                        >
+                          <option value="NEW_USER">New User (All Levels)</option>
+                          <option value="LEVEL_1">Level 1 ($20+)</option>
+                          <option value="LEVEL_2">Level 2 ($100+)</option>
+                          <option value="LEVEL_3">Level 3 ($500+)</option>
+                          <option value="LEVEL_4">Level 4 ($2,000+)</option>
+                          <option value="LEVEL_5">Level 5 ($5,000+)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-5 pt-1">
+                      <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formVideoIsPublished}
+                          onChange={(e) => setFormVideoIsPublished(e.target.checked)}
+                        />
+                        Active (Visible in Catalog)
+                      </label>
+                      <label className="flex items-center gap-2 text-xs font-bold text-amber-800 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formVideoIsLocked}
+                          onChange={(e) => setFormVideoIsLocked(e.target.checked)}
+                        />
+                        Locked (Active but restricted until unlocked)
+                      </label>
+                    </div>
                   </div>
                 )}
               </div>

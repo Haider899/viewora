@@ -1,9 +1,96 @@
 import { PrismaClient } from '@prisma/client';
-import { SupportBotService, SUPPORT_FAQS } from './supportBot.service.js';
+import { SupportBotService, SUPPORT_FAQS, BotAccountContext } from './supportBot.service.js';
+import { LedgerService } from './ledger.service.js';
 
 const prisma = new PrismaClient();
 
 export class SupportService {
+  private static async buildAccountContext(userId?: string | null): Promise<BotAccountContext | null> {
+    if (!userId) return null;
+    try {
+      const [user, wallet, deposits, withdrawals, totalReferrals, qualifiedReferrals] = await Promise.all([
+        prisma.user.findUnique({
+          where: { id: userId },
+          select: { fullName: true, memberCode: true, accountLevel: true },
+        }),
+        LedgerService.getUserWalletSummary(userId),
+        prisma.depositRequest.findMany({
+          where: { userId },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        }),
+        prisma.withdrawalRequest.findMany({
+          where: { userId },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        }),
+        prisma.user.count({ where: { referredById: userId } }),
+        prisma.user.count({ where: { referredById: userId, isQualifiedReferral: true } }),
+      ]);
+
+      if (!user) return null;
+
+      let referralRank = 'New';
+      if (qualifiedReferrals >= 501) referralRank = 'Rank 5';
+      else if (qualifiedReferrals >= 101) referralRank = 'Rank 4';
+      else if (qualifiedReferrals >= 11) referralRank = 'Diamond';
+      else if (qualifiedReferrals >= 6) referralRank = 'Platinum';
+      else if (qualifiedReferrals >= 1) referralRank = 'Gold';
+
+      return {
+        fullName: user.fullName,
+        memberCode: user.memberCode || undefined,
+        accountLevel: user.accountLevel,
+        mainUSD: (wallet.USD?.availableCents || 0) / 100,
+        videoRewardsUSD: (wallet.USD?.videoRewardsCents || 0) / 100,
+        referralUSD: (wallet.USD?.referralCents || 0) / 100,
+        reservedUSD: (wallet.USD?.reservedCents || 0) / 100,
+        totalReferrals,
+        qualifiedReferrals,
+        referralRank,
+        latestDeposits: deposits.map((d) => ({
+          amountUSD: d.amountCents / 100,
+          status: d.status,
+          transactionRef: d.transactionRef,
+          rejectionReason: d.rejectionReason,
+          createdAt: d.createdAt.toISOString(),
+        })),
+        latestWithdrawals: withdrawals.map((w) => ({
+          amountUSD: w.amountCents / 100,
+          status: w.status,
+          payoutRef: w.payoutRef,
+          rejectionReason: w.rejectionReason,
+          createdAt: w.createdAt.toISOString(),
+        })),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private static async attachQueueMetadata<T extends { id: string; status: string; createdAt: Date }>(convo: T) {
+    const ticketNumber = `TKT-${convo.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+    let queuePosition: number | null = null;
+    let estimatedWaitMinutes: number | null = null;
+
+    if (convo.status === 'WAITING_FOR_AGENT' || convo.status === 'ESCALATED_TO_ADMIN') {
+      const ahead = await prisma.supportConversation.count({
+        where: {
+          status: { in: ['WAITING_FOR_AGENT', 'ESCALATED_TO_ADMIN'] },
+          createdAt: { lte: convo.createdAt },
+        },
+      });
+      queuePosition = Math.max(1, ahead);
+      estimatedWaitMinutes = Math.min(30, queuePosition * 3);
+    }
+
+    return {
+      ...convo,
+      ticketNumber,
+      queuePosition,
+      estimatedWaitMinutes,
+    };
+  }
   /**
    * Retrieves active conversation for a user or creates a new one
    */
@@ -118,7 +205,7 @@ Ask a question below or select **"Talk to Agent"** to connect with a live suppor
       throw { statusCode: 404, code: 'NOT_FOUND', message: 'Conversation not found.' };
     }
 
-    return convo;
+    return await this.attachQueueMetadata(convo);
   }
 
   /**
@@ -168,7 +255,8 @@ Ask a question below or select **"Talk to Agent"** to connect with a live suppor
     const isEscalation = SupportBotService.isEscalationRequest(params.message);
 
     if (convo.status === 'BOT' || isEscalation) {
-      const botResult = SupportBotService.matchFaq(params.message);
+      const accountCtx = await this.buildAccountContext(params.userId || convo.userId);
+      const botResult = SupportBotService.matchFaq(params.message, accountCtx);
 
       if (botResult.suggestEscalation || isEscalation) {
         newStatus = 'WAITING_FOR_AGENT';
@@ -205,8 +293,10 @@ Ask a question below or select **"Talk to Agent"** to connect with a live suppor
       },
     });
 
+    const enrichedConvo = await this.attachQueueMetadata(updatedConvo);
+
     return {
-      conversation: updatedConvo,
+      conversation: enrichedConvo,
       userMessage,
       botMessage,
     };
@@ -294,7 +384,7 @@ Feel free to share your transaction reference or attach a screenshot.`,
     }
 
     return {
-      conversation: updated,
+      conversation: await this.attachQueueMetadata(updated),
       botMessage: botConfirmation,
     };
   }

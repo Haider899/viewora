@@ -71,6 +71,11 @@ export class AccountLevelService {
         create: lvl,
       });
     }
+    // Normalize any legacy LEVEL_0 users to NEW_USER
+    await prisma.user.updateMany({
+      where: { accountLevel: 'LEVEL_0' },
+      data: { accountLevel: 'NEW_USER' },
+    }).catch(() => {});
   }
 
   /**
@@ -173,6 +178,7 @@ export class AccountLevelService {
     reason: string,
     adminId: string
   ) {
+    const normalizedLevel = newLevel === 'LEVEL_0' ? 'NEW_USER' : newLevel;
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new Error('User not found.');
 
@@ -180,14 +186,14 @@ export class AccountLevelService {
     return await prisma.$transaction(async (tx) => {
       const updatedUser = await tx.user.update({
         where: { id: userId },
-        data: { accountLevel: newLevel },
+        data: { accountLevel: normalizedLevel },
       });
 
       await tx.accountLevelHistory.create({
         data: {
           userId,
           oldLevel,
-          newLevel,
+          newLevel: normalizedLevel,
           reason,
           adjustedById: adminId,
         },
@@ -199,7 +205,7 @@ export class AccountLevelService {
           action: 'MANUAL_LEVEL_ADJUSTMENT',
           resourceType: 'User',
           resourceId: userId,
-          details: JSON.stringify({ oldLevel, newLevel, reason }),
+          details: JSON.stringify({ oldLevel, newLevel: normalizedLevel, reason }),
         },
       });
 
@@ -207,7 +213,7 @@ export class AccountLevelService {
         data: {
           userId,
           title: 'Account Level Adjusted by Administrator',
-          message: `Your account level has been updated from ${oldLevel} to ${newLevel}. Reason: ${reason}`,
+          message: `Your account level has been updated from ${oldLevel} to ${normalizedLevel}. Reason: ${reason}`,
           type: 'INFO',
         },
       });
@@ -258,6 +264,15 @@ export class AccountLevelService {
         },
       });
 
+      await tx.notification.create({
+        data: {
+          userId,
+          title: 'Account Locked by Administrator',
+          message: `Your account has been locked for ${durationDays} days (until ${lockedUntil.toLocaleDateString()}). Reason: ${reason}`,
+          type: 'WARNING',
+        },
+      });
+
       return updated;
     });
   }
@@ -295,8 +310,56 @@ export class AccountLevelService {
         },
       });
 
+      await tx.notification.create({
+        data: {
+          userId,
+          title: 'Account Unlocked',
+          message: `Your account lock has been lifted by an administrator. Reason: ${reason}`,
+          type: 'SUCCESS',
+        },
+      });
+
       return updated;
     });
+  }
+
+  static async getDailyBonusBatches() {
+    const batches = await prisma.dailyBonusBatch.findMany({
+      orderBy: { batchDate: 'desc' },
+      take: 20,
+    });
+    const recentBonusTxs = await prisma.ledgerTransaction.findMany({
+      where: { reference: { startsWith: 'DAILY-BONUS-' } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        entries: {
+          where: { entryType: 'CREDIT' },
+          include: {
+            account: {
+              include: {
+                user: { select: { id: true, fullName: true, email: true, memberCode: true, accountLevel: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    return {
+      batches,
+      recentPayouts: recentBonusTxs.map((t) => {
+        const creditEntry = t.entries[0];
+        const u = creditEntry?.account?.user;
+        return {
+          id: t.id,
+          reference: t.reference,
+          description: t.description,
+          amountUSD: ((creditEntry?.amountCents || 0) / 100).toFixed(2),
+          createdAt: t.createdAt,
+          user: u || null,
+        };
+      }),
+    };
   }
 
   /**
@@ -310,7 +373,12 @@ export class AccountLevelService {
       where: { batchDate: today },
     });
     if (existing && existing.status === 'COMPLETED') {
-      return { message: 'Daily bonus batch for today has already executed.', batch: existing };
+      const history = await this.getDailyBonusBatches();
+      return {
+        message: 'Daily bonus batch for today has already executed.',
+        batch: existing,
+        payouts: history.recentPayouts.filter((p) => p.reference.endsWith(today)),
+      };
     }
 
     const levels = await this.getAllLevels();
@@ -330,6 +398,15 @@ export class AccountLevelService {
 
     let totalUsersPaid = 0;
     let totalCentsPaid = 0;
+    const payouts: Array<{
+      userId: string;
+      fullName: string;
+      email: string;
+      accountLevel: string;
+      bonusCents: number;
+      bonusUSD: string;
+      reference: string;
+    }> = [];
 
     await prisma.$transaction(async (tx) => {
       const sysExpense = await LedgerService.getOrCreateAccount(
@@ -343,7 +420,6 @@ export class AccountLevelService {
         const lvl = levelMap.get(u.accountLevel);
         if (!lvl || lvl.dailyBonusRateBps <= 0) continue;
 
-        // Reward calculation based on minimum qualification value and daily basis points
         const bonusCents = Math.floor((lvl.minQualificationUSD * lvl.dailyBonusRateBps) / 10000);
         if (bonusCents <= 0) continue;
 
@@ -378,8 +454,26 @@ export class AccountLevelService {
           tx
         );
 
+        await tx.notification.create({
+          data: {
+            userId: u.id,
+            title: 'Daily Level Bonus Credited',
+            message: `+$${(bonusCents / 100).toFixed(2)} USD daily bonus (${lvl.name}) credited to your Main Account for ${today}.`,
+            type: 'SUCCESS',
+          },
+        });
+
         totalUsersPaid++;
         totalCentsPaid += bonusCents;
+        payouts.push({
+          userId: u.id,
+          fullName: u.fullName,
+          email: u.email,
+          accountLevel: lvl.name,
+          bonusCents,
+          bonusUSD: (bonusCents / 100).toFixed(2),
+          reference: ref,
+        });
       }
 
       await tx.dailyBonusBatch.upsert({
@@ -407,6 +501,7 @@ export class AccountLevelService {
       batchDate: today,
       totalUsersPaid,
       totalAmountUSD: (totalCentsPaid / 100).toFixed(2),
+      payouts,
     };
   }
 }

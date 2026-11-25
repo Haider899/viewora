@@ -37,8 +37,12 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const fetchDepositData = async () => {
+  const fetchDepositData = async (clearMessages = false) => {
     setLoadingMethods(true);
+    if (clearMessages) {
+      setSuccessMsg(null);
+      setErrorMsg(null);
+    }
     try {
       const [methodsRes, myDepositsRes] = await Promise.all([
         api.getPaymentMethods(),
@@ -184,7 +188,7 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={fetchDepositData}
+            onClick={() => fetchDepositData(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-600"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -232,6 +236,7 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
                   onClick={() => {
                     setSelectedMethod(method);
                     setErrorMsg(null);
+                    setSuccessMsg(null);
                   }}
                   className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center justify-between ${
                     selectedMethod?.id === method.id
