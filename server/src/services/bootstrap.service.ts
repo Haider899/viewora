@@ -240,7 +240,20 @@ export class BootstrapService {
       }
     }
 
-    // 5. Ensure Initial 10 Videos
+    // 5. Ensure Initial 10 Videos (using verified HTTP 200 public MP4 streams)
+    const verifiedMp4Streams = [
+      { url: 'https://media.w3.org/2010/05/sintel/trailer.mp4', dur: 52 },
+      { url: 'https://media.w3.org/2010/05/bunny/trailer.mp4', dur: 33 },
+      { url: 'https://vjs.zencdn.net/v/oceans.mp4', dur: 46 },
+      { url: 'https://filesamples.com/samples/video/mp4/sample_640x360.mp4', dur: 13 },
+      { url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4', dur: 5 },
+      { url: 'https://media.w3.org/2010/05/sintel/trailer.mp4', dur: 52 },
+      { url: 'https://media.w3.org/2010/05/bunny/trailer.mp4', dur: 33 },
+      { url: 'https://vjs.zencdn.net/v/oceans.mp4', dur: 46 },
+      { url: 'https://filesamples.com/samples/video/mp4/sample_640x360.mp4', dur: 13 },
+      { url: 'https://media.w3.org/2010/05/bunny/trailer.mp4', dur: 33 },
+    ];
+
     const videoCount = await prisma.video.count();
     if (videoCount === 0) {
       const initialVideos = [
@@ -249,100 +262,100 @@ export class BootstrapService {
           description: 'Introduction to programmatic media buying, impressions, and brand safety verification.',
           category: 'AI & Systems Architecture',
           minPackageTier: 'Starter',
-          durationSeconds: 30,
+          durationSeconds: verifiedMp4Streams[0].dur,
           rewardAmountCents: 50,
           thumbnailUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+          videoUrl: verifiedMp4Streams[0].url,
         },
         {
           title: 'Audience Telemetry & Engagement Metrics',
           description: 'Understanding verified viewer retention, heartbeat validation, and ad completion quality.',
           category: 'AI & Systems Architecture',
           minPackageTier: 'Starter',
-          durationSeconds: 15,
+          durationSeconds: verifiedMp4Streams[1].dur,
           rewardAmountCents: 50,
           thumbnailUrl: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+          videoUrl: verifiedMp4Streams[1].url,
         },
         {
           title: 'Double-Entry Treasury & Financial Auditing',
           description: 'How institutional digital platforms keep balanced debits, credits, and payout reserves.',
           category: 'Quantitative Finance & Ledgering',
           minPackageTier: 'Basic',
-          durationSeconds: 15,
+          durationSeconds: verifiedMp4Streams[2].dur,
           rewardAmountCents: 75,
           thumbnailUrl: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=800&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+          videoUrl: verifiedMp4Streams[2].url,
         },
         {
           title: 'High-Conversion Video Creative Strategy',
           description: 'Designing engaging 15-to-60 second video campaigns that maximize brand recall.',
           category: 'Full-Stack Software Engineering',
           minPackageTier: 'Basic',
-          durationSeconds: 15,
+          durationSeconds: verifiedMp4Streams[3].dur,
           rewardAmountCents: 75,
           thumbnailUrl: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=800&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoy.mp4',
+          videoUrl: verifiedMp4Streams[3].url,
         },
         {
           title: 'Cross-Border USD Digital Settlement Rails',
           description: 'Modern stablecoin and wire verification workflows for transparent digital operations.',
           category: 'Full-Stack Software Engineering',
           minPackageTier: 'Basic',
-          durationSeconds: 60,
+          durationSeconds: verifiedMp4Streams[4].dur,
           rewardAmountCents: 75,
           thumbnailUrl: 'https://images.unsplash.com/photo-1504639725590-34d0984388bd?auto=format&fit=crop&w=800&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
+          videoUrl: verifiedMp4Streams[4].url,
         },
         {
           title: 'Brand Risk Protection & Fraud Prevention',
           description: 'Detecting non-human traffic, replay tampering, and invalid session claims in real time.',
           category: 'Cybersecurity & Cryptography',
           minPackageTier: 'Premium',
-          durationSeconds: 60,
+          durationSeconds: verifiedMp4Streams[5].dur,
           rewardAmountCents: 100,
           thumbnailUrl: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=800&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4',
+          videoUrl: verifiedMp4Streams[5].url,
         },
         {
           title: 'Quantitative Performance Attribution',
           description: 'Measuring campaign ROI, position-based affiliate attribution, and cohort retention.',
           category: 'Quantitative Finance & Ledgering',
           minPackageTier: 'Premium',
-          durationSeconds: 60,
+          durationSeconds: verifiedMp4Streams[6].dur,
           rewardAmountCents: 100,
           thumbnailUrl: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=800&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4',
+          videoUrl: verifiedMp4Streams[6].url,
         },
         {
           title: 'Scaling Multi-Region Digital Networks',
           description: 'Building resilient cloud delivery pipelines for global media distribution.',
           category: 'Venture Creation & Scaling',
           minPackageTier: 'Premium',
-          durationSeconds: 120,
+          durationSeconds: verifiedMp4Streams[7].dur,
           rewardAmountCents: 100,
           thumbnailUrl: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4',
+          videoUrl: verifiedMp4Streams[7].url,
         },
         {
           title: 'Enterprise Governance & Regulatory Compliance',
           description: 'Operational transparency, audit logging, and strict separation of financial duties.',
           category: 'Executive Leadership & Strategy',
           minPackageTier: 'VIP',
-          durationSeconds: 120,
+          durationSeconds: verifiedMp4Streams[8].dur,
           rewardAmountCents: 150,
           thumbnailUrl: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=800&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4',
+          videoUrl: verifiedMp4Streams[8].url,
         },
         {
           title: 'Strategic Media Leadership & Growth',
           description: 'Executive playbook for sustaining creator ecosystems and enterprise sponsor partnerships.',
           category: 'Executive Leadership & Strategy',
           minPackageTier: 'VIP',
-          durationSeconds: 120,
+          durationSeconds: verifiedMp4Streams[9].dur,
           rewardAmountCents: 150,
           thumbnailUrl: 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=800&q=80',
-          videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+          videoUrl: verifiedMp4Streams[9].url,
         },
       ];
 
@@ -357,6 +370,22 @@ export class BootstrapService {
           },
         });
         idx++;
+      }
+    } else {
+      // Auto-repair any existing seeded videos pointing to the deprecated 403 Google gtv-videos-bucket
+      const brokenVideos = await prisma.video.findMany({
+        where: { videoUrl: { contains: 'commondatastorage.googleapis.com/gtv-videos-bucket' } },
+        orderBy: { orderIndex: 'asc' },
+      });
+      for (let i = 0; i < brokenVideos.length; i++) {
+        const replacement = verifiedMp4Streams[i % verifiedMp4Streams.length];
+        await prisma.video.update({
+          where: { id: brokenVideos[i].id },
+          data: {
+            videoUrl: replacement.url,
+            durationSeconds: replacement.dur,
+          },
+        });
       }
     }
 

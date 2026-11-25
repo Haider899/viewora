@@ -4485,10 +4485,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 />
               ) : (
                 <video
+                  key={videoPreviewModal.id}
                   src={videoPreviewModal.videoUrl}
                   poster={videoPreviewModal.thumbnailUrl}
                   controls
                   autoPlay
+                  playsInline
+                  preload="auto"
                   className="w-full h-full object-contain"
                 />
               )}
