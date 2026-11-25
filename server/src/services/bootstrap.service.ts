@@ -65,23 +65,23 @@ export const DEFAULT_NOTIFICATION_SETTINGS = {
 };
 
 export const DEFAULT_LANDING_CONTENT = {
-  badgeText: 'U-Ads • Digital Advertising & Engagement Engine',
-  heroTitle: 'Watch Verified Campaigns &',
-  heroHighlight: 'Earn Real USD Rewards',
+  badgeText: 'U-Ads • Verified Video Campaigns & USD Rewards',
+  heroTitle: 'Watch Verified Campaigns & Earn Real USD Rewards',
+  heroHighlight: '',
   heroSubtitle:
-    'Access curated digital media and advertising masterclasses on U-Ads. Complete full verified sessions, grow your referral rank, and manage everything in USD with an immutable double-entry ledger.',
+    'Access curated digital media campaigns on U-Ads. Complete verified full-duration sessions, grow your referral rank, and manage everything in USD with a transparent double-entry ledger.',
   videoPreviewHeading: 'Featured Video Preview',
   videoPreviewSubtitle:
-    'Explore sample training and media modules. Unlock higher video limits as your account level and access tier advance.',
+    'Explore active campaigns in the catalog. Unlock higher video limits as your account level and plan advance.',
   rewardsHeading: 'Transparent Rewards & Bonus Structure',
   rewardsSubtitle:
-    'Three distinct reward streams funded by verified platform engagement and package revenue — tracked transparently in your USD wallets.',
+    'Three distinct USD reward streams tracked cleanly across your Main, Video Rewards, and Referral wallets.',
   contactHeading: 'Contact & 24/7 Customer Support',
   contactSubtitle:
-    'Need assistance with deposits, account levels, or payouts? Our dedicated support team responds directly through live chat and official channels.',
+    'Need help with deposits, account levels, or payouts? Our support team responds directly through live chat and email.',
   contactEmail: 'support@u-ads.com',
   contactPhone: '+1 (800) 555-0194',
-  contactHours: '24/7 Live Support • Deposit Audit: 10–30 Minutes',
+  contactHours: '24/7 Live Support • Deposit Verification: 10–30 Minutes',
   contactAddress: 'U-Ads Digital Operations Center, Suite 400',
 };
 
@@ -452,7 +452,44 @@ export class BootstrapService {
       const existing = await prisma.systemSetting.findUnique({ where: { key: s.key } });
       if (!existing) {
         await prisma.systemSetting.create({ data: s });
+      } else if (s.key === 'LANDING_CONTENT') {
+        try {
+          const parsed = JSON.parse(existing.value || '{}');
+          if (
+            typeof parsed.heroTitle === 'string' &&
+            parsed.heroTitle.trim().endsWith('&') &&
+            !parsed.heroHighlight
+          ) {
+            parsed.heroTitle = 'Watch Verified Campaigns & Earn Real USD Rewards';
+            await prisma.systemSetting.update({
+              where: { key: s.key },
+              data: { value: JSON.stringify(parsed) },
+            });
+          }
+        } catch {
+          // ignore malformed json
+        }
       }
+    }
+
+    // 8. Clean any legacy VistaraX strings in stored support messages
+    const legacyMsgs = await prisma.supportMessage.findMany({
+      where: {
+        OR: [
+          { message: { contains: 'VistaraX' } },
+          { senderName: { contains: 'VistaraX' } },
+        ],
+      },
+      select: { id: true, message: true, senderName: true },
+    });
+    for (const m of legacyMsgs) {
+      await prisma.supportMessage.update({
+        where: { id: m.id },
+        data: {
+          message: m.message.replace(/VistaraX/gi, 'U-Ads'),
+          senderName: m.senderName.replace(/VistaraX/gi, 'U-Ads'),
+        },
+      }).catch(() => {});
     }
   }
 }

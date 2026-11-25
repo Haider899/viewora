@@ -2,46 +2,58 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { PaymentMethod, DepositRequest } from '../types/index.js';
+import { useToast } from '../components/ToastProvider.js';
+import { formatDateTime, formatUSD } from '../utils/formatters.js';
 import {
   ArrowDownLeft,
-  ArrowLeft,
   CheckCircle2,
   AlertCircle,
   Copy,
+  Check,
   Clock,
   ShieldCheck,
   UploadCloud,
-  Image as ImageIcon,
   Trash2,
   RefreshCw,
+  Eye,
+  X,
 } from 'lucide-react';
 
 interface DepositProps {
   navigate?: (route: string) => void;
 }
 
-export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
+export const DepositPage: React.FC<DepositProps> = () => {
   const { user, refreshWallet } = useAuth();
+  const { showToast } = useToast();
+
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [loadingMethods, setLoadingMethods] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
   const [deposits, setDeposits] = useState<DepositRequest[]>([]);
+
   const [amountInput, setAmountInput] = useState('');
   const [txRefInput, setTxRefInput] = useState('');
   const [senderName, setSenderName] = useState(user?.fullName || '');
   const [senderPhone, setSenderPhone] = useState('');
   const [proofImage, setProofImage] = useState<string>('');
   const [proofFileName, setProofFileName] = useState<string>('');
+
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ amount?: string; txRef?: string }>({});
+  const [viewingSlipUrl, setViewingSlipUrl] = useState<string | null>(null);
 
-  const fetchDepositData = async (clearMessages = false) => {
-    setLoadingMethods(true);
-    if (clearMessages) {
+  const fetchDepositData = async (isManualRefresh = false) => {
+    if (isManualRefresh) {
+      setRefreshing(true);
       setSuccessMsg(null);
       setErrorMsg(null);
+    } else {
+      setLoadingMethods(true);
     }
     try {
       const [methodsRes, myDepositsRes] = await Promise.all([
@@ -65,45 +77,45 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
       if (myDepositsRes.success && myDepositsRes.data) {
         setDeposits(myDepositsRes.data);
       }
+      if (isManualRefresh) {
+        showToast('Deposit channels and history refreshed.', 'success');
+      }
     } catch (err) {
       console.error('Failed to load deposit methods:', err);
-      setErrorMsg('Unable to load deposit channels. Please refresh the page.');
+      setErrorMsg('Unable to load deposit channels. Please refresh.');
     } finally {
       setLoadingMethods(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    fetchDepositData();
+    fetchDepositData(false);
   }, []);
 
   const handleCopyAccount = (text?: string) => {
     if (!text) return;
     navigator.clipboard.writeText(text);
     setCopied(true);
+    showToast('Recipient address copied to clipboard.', 'success');
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleReceiptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (!file.type.startsWith('image/')) {
-      setErrorMsg('Please upload a valid image file (PNG, JPG, JPEG, WEBP).');
+      setErrorMsg('Please upload an image file (PNG, JPG, or WEBP).');
       return;
     }
-
     if (file.size > 5 * 1024 * 1024) {
-      setErrorMsg('Image size should be less than 5 MB.');
+      setErrorMsg('Receipt image must be smaller than 5 MB.');
       return;
     }
-
     setErrorMsg(null);
     setProofFileName(file.name);
     const reader = new FileReader();
-    reader.onload = () => {
-      setProofImage(reader.result as string);
-    };
+    reader.onload = () => setProofImage(reader.result as string);
     reader.readAsDataURL(file);
   };
 
@@ -112,37 +124,36 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
     setErrorMsg(null);
     setSuccessMsg(null);
 
+    const nextFieldErrors: { amount?: string; txRef?: string } = {};
+
     if (!selectedMethod) {
-      setErrorMsg(
-        methods.length === 0
-          ? 'No active USD payment channels are currently configured. Please contact U-Ads support.'
-          : 'Please select a verified USD payment channel on the left before submitting.'
-      );
+      setErrorMsg('Please select a payment channel on the left before submitting.');
       return;
     }
 
     const parsedAmount = parseFloat(amountInput);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      setErrorMsg('Please enter a valid USD deposit amount.');
-      return;
-    }
-
-    const amountCents = Math.round(parsedAmount * 100);
-
-    if (amountCents < selectedMethod.minAmountCents || amountCents > selectedMethod.maxAmountCents) {
-      setErrorMsg(
-        `Amount must be between $${(selectedMethod.minAmountCents / 100).toFixed(2)} and $${(
-          selectedMethod.maxAmountCents / 100
-        ).toFixed(2)} USD.`
-      );
-      return;
+      nextFieldErrors.amount = 'Enter a valid USD amount.';
+    } else {
+      const amountCents = Math.round(parsedAmount * 100);
+      if (amountCents < selectedMethod.minAmountCents || amountCents > selectedMethod.maxAmountCents) {
+        nextFieldErrors.amount = `Amount must be between ${formatUSD(selectedMethod.minAmountCents)} and ${formatUSD(
+          selectedMethod.maxAmountCents
+        )}.`;
+      }
     }
 
     if (!txRefInput.trim()) {
-      setErrorMsg('Please provide your authentic transaction ID, wire reference, or blockchain TxHash.');
-      return;
+      nextFieldErrors.txRef = 'Enter your transaction ID, TxHash, or wire reference.';
     }
 
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setFieldErrors(nextFieldErrors);
+      return;
+    }
+    setFieldErrors({});
+
+    const amountCents = Math.round(parsedAmount * 100);
     setSubmitting(true);
     try {
       const res = await api.createDepositRequest({
@@ -157,16 +168,17 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
 
       if (res.success) {
         setSuccessMsg(
-          'Deposit submitted successfully! Status is Pending Verification (typical verification time: 10–30 minutes). Your Main Account Credits will update automatically once approved by Admin.'
+          `Deposit of ${formatUSD(amountCents)} submitted. Verification normally takes 10–30 minutes.`
         );
+        showToast('Deposit submitted for verification.', 'success');
         setAmountInput('');
         setTxRefInput('');
         setProofImage('');
         setProofFileName('');
-        await fetchDepositData();
+        await fetchDepositData(false);
         await refreshWallet();
       } else {
-        setErrorMsg(res.error?.message || 'Submission failed. Please check your details and try again.');
+        setErrorMsg(res.error?.message || 'Submission failed. Please check your details.');
       }
     } catch {
       setErrorMsg('Network error submitting deposit. Please try again.');
@@ -176,137 +188,110 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
   };
 
   return (
-    <div className="space-y-8">
-      {/* Top Header */}
-      <div className="pb-4 border-b border-slate-100 flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-extrabold text-slate-900">Deposit USD Credits</h2>
-          <p className="text-xs text-slate-500">
-            Send USD to an active U-Ads treasury channel and submit your transaction reference. Verification typically takes 10–30 minutes.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fetchDepositData(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-600"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
-          </button>
-          {navigate && (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Step 1: Select Channel & Recipient Details */}
+        <div className="lg:col-span-5 space-y-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Step 1 · Choose USD Channel
+            </h3>
             <button
-              onClick={() => navigate('wallet')}
-              className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 px-2"
+              type="button"
+              onClick={() => fetchDepositData(true)}
+              disabled={refreshing}
+              className="btn-secondary !h-8 !px-3"
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Wallet
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>{refreshing ? 'Refreshing…' : 'Refresh'}</span>
             </button>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left: Payment Method Selection & Instructions */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-            1. Select Verified USD Channel
           </div>
 
           {loadingMethods ? (
-            <div className="p-6 rounded-2xl bg-white border border-slate-200 text-xs text-slate-500 text-center">
-              Loading active USD payment channels...
+            <div className="space-y-2.5">
+              <div className="h-20 rounded-2xl skeleton-shimmer" />
+              <div className="h-20 rounded-2xl skeleton-shimmer" />
             </div>
           ) : methods.length === 0 ? (
-            <div className="p-5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-2">
+            <div className="card-white p-5 border-rose-200 bg-rose-50/40 text-xs text-rose-800 space-y-1.5">
               <div className="font-bold flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                No Active USD Deposit Channels Available
+                No active USD channels right now
               </div>
-              <p className="text-rose-700 leading-relaxed">
-                Payment channels are currently being updated by our Finance Desk. Please click Refresh or contact U-Ads Live Support.
+              <p className="text-rose-700">
+                Please refresh shortly or reach out to Support for assistance.
               </p>
             </div>
           ) : (
             <div className="space-y-2.5">
-              {methods.map((method) => (
-                <button
-                  key={method.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedMethod(method);
-                    setErrorMsg(null);
-                    setSuccessMsg(null);
-                  }}
-                  className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center justify-between ${
-                    selectedMethod?.id === method.id
-                      ? 'bg-emerald-50/70 border-emerald-500 shadow-xs'
-                      : 'bg-white border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="space-y-1">
-                    <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                      {method.name}
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                        USD
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      Min: ${(method.minAmountCents / 100).toLocaleString()} USD • Max: ${(method.maxAmountCents / 100).toLocaleString()} USD
-                    </div>
-                  </div>
-                  <div
-                    className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
-                      selectedMethod?.id === method.id
-                        ? 'border-emerald-600 bg-emerald-600'
-                        : 'border-slate-400'
+              {methods.map((method) => {
+                const isSelected = selectedMethod?.id === method.id;
+                return (
+                  <button
+                    key={method.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedMethod(method);
+                      setErrorMsg(null);
+                      setSuccessMsg(null);
+                      setFieldErrors({});
+                    }}
+                    className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 cursor-pointer ${
+                      isSelected
+                        ? 'bg-emerald-50/70 border-emerald-500 shadow-2xs'
+                        : 'bg-white border-slate-200 hover:border-slate-300'
                     }`}
                   >
-                    {selectedMethod?.id === method.id && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                  </div>
-                </button>
-              ))}
+                    <div className="space-y-0.5">
+                      <div className="text-sm font-bold text-slate-900">{method.name}</div>
+                      <div className="text-[11px] text-slate-500 tabular-nums">
+                        {formatUSD(method.minAmountCents)} min · {formatUSD(method.maxAmountCents)} max
+                      </div>
+                    </div>
+                    <div
+                      className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                        isSelected ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'
+                      }`}
+                    >
+                      {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
 
-          {/* Treasury Account Details Box */}
           {selectedMethod && (
-            <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-4">
-              <div className="text-xs font-bold text-emerald-700 uppercase tracking-widest flex items-center gap-1.5">
+            <div className="card-white p-5 space-y-4">
+              <div className="text-xs font-bold text-emerald-700 flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                Verified U-Ads Treasury Recipient
+                Recipient Details
               </div>
 
               <div className="space-y-3 text-xs">
                 <div>
-                  <span className="text-slate-500 font-medium">Account Title:</span>
+                  <div className="text-slate-500">Account Name</div>
                   <div className="font-bold text-slate-900 text-sm mt-0.5">
                     {selectedMethod.accountTitle}
                   </div>
                 </div>
 
                 <div>
-                  <span className="text-slate-500 font-medium">Wallet Address / Account Number:</span>
-                  <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 font-mono font-bold text-slate-900 mt-1">
-                    <span className="break-all">{selectedMethod.accountNumber}</span>
+                  <div className="text-slate-500">Wallet Address / Account Number</div>
+                  <div className="mt-1 flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 font-mono font-bold text-slate-900">
+                    <span className="break-all text-xs">{selectedMethod.accountNumber}</span>
                     <button
                       type="button"
                       onClick={() => handleCopyAccount(selectedMethod.accountNumber)}
-                      className="p-1 rounded text-slate-500 hover:text-slate-900 shrink-0"
-                      title="Copy"
+                      className="btn-secondary !h-8 !px-2.5 shrink-0"
                     >
-                      <Copy className="w-4 h-4" />
+                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copied ? 'Copied' : 'Copy'}</span>
                     </button>
                   </div>
-                  {copied && (
-                    <span className="text-[10px] text-emerald-600 font-bold mt-1 block">
-                      Copied to clipboard!
-                    </span>
-                  )}
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 leading-relaxed">
-                  <span className="font-bold text-slate-800">Instructions: </span>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-relaxed">
                   {selectedMethod.instructions}
                 </div>
               </div>
@@ -314,119 +299,126 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
           )}
         </div>
 
-        {/* Right: Submission Form */}
+        {/* Step 2: Submit Payment Proof & History */}
         <div className="lg:col-span-7 space-y-6">
-          <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-            2. Submit Payment Details
-          </div>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            Step 2 · Submit Transfer Details
+          </h3>
 
-          <form
-            onSubmit={handleSubmitDeposit}
-            className="p-8 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-5"
-          >
-            {/* Amount */}
+          <form onSubmit={handleSubmitDeposit} noValidate className="card-white p-6 space-y-5">
+            {/* Expected Verification Time Info */}
+            <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 text-xs text-emerald-900 flex items-start gap-2.5">
+              <Clock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">Typical verification time: 10–30 minutes.</span> Once approved, your Main Account balance updates automatically and you receive a notification.
+              </div>
+            </div>
+
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Deposit Amount (USD)
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Deposit Amount (USD) <span className="text-rose-600">*</span>
               </label>
               <input
                 type="number"
                 step="any"
                 min="1"
-                placeholder="e.g. 50.00"
+                placeholder="50.00"
                 value={amountInput}
-                onChange={(e) => setAmountInput(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500 font-mono font-bold"
-                required
+                onChange={(e) => {
+                  setAmountInput(e.target.value);
+                  setFieldErrors((f) => ({ ...f, amount: undefined }));
+                }}
+                className={`w-full h-11 rounded-[10px] px-3.5 text-sm font-bold tabular-nums bg-slate-50 border text-slate-900 placeholder-slate-400 ${
+                  fieldErrors.amount ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-emerald-500'
+                }`}
               />
+              {fieldErrors.amount && (
+                <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {fieldErrors.amount}
+                </p>
+              )}
             </div>
 
-            {/* Transaction Ref */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Transaction ID / Blockchain TxHash / Wire Reference
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Transaction ID / TxHash / Wire Reference <span className="text-rose-600">*</span>
               </label>
               <input
                 type="text"
-                placeholder="e.g. TRC-20 TxHash or International Wire Reference Number"
+                placeholder="Paste your exact transaction reference"
                 value={txRefInput}
-                onChange={(e) => setTxRefInput(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500 font-mono"
-                required
+                onChange={(e) => {
+                  setTxRefInput(e.target.value);
+                  setFieldErrors((f) => ({ ...f, txRef: undefined }));
+                }}
+                className={`w-full h-11 rounded-[10px] px-3.5 text-sm font-mono bg-slate-50 border text-slate-900 placeholder-slate-400 ${
+                  fieldErrors.txRef ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-emerald-500'
+                }`}
               />
-              <span className="text-[10px] text-slate-400 mt-1 block">
-                Must match your official receipt. Duplicate transaction references are automatically rejected.
-              </span>
+              {fieldErrors.txRef ? (
+                <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {fieldErrors.txRef}
+                </p>
+              ) : (
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Must match your payment receipt. Each reference can only be used once.
+                </p>
+              )}
             </div>
 
-            {/* Sender Name & Contact */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Sender Full Name
-                </label>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Sender Name</label>
                 <input
                   type="text"
                   placeholder="Account holder name"
                   value={senderName}
                   onChange={(e) => setSenderName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                  className="w-full h-10 rounded-[10px] px-3.5 text-xs bg-slate-50 border border-slate-200 text-slate-900 focus:border-emerald-500"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Sender Wallet / Contact Phone
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Sender Wallet or Phone
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Sender TRC-20 address or phone"
+                  placeholder="Optional sender address or phone"
                   value={senderPhone}
                   onChange={(e) => setSenderPhone(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                  className="w-full h-10 rounded-[10px] px-3.5 text-xs bg-slate-50 border border-slate-200 text-slate-900 focus:border-emerald-500"
                 />
               </div>
             </div>
 
-            {/* Payment Receipt / Screenshot Upload */}
+            {/* Receipt Upload */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Payment Receipt Screenshot / Slip
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Payment Receipt Screenshot
               </label>
-
               {!proofImage ? (
-                <label className="border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-50/50 hover:bg-emerald-50/30 transition-all text-center group">
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-emerald-100 flex items-center justify-center text-slate-500 group-hover:text-emerald-600 transition-colors">
-                    <UploadCloud className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-slate-700 group-hover:text-emerald-700">
-                      Click to upload payment receipt / screenshot
-                    </span>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      PNG, JPG, JPEG, WEBP up to 5MB (USDT confirmation or bank wire receipt)
-                    </p>
-                  </div>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleReceiptFileChange}
-                    className="hidden"
-                  />
+                <label className="border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded-xl p-4 flex flex-col items-center justify-center gap-1.5 cursor-pointer bg-slate-50/60 hover:bg-emerald-50/30 transition-all text-center">
+                  <UploadCloud className="w-5 h-5 text-slate-400" />
+                  <span className="text-xs font-bold text-slate-700">Upload receipt image</span>
+                  <span className="text-[11px] text-slate-400">PNG, JPG, or WEBP up to 5 MB</span>
+                  <input type="file" accept="image/*" onChange={handleReceiptFileChange} className="hidden" />
                 </label>
               ) : (
-                <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 overflow-hidden">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <img
                       src={proofImage}
                       alt="Receipt preview"
-                      className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0"
+                      className="w-11 h-11 rounded-lg object-cover border border-slate-200 shrink-0"
                     />
-                    <div className="truncate">
+                    <div className="min-w-0">
                       <div className="text-xs font-bold text-slate-900 truncate">
-                        {proofFileName || 'Receipt Slip Attached'}
+                        {proofFileName || 'Receipt attached'}
                       </div>
-                      <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Ready for submission
+                      <span className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Ready to submit
                       </span>
                     </div>
                   </div>
@@ -436,7 +428,7 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
                       setProofImage('');
                       setProofFileName('');
                     }}
-                    className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0"
+                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                     title="Remove receipt"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -445,64 +437,61 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
               )}
             </div>
 
-            {/* Alerts */}
             {errorMsg && (
-              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>{errorMsg}</span>
               </div>
             )}
             {successMsg && (
-              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2">
+              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
                 <span>{successMsg}</span>
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full py-3.5 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white transition-all flex items-center justify-center gap-2 shadow-sm text-sm cursor-pointer"
-            >
+            <button type="submit" disabled={submitting} className="btn-primary w-full !h-11">
               <ArrowDownLeft className="w-4 h-4" />
-              {submitting ? 'Submitting Request...' : 'Submit Deposit for Verification'}
+              <span>{submitting ? 'Submitting…' : 'Submit Deposit for Verification'}</span>
             </button>
           </form>
 
-          {/* Past Deposits Status Table */}
-          <div className="rounded-3xl bg-white border border-slate-200/90 shadow-xs p-6 space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-emerald-600" />
-              Your Deposit Requests History
-            </h3>
-
+          {/* Deposit History */}
+          <div className="card-white p-5 space-y-4">
+            <h3 className="text-sm font-bold text-slate-900">Your Deposit History</h3>
             {deposits.length === 0 ? (
-              <p className="text-xs text-slate-400">No deposit requests submitted yet.</p>
+              <p className="text-xs text-slate-500 py-4 text-center">
+                No deposit requests yet. Submit your first transfer above to fund your Main Account.
+              </p>
             ) : (
               <div className="space-y-2.5">
                 {deposits.map((dep) => (
                   <div
                     key={dep.id}
-                    className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs"
+                    className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs"
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="space-y-0.5">
-                        <div className="font-bold text-slate-900">
-                          ${(dep.amountCents / 100).toFixed(2)} USD
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="font-extrabold text-slate-900 text-sm tabular-nums">
+                          {formatUSD(dep.amountCents)}
                         </div>
-                        <div className="font-mono text-[10px] text-slate-500">
-                          Ref: {dep.transactionRef} • {new Date(dep.createdAt).toLocaleString()}
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          <span className="font-mono">{dep.transactionRef}</span> · {formatDateTime(dep.createdAt)}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {dep.proofImageUrl && (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 flex items-center gap-1">
-                            <ImageIcon className="w-3 h-3 text-emerald-600" />
-                            Slip
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setViewingSlipUrl(dep.proofImageUrl || null)}
+                            className="btn-secondary !h-8 !px-2.5 text-[11px]"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-slate-500" />
+                            <span>View slip</span>
+                          </button>
                         )}
                         <span
-                          className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                          className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${
                             dep.status === 'APPROVED'
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                               : dep.status === 'REJECTED'
@@ -510,13 +499,17 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
                               : 'bg-amber-50 text-amber-700 border-amber-200'
                           }`}
                         >
-                          {dep.status === 'PENDING' ? 'Pending Verification (10–30 min)' : dep.status}
+                          {dep.status === 'PENDING'
+                            ? 'Pending'
+                            : dep.status === 'APPROVED'
+                            ? 'Completed'
+                            : 'Rejected'}
                         </span>
                       </div>
                     </div>
                     {dep.rejectionReason && (
-                      <div className="text-[11px] text-rose-600 pt-1 border-t border-slate-200">
-                        Rejection Reason: {dep.rejectionReason}
+                      <div className="text-xs text-rose-700 pt-1.5 border-t border-slate-200">
+                        Reason: {dep.rejectionReason}
                       </div>
                     )}
                   </div>
@@ -526,6 +519,36 @@ export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
           </div>
         </div>
       </div>
+
+      {/* View Slip Modal */}
+      {viewingSlipUrl && (
+        <div
+          onClick={() => setViewingSlipUrl(null)}
+          className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-lg w-full p-4 space-y-3 shadow-2xl relative animate-modal-in"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-slate-900">Payment Receipt</span>
+              <button
+                type="button"
+                onClick={() => setViewingSlipUrl(null)}
+                className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center cursor-pointer"
+                aria-label="Close receipt"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <img
+              src={viewingSlipUrl}
+              alt="Payment receipt"
+              className="w-full max-h-[70vh] object-contain rounded-xl border border-slate-200 bg-slate-50"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

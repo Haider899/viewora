@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { Video } from '../types/index.js';
+import { useToast } from '../components/ToastProvider.js';
+import { formatDurationMMSS, formatUSD } from '../utils/formatters.js';
 import {
   ArrowLeft,
   ShieldCheck,
@@ -15,6 +17,7 @@ import {
   Maximize2,
   Minimize2,
   Play,
+  Wallet,
 } from 'lucide-react';
 import { getYouTubeEmbedUrl } from '../utils/youtube.js';
 
@@ -24,10 +27,13 @@ interface VideoPlayerProps {
 }
 
 export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate }) => {
-  const { user, refreshWallet } = useAuth();
+  const { user, wallet, refreshWallet } = useAuth();
+  const { showToast } = useToast();
+
   const [video, setVideo] = useState<Video | null>(null);
   const [actualDuration, setActualDuration] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [videoBuffering, setVideoBuffering] = useState(true);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [watchSeconds, setWatchSeconds] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
@@ -46,11 +52,9 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
   const claimLockRef = useRef(false);
   const maxWatchedRef = useRef(0);
 
-  // Full actual video duration (auto-detected from metadata; falls back to backend durationSeconds)
   const targetDuration = Math.max(1, actualDuration || video?.durationSeconds || 30);
   const progressPct = Math.min(100, Math.round((watchSeconds / targetDuration) * 100));
 
-  // 1. Fetch Video Metadata
   useEffect(() => {
     const fetchVideo = async () => {
       try {
@@ -59,10 +63,10 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
           setVideo(res.data);
           setHasClaimed(res.data.hasClaimedReward || false);
         } else {
-          setErrorMsg(res.error?.message || 'Failed to load video.');
+          setErrorMsg(res.error?.message || 'Unable to load this video campaign.');
         }
       } catch {
-        setErrorMsg('Network error loading video.');
+        setErrorMsg('Network error loading video campaign.');
       } finally {
         setLoading(false);
       }
@@ -70,10 +74,8 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
     fetchVideo();
   }, [videoId]);
 
-  // 2. Start Secure Telemetry Session
   useEffect(() => {
     if (!video || !user || !video.hasAccess) return;
-
     const initSession = async () => {
       try {
         const res = await api.startVideoSession(videoId);
@@ -81,16 +83,16 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
           setSessionToken(res.data.sessionToken);
           setIsPlaying(true);
         } else {
-          setErrorMsg(res.error?.message || 'Access restricted. Please upgrade tier.');
+          setErrorMsg(res.error?.message || 'Access restricted. Upgrade your plan to watch.');
         }
       } catch {
-        setErrorMsg('Unable to initialize playback session.');
+        setErrorMsg('Unable to start verified playback session.');
       }
     };
     initSession();
   }, [video, user, videoId]);
 
-  // Disable pause/seek keyboard shortcuts while player is mounted
+  // Block pause/seek shortcuts during verified playback
   useEffect(() => {
     const blockKeys = (e: KeyboardEvent) => {
       const blocked = [' ', 'k', 'K', 'ArrowLeft', 'ArrowRight', 'j', 'J', 'l', 'L', 'MediaPlayPause'];
@@ -103,16 +105,12 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
     return () => window.removeEventListener('keydown', blockKeys, true);
   }, []);
 
-  // Track fullscreen changes
   useEffect(() => {
-    const onFsChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
-    };
+    const onFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
     document.addEventListener('fullscreenchange', onFsChange);
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
-  // Attempt autoplay for HTML5 video; fallback to muted autoplay or click-to-play overlay
   useEffect(() => {
     const el = videoRef.current;
     if (!el || !video || !video.hasAccess) return;
@@ -120,18 +118,17 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
     const playPromise = el.play();
     if (playPromise && typeof playPromise.catch === 'function') {
       playPromise.catch(() => {
-        // Browser blocked unmuted autoplay -> try muted autoplay so video runs seamlessly
         el.muted = true;
         setIsMuted(true);
         el.play().catch(() => {
           setNeedsUserStart(true);
+          setVideoBuffering(false);
           setIsPlaying(false);
         });
       });
     }
   }, [video]);
 
-  // Auto-Credit Engagement Reward (NO manual claim button)
   const triggerAutomaticReward = async (finalSec?: number) => {
     if (claimLockRef.current || !sessionToken || hasClaimed || claiming) return;
     claimLockRef.current = true;
@@ -146,20 +143,20 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
       const res = await api.claimVideoReward(videoId, sessionToken);
       if (res.success) {
         setHasClaimed(true);
+        const rewardFormatted = formatUSD(video?.rewardAmountCents ?? 0);
         setClaimSuccessMsg(
-          `Video Completed! $${((video?.rewardAmountCents ?? 0) / 100).toFixed(
-            2
-          )} USD has been automatically credited to your Video Rewards Wallet.`
+          `${rewardFormatted} has been automatically credited to your Video Rewards wallet.`
         );
         await refreshWallet();
+        showToast(`+${rewardFormatted} credited to Video Rewards!`, 'success');
       } else {
         const errCode = res.error?.code || '';
         const errMessage = res.error?.message || '';
         if (errCode === 'ALREADY_CLAIMED' || errMessage.toLowerCase().includes('already claimed')) {
           setHasClaimed(true);
-          setClaimSuccessMsg('Reward has already been credited to your Video Rewards Wallet for this video.');
+          setClaimSuccessMsg('Reward was already credited once for this campaign.');
         } else {
-          setErrorMsg(errMessage || 'Automatic reward verification pending.');
+          setErrorMsg(errMessage || 'Reward verification is still processing.');
         }
       }
     } catch {
@@ -169,51 +166,38 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
     }
   };
 
-  // 3. Periodic Session Heartbeat & Anti-Skip Watch Progress
   useEffect(() => {
     if (!sessionToken || !isPlaying || isCompleted) return;
-
     const interval = setInterval(() => {
       setWatchSeconds((prev) => {
         const nextSec = prev + 1;
         maxWatchedRef.current = Math.max(maxWatchedRef.current, nextSec);
-
         if (nextSec % 5 === 0) {
           api
             .sendVideoHeartbeat(videoId, sessionToken, nextSec, actualDuration ?? undefined)
             .then((res) => {
-              if (res.success && res.data?.completed) {
-                setIsCompleted(true);
-              }
+              if (res.success && res.data?.completed) setIsCompleted(true);
             })
             .catch(() => {});
         }
-
-        if (nextSec >= targetDuration) {
-          setIsCompleted(true);
-        }
+        if (nextSec >= targetDuration) setIsCompleted(true);
         return nextSec;
       });
     }, 1000);
-
     return () => clearInterval(interval);
   }, [sessionToken, isPlaying, videoId, isCompleted, targetDuration, actualDuration]);
 
-  // 4. Trigger automatic credit the instant full watch completes
   useEffect(() => {
     if (isCompleted && !hasClaimed && !claimLockRef.current && sessionToken && video?.rewardEligible) {
       triggerAutomaticReward(Math.max(watchSeconds, targetDuration));
     }
   }, [isCompleted, hasClaimed, sessionToken, video]);
 
-  // Sound toggle (ONLY allowed playback control besides Fullscreen)
   const toggleMute = () => {
     const nextMuted = !isMuted;
     setIsMuted(nextMuted);
-    if (videoRef.current) {
-      videoRef.current.muted = nextMuted;
-    }
-    if (iframeRef.current && iframeRef.current.contentWindow) {
+    if (videoRef.current) videoRef.current.muted = nextMuted;
+    if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
         JSON.stringify({ event: 'command', func: nextMuted ? 'mute' : 'unMute', args: '' }),
         '*'
@@ -221,15 +205,11 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
     }
   };
 
-  // Fullscreen toggle
   const toggleFullscreen = () => {
     const container = playerContainerRef.current;
     if (!container) return;
-    if (!document.fullscreenElement) {
-      container.requestFullscreen?.().catch(() => {});
-    } else {
-      document.exitFullscreen?.().catch(() => {});
-    }
+    if (!document.fullscreenElement) container.requestFullscreen?.().catch(() => {});
+    else document.exitFullscreen?.().catch(() => {});
   };
 
   const handleManualStartIfBlocked = () => {
@@ -244,53 +224,33 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
 
   if (loading) {
     return (
-      <div className="max-w-5xl mx-auto px-4 py-20 text-center space-y-4">
-        <div className="w-10 h-10 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
-        <p className="text-xs font-semibold text-slate-500">Authenticating U-Ads playback session...</p>
+      <div className="space-y-4">
+        <div className="h-10 w-44 rounded-xl skeleton-shimmer" />
+        <div className="aspect-video w-full rounded-2xl skeleton-shimmer" />
       </div>
     );
   }
 
-  if (errorMsg && !video) {
+  if ((errorMsg && !video) || (video && !video.hasAccess)) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-16 text-center space-y-6 bg-white p-8 rounded-3xl border border-slate-200 shadow-xs">
-        <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
-        <h2 className="text-xl font-bold text-slate-900">Access Restricted</h2>
-        <p className="text-xs text-slate-600">{errorMsg}</p>
-        <button
-          onClick={() => navigate('packages')}
-          className="px-6 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
-        >
-          View Eligible Packages
-        </button>
-      </div>
-    );
-  }
-
-  if (video && !video.hasAccess) {
-    return (
-      <div className="max-w-2xl mx-auto px-4 py-16 text-center space-y-6 bg-white p-8 rounded-3xl border border-rose-200 shadow-xs">
-        <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
-          <Lock className="w-7 h-7 text-rose-600" />
+      <div className="max-w-xl mx-auto card-white p-8 text-center space-y-5">
+        <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
+          <Lock className="w-6 h-6" />
         </div>
-        <div className="space-y-1">
-          <h2 className="text-xl font-bold text-slate-900">Video Campaign Locked</h2>
-          <p className="text-xs text-slate-600 max-w-md mx-auto">
-            This video requires an active U-Ads package or qualifying USD Account Level. Deposit USD or select a package to unlock full access.
+        <div className="space-y-1.5">
+          <h2 className="text-lg font-bold text-slate-900">
+            {video ? `Requires ${video.minPackageTier} Plan` : 'Campaign Unavailable'}
+          </h2>
+          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+            {errorMsg || 'Upgrade to an eligible USD plan to watch this campaign and earn automatic rewards.'}
           </p>
         </div>
-        <div className="flex items-center justify-center gap-3 pt-2">
-          <button
-            onClick={() => navigate('packages')}
-            className="px-6 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all cursor-pointer"
-          >
-            View Packages
+        <div className="flex items-center justify-center gap-3">
+          <button type="button" onClick={() => navigate('videos')} className="btn-secondary">
+            Back to Videos
           </button>
-          <button
-            onClick={() => navigate('videos')}
-            className="px-6 py-2.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all cursor-pointer"
-          >
-            Back to Catalog
+          <button type="button" onClick={() => navigate('packages')} className="btn-primary">
+            View Packages
           </button>
         </div>
       </div>
@@ -301,227 +261,302 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
   const restrictedYtUrl = baseYtUrl
     ? `${baseYtUrl}${baseYtUrl.includes('?') ? '&' : '?'}autoplay=1&controls=0&disablekb=1&rel=0&modestbranding=1&fs=0&enablejsapi=1`
     : null;
-  const isAssigned = video?.isAssignedToUser || (user && video?.assignedUserId === user.id);
+
+  const rewardFormatted = formatUSD(video?.rewardAmountCents ?? 0);
+  const videoWalletFormatted = formatUSD(wallet?.USD?.videoRewardsCents ?? 0);
 
   return (
     <div className="space-y-6">
-      {/* Top Bar Navigation */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+      {/* Top Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <button
+          type="button"
           onClick={() => navigate('videos')}
-          className="flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors w-fit"
+          className="btn-secondary !h-9"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to Video Catalog
+          <span>Back to Videos</span>
         </button>
-        <div className="flex flex-wrap items-center gap-2">
-          {isAssigned && (
-            <span className="text-[11px] font-bold px-3 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-300 flex items-center gap-1.5 shadow-2xs">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-              Assigned Directly to You
-            </span>
-          )}
-          <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Anti-Skip Full-Duration Verification Active
-          </span>
-        </div>
+
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+          <ShieldCheck className="w-4 h-4" />
+          Verified full-watch playback
+        </span>
       </div>
 
-      {/* Controlled Embedded Player (NO pause / NO seek / ONLY Sound + Fullscreen) */}
-      <div
-        ref={playerContainerRef}
-        className="rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden shadow-xl relative select-none"
-        onContextMenu={(e) => e.preventDefault()}
-      >
-        <div className="relative aspect-video bg-black">
-          {restrictedYtUrl ? (
-            <>
-              <iframe
-                ref={iframeRef}
-                src={restrictedYtUrl}
-                title={video?.title || 'U-Ads Video Player'}
-                className="w-full h-full border-0 pointer-events-none"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              />
-              {/* Interaction guard overlay prevents pausing or scrubbing inside YouTube iframe */}
-              <div className="absolute inset-0 z-10 bg-transparent cursor-not-allowed" />
-            </>
-          ) : (
-            <video
-              ref={videoRef}
-              src={video?.videoUrl}
-              poster={video?.thumbnailUrl}
-              autoPlay
-              playsInline
-              disablePictureInPicture
-              controlsList="nodownload noplaybackrate nofullscreen"
-              onLoadedMetadata={(e) => {
-                const dur = Math.floor(e.currentTarget.duration);
-                if (dur > 0 && Number.isFinite(dur)) {
-                  setActualDuration(dur);
-                }
-              }}
-              onTimeUpdate={(e) => {
-                const current = Math.floor(e.currentTarget.currentTime);
-                const dur = Math.floor(e.currentTarget.duration || targetDuration);
-                if (current > maxWatchedRef.current) {
-                  maxWatchedRef.current = current;
-                  setWatchSeconds(current);
-                }
-                if (dur > 0 && e.currentTarget.currentTime >= e.currentTarget.duration - 0.35 && !isCompleted) {
-                  setWatchSeconds(targetDuration);
-                  setIsCompleted(true);
-                }
-              }}
-              onPlay={() => {
-                setIsPlaying(true);
-                setNeedsUserStart(false);
-              }}
-              onPause={(e) => {
-                // Strictly prevent user pausing while video is still playing
-                if (!e.currentTarget.ended && !isCompleted) {
-                  e.currentTarget.play().catch(() => {});
-                }
-              }}
-              onRateChange={(e) => {
-                if (e.currentTarget.playbackRate !== 1) {
-                  e.currentTarget.playbackRate = 1;
-                }
-              }}
-              onSeeking={() => {
-                if (videoRef.current && videoRef.current.currentTime > maxWatchedRef.current + 1) {
-                  videoRef.current.currentTime = maxWatchedRef.current;
-                }
-              }}
-              onEnded={() => {
-                setIsPlaying(false);
-                setWatchSeconds(targetDuration);
-                maxWatchedRef.current = targetDuration;
-                setIsCompleted(true);
-                if (!hasClaimed) {
-                  triggerAutomaticReward(targetDuration);
-                } else {
-                  setClaimSuccessMsg('Replay completed! Reward was already credited once for this video (1 reward per video).');
-                }
-              }}
-              onContextMenu={(e) => e.preventDefault()}
-              className="w-full h-full object-contain pointer-events-none"
-            />
-          )}
-
-          {/* Browser Autoplay Fallback Overlay (only if browser blocks autoplay) */}
-          {needsUserStart && (
-            <div className="absolute inset-0 z-20 bg-slate-950/75 flex flex-col items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={handleManualStartIfBlocked}
-                className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm flex items-center gap-2 shadow-lg cursor-pointer"
-              >
-                <Play className="w-5 h-5 fill-current" />
-                Start Verified Playback
-              </button>
-              <span className="text-[11px] text-slate-300">
-                Video plays continuously without pause or skip until completion
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Non-interactive Read-only Progress Bar */}
-        <div className="w-full h-1.5 bg-slate-800">
+      {/* Main Split: Player + Dedicated Reward Status Panel (eliminates empty space below) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Player Container */}
+        <div className="lg:col-span-8 space-y-4">
           <div
-            className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
+            ref={playerContainerRef}
+            className="rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden shadow-lg relative select-none"
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <div className="relative aspect-video bg-slate-950">
+              {/* Poster & Shimmer while loading (never a dead black box!) */}
+              {videoBuffering && !restrictedYtUrl && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-900">
+                  {video?.thumbnailUrl && (
+                    <img
+                      src={video.thumbnailUrl}
+                      alt={video.title}
+                      className="absolute inset-0 w-full h-full object-cover opacity-40"
+                    />
+                  )}
+                  <div className="relative z-10 flex flex-col items-center gap-2.5 bg-slate-950/75 px-5 py-3.5 rounded-xl border border-white/10 backdrop-blur-sm">
+                    <div className="w-6 h-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-xs font-semibold text-white">Preparing campaign stream…</span>
+                  </div>
+                </div>
+              )}
 
-        {/* Custom Restricted Controls Bar: ONLY Sound On/Off & Fullscreen + Auto-Credit Status */}
-        <div className="p-4 bg-slate-900 border-t border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs text-white">
-          <div className="flex items-center gap-3">
-            {/* Sound On/Off */}
-            <button
-              type="button"
-              onClick={toggleMute}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
-              title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
-            >
-              {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
-              <span>{isMuted ? 'Sound Off' : 'Sound On'}</span>
-            </button>
+              {restrictedYtUrl ? (
+                <>
+                  <iframe
+                    ref={iframeRef}
+                    src={restrictedYtUrl}
+                    title={video?.title || 'U-Ads Video Player'}
+                    className="w-full h-full border-0 pointer-events-none"
+                    onLoad={() => setVideoBuffering(false)}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  />
+                  <div className="absolute inset-0 z-10 bg-transparent cursor-not-allowed" />
+                </>
+              ) : (
+                <video
+                  ref={videoRef}
+                  src={video?.videoUrl}
+                  poster={video?.thumbnailUrl}
+                  autoPlay
+                  playsInline
+                  disablePictureInPicture
+                  controlsList="nodownload noplaybackrate nofullscreen"
+                  onLoadedData={() => setVideoBuffering(false)}
+                  onCanPlay={() => setVideoBuffering(false)}
+                  onLoadedMetadata={(e) => {
+                    const dur = Math.floor(e.currentTarget.duration);
+                    if (dur > 0 && Number.isFinite(dur)) setActualDuration(dur);
+                  }}
+                  onTimeUpdate={(e) => {
+                    const current = Math.floor(e.currentTarget.currentTime);
+                    const dur = Math.floor(e.currentTarget.duration || targetDuration);
+                    if (current > maxWatchedRef.current) {
+                      maxWatchedRef.current = current;
+                      setWatchSeconds(current);
+                    }
+                    if (dur > 0 && e.currentTarget.currentTime >= e.currentTarget.duration - 0.35 && !isCompleted) {
+                      setWatchSeconds(targetDuration);
+                      setIsCompleted(true);
+                    }
+                  }}
+                  onPlay={() => {
+                    setIsPlaying(true);
+                    setNeedsUserStart(false);
+                    setVideoBuffering(false);
+                  }}
+                  onPause={(e) => {
+                    if (!e.currentTarget.ended && !isCompleted) {
+                      e.currentTarget.play().catch(() => {});
+                    }
+                  }}
+                  onRateChange={(e) => {
+                    if (e.currentTarget.playbackRate !== 1) e.currentTarget.playbackRate = 1;
+                  }}
+                  onSeeking={() => {
+                    if (videoRef.current && videoRef.current.currentTime > maxWatchedRef.current + 1) {
+                      videoRef.current.currentTime = maxWatchedRef.current;
+                    }
+                  }}
+                  onEnded={() => {
+                    setIsPlaying(false);
+                    setWatchSeconds(targetDuration);
+                    maxWatchedRef.current = targetDuration;
+                    setIsCompleted(true);
+                    if (!hasClaimed) {
+                      triggerAutomaticReward(targetDuration);
+                    } else {
+                      setClaimSuccessMsg('Replay complete. Reward was already credited once for this campaign.');
+                    }
+                  }}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className="w-full h-full object-contain pointer-events-none"
+                />
+              )}
 
-            {/* Fullscreen */}
-            <button
-              type="button"
-              onClick={toggleFullscreen}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
-              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            >
-              {isFullscreen ? <Minimize2 className="w-4 h-4 text-emerald-400" /> : <Maximize2 className="w-4 h-4 text-emerald-400" />}
-              <span>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
-            </button>
+              {/* Center Play Overlay when browser blocks autoplay */}
+              {needsUserStart && (
+                <div className="absolute inset-0 z-20 bg-slate-950/75 backdrop-blur-[2px] flex flex-col items-center justify-center gap-3 p-4 text-center">
+                  <button
+                    type="button"
+                    onClick={handleManualStartIfBlocked}
+                    className="w-16 h-16 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center shadow-xl transition-transform hover:scale-105 cursor-pointer"
+                    aria-label="Start campaign playback"
+                  >
+                    <Play className="w-7 h-7 fill-current ml-0.5" />
+                  </button>
+                  <div className="text-sm font-bold text-white">Click to start verified playback</div>
+                  <div className="text-xs text-slate-300">
+                    Plays continuously to the end for automatic reward credit
+                  </div>
+                </div>
+              )}
+            </div>
 
-            <div className="flex items-center gap-1.5 font-medium text-slate-300 pl-2">
-              <Clock className="w-4 h-4 text-emerald-400" />
-              <span className="font-mono">
-                {Math.min(watchSeconds, targetDuration)}s / {targetDuration}s ({progressPct}%)
+            {/* Clear Visible Progress Bar */}
+            <div className="px-4 pt-3 pb-2 bg-slate-900 space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-300 tabular-nums">
+                <span className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                  {formatDurationMMSS(Math.min(watchSeconds, targetDuration))} / {formatDurationMMSS(targetDuration)}
+                </span>
+                <span>{progressPct}% watched</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Controls Bar (Sound + Fullscreen) */}
+            <div className="px-4 py-3 bg-slate-900 border-t border-slate-800 flex items-center justify-between gap-3 text-xs text-white">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleMute}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  {isMuted ? (
+                    <VolumeX className="w-4 h-4 text-rose-400" />
+                  ) : (
+                    <Volume2 className="w-4 h-4 text-emerald-400" />
+                  )}
+                  <span>{isMuted ? 'Unmute' : 'Mute'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleFullscreen}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  {isFullscreen ? (
+                    <Minimize2 className="w-4 h-4 text-emerald-400" />
+                  ) : (
+                    <Maximize2 className="w-4 h-4 text-emerald-400" />
+                  )}
+                  <span>{isFullscreen ? 'Exit' : 'Fullscreen'}</span>
+                </button>
+              </div>
+              <span className="text-[11px] text-slate-400 hidden sm:inline">
+                Seeking is locked during verification
               </span>
             </div>
           </div>
 
-          {/* Automatic Reward Status (No manual claim button) */}
-          {video?.rewardEligible && (
-            <div>
-              {hasClaimed ? (
-                <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Auto-Credited to Video Rewards Wallet (${(video.rewardAmountCents / 100).toFixed(2)} USD)
-                </div>
-              ) : isCompleted ? (
-                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30 animate-pulse">
-                  <Sparkles className="w-4 h-4" />
-                  {claiming ? 'Verifying & Auto-Crediting Reward...' : 'Completing Automatic Credit...'}
-                </div>
-              ) : (
-                <div className="text-[11px] text-slate-400">
-                  Watch 100% ({targetDuration}s) for automatic ${(video.rewardAmountCents / 100).toFixed(2)} USD credit
-                </div>
-              )}
+          {/* Campaign Details */}
+          <div className="card-white p-5 space-y-2.5">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                {video?.category}
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                {video?.minPackageTier} Plan
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 tabular-nums">
+                Duration: {formatDurationMMSS(targetDuration)}
+              </span>
             </div>
-          )}
+            <h2 className="text-lg font-extrabold text-slate-900">{video?.title}</h2>
+            <p className="text-xs text-slate-600 leading-relaxed">{video?.description}</p>
+          </div>
         </div>
-      </div>
 
-      {/* Automatic Credit Notification */}
-      {claimSuccessMsg && (
-        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-          <span>{claimSuccessMsg}</span>
-        </div>
-      )}
+        {/* Dedicated Reward Panel (Flips cleanly to Success State with New Balance) */}
+        <div className="lg:col-span-4 space-y-4">
+          <div
+            className={`card-white p-5 space-y-4 transition-all duration-300 ${
+              hasClaimed || claimSuccessMsg
+                ? 'border-emerald-300 bg-emerald-50/40'
+                : 'border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  hasClaimed || claimSuccessMsg
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                }`}
+              >
+                {hasClaimed || claimSuccessMsg ? (
+                  <CheckCircle2 className="w-5 h-5" />
+                ) : (
+                  <Sparkles className="w-5 h-5" />
+                )}
+              </div>
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+                  {hasClaimed || claimSuccessMsg ? 'Reward Credited' : 'Campaign Reward'}
+                </div>
+                <div className="text-xl font-extrabold text-slate-900 tabular-nums">
+                  +{rewardFormatted} USD
+                </div>
+              </div>
+            </div>
 
-      {errorMsg && (
-        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
+            {hasClaimed || claimSuccessMsg ? (
+              <div className="space-y-3">
+                <p className="text-xs text-emerald-900 leading-relaxed">
+                  {claimSuccessMsg || 'This campaign reward has been credited to your Video Rewards wallet.'}
+                </p>
+                <div className="p-3.5 rounded-xl bg-white border border-emerald-200 flex items-center justify-between text-xs">
+                  <span className="text-slate-500 flex items-center gap-1.5">
+                    <Wallet className="w-3.5 h-3.5 text-emerald-600" />
+                    Video Rewards Balance
+                  </span>
+                  <span className="font-extrabold text-slate-900 tabular-nums">
+                    {videoWalletFormatted}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('videos')}
+                  className="btn-primary w-full"
+                >
+                  Watch Another Campaign
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Watch to the end — <strong className="text-slate-900">{rewardFormatted}</strong> is credited automatically to your Video Rewards wallet as soon as playback finishes.
+                </p>
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs font-semibold">
+                    <span className="text-slate-500">
+                      {claiming ? 'Verifying completion…' : 'Verification progress'}
+                    </span>
+                    <span className="text-emerald-700 tabular-nums">{progressPct}%</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-emerald-600 transition-all duration-300"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
-      {/* Video Details */}
-      <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-3">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
-            {video?.category}
-          </span>
-          <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
-            {video?.minPackageTier} Tier
-          </span>
-          <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-            Duration: {targetDuration}s (Auto-Detected)
-          </span>
+            {errorMsg && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+          </div>
         </div>
-        <h1 className="text-xl font-bold text-slate-900">{video?.title}</h1>
-        <p className="text-xs text-slate-600 leading-relaxed max-w-4xl">{video?.description}</p>
       </div>
     </div>
   );

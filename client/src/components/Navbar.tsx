@@ -115,13 +115,13 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, navigate }) => {
             <div className="flex items-center gap-2.5">
               <button
                 onClick={() => navigate('login')}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                className="btn-secondary !h-9"
               >
                 Sign In
               </button>
               <button
                 onClick={() => navigate('register')}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-sm shadow-emerald-500/20"
+                className="btn-primary !h-9"
               >
                 Get Started
               </button>

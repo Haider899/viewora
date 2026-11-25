@@ -2,37 +2,36 @@ import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { SupportConversation, SupportFaq, SupportMessage } from '../types/index.js';
+import { FormattedChatText } from './FormattedChatText.js';
 import {
-  MessageSquare,
+  MessageCircle,
   X,
   Send,
   Paperclip,
-  Bot,
+  Headphones,
   UserCheck,
-  Sparkles,
-  HelpCircle,
   FileText,
   Image as ImageIcon,
-  Minimize2,
   ExternalLink,
-  ShieldCheck,
-  CheckCircle2,
   Clock,
-  ChevronDown,
+  ArrowRight,
+  Mail,
 } from 'lucide-react';
 
-export const SupportChatWidget: React.FC = () => {
+interface SupportChatWidgetProps {
+  /** Optional navigate handler for public visitors or opening the full Support page */
+  navigate?: (route: string) => void;
+  /** Hide floating button when already viewing the dedicated Support page */
+  hidden?: boolean;
+}
+
+export const SupportChatWidget: React.FC<SupportChatWidgetProps> = ({ navigate, hidden = false }) => {
   const { user } = useAuth();
-
-  // If user is not logged in, support agent chat is completely unavailable and hidden
-  if (!user) {
-    return null;
-  }
-
   const [isOpen, setIsOpen] = useState(false);
   const [conversation, setConversation] = useState<SupportConversation | null>(null);
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [faqs, setFaqs] = useState<SupportFaq[]>([]);
+  const [selectedGuestFaq, setSelectedGuestFaq] = useState<SupportFaq | null>(null);
   const [inputMessage, setInputMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -41,76 +40,66 @@ export const SupportChatWidget: React.FC = () => {
   // File attachment state
   const [attachmentData, setAttachmentData] = useState<string | null>(null);
   const [attachmentName, setAttachmentName] = useState<string | null>(null);
-  const [attachmentType, setAttachmentType] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto scroll to latest message
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => {
-    // Clean up any legacy anonymous convo ID from localStorage
     localStorage.removeItem('vistara_support_convo_id');
     localStorage.removeItem('uads_support_convo_id');
   }, []);
 
   useEffect(() => {
-    if (isOpen) {
-      scrollToBottom();
-    }
+    if (isOpen) scrollToBottom();
   }, [messages, isOpen]);
 
-  // Load FAQs once
+  // Load FAQs once (works for both guests and signed-in members)
   useEffect(() => {
-    api.getSupportFaqs().then((res) => {
-      if (res.success && res.data) {
-        setFaqs(res.data);
-      }
-    });
+    api
+      .getSupportFaqs()
+      .then((res) => {
+        if (res.success && Array.isArray(res.data)) {
+          setFaqs(res.data);
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  // Initialize or fetch conversation when widget opened for logged-in user
+  // Load conversation when opened by logged-in member
   useEffect(() => {
     if (!isOpen || !user) return;
-
     let isMounted = true;
     const initChat = async () => {
       setLoading(true);
       try {
         const userConvoKey = `uads_support_convo_id_${user.id}`;
-        const legacyKey = `vistara_support_convo_id_${user.id}`;
-        const storedConvoId = localStorage.getItem(userConvoKey) || localStorage.getItem(legacyKey) || undefined;
-        const res = await api.getOrCreateSupportConversation({
-          conversationId: storedConvoId,
-        });
-
+        const storedConvoId = localStorage.getItem(userConvoKey) || undefined;
+        const res = await api.getOrCreateSupportConversation({ conversationId: storedConvoId });
         if (isMounted && res.success && res.data) {
           setConversation(res.data);
           setMessages(res.data.messages || []);
           localStorage.setItem(userConvoKey, res.data.id);
         }
       } catch (err) {
-        console.error('Error starting support conversation:', err);
+        console.error('Error loading support conversation:', err);
       } finally {
         if (isMounted) setLoading(false);
       }
     };
-
     initChat();
-
     return () => {
       isMounted = false;
     };
   }, [isOpen, user]);
 
-  // Periodic polling for agent replies when chat is open
+  // Poll for agent updates while open
   useEffect(() => {
-    if (!isOpen || !conversation?.id) return;
-
+    if (!isOpen || !user || !conversation?.id) return;
     const interval = setInterval(async () => {
       try {
         const res = await api.getSupportConversation(conversation.id);
@@ -118,42 +107,31 @@ export const SupportChatWidget: React.FC = () => {
           setConversation(res.data);
           setMessages(res.data.messages || []);
         }
-      } catch (err) {
-        // silent fail on polling error
+      } catch {
+        // silent
       }
     }, 3500);
-
     return () => clearInterval(interval);
-  }, [isOpen, conversation?.id]);
+  }, [isOpen, user, conversation?.id]);
 
-  // Handle File Selection (Base64)
+  if (hidden) return null;
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Attachment size must be under 5 MB.');
-      return;
-    }
-
+    if (file.size > 5 * 1024 * 1024) return;
     setAttachmentName(file.name);
-    setAttachmentType(file.type);
-
     const reader = new FileReader();
-    reader.onload = () => {
-      setAttachmentData(reader.result as string);
-    };
+    reader.onload = () => setAttachmentData(reader.result as string);
     reader.readAsDataURL(file);
   };
 
   const removeAttachment = () => {
     setAttachmentData(null);
     setAttachmentName(null);
-    setAttachmentType(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Send Message
   const handleSendMessage = async (textToSend?: string) => {
     const messageContent = (textToSend || inputMessage).trim();
     if (!messageContent && !attachmentData) return;
@@ -161,7 +139,6 @@ export const SupportChatWidget: React.FC = () => {
 
     setSending(true);
     setInputMessage('');
-
     const attUrl = attachmentData || undefined;
     const attName = attachmentName || undefined;
     removeAttachment();
@@ -172,19 +149,17 @@ export const SupportChatWidget: React.FC = () => {
         attachmentUrl: attUrl,
         attachmentName: attName,
       });
-
       if (res.success && res.data) {
         setConversation(res.data.conversation);
         setMessages(res.data.conversation.messages || []);
       }
     } catch (err) {
-      console.error('Error sending message:', err);
+      console.error('Error sending support message:', err);
     } finally {
       setSending(false);
     }
   };
 
-  // Escalate to Human Support Agent
   const handleEscalate = async () => {
     if (!conversation) return;
     setEscalating(true);
@@ -203,288 +178,372 @@ export const SupportChatWidget: React.FC = () => {
 
   return (
     <>
-      {/* 1. Floating Launcher Button */}
+      {/* Sleek Compact Circular Floating Shortcut (stays clear of mobile bottom bar) */}
       {!isOpen && (
         <button
+          type="button"
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 z-50 group flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white shadow-xl shadow-emerald-700/25 hover:shadow-emerald-600/40 hover:scale-105 active:scale-95 transition-all duration-300 border border-emerald-400/30"
-          aria-label="Open Live Chat Support"
+          className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-40 w-13 h-13 p-3.5 rounded-full bg-slate-900 hover:bg-emerald-600 text-white shadow-lg shadow-slate-900/20 hover:shadow-emerald-600/30 transition-all duration-200 ease-out hover:-translate-y-0.5 active:scale-95 flex items-center justify-center cursor-pointer"
+          aria-label="Open U-Ads Support"
+          title="U-Ads Support"
         >
-          <div className="relative">
-            <Bot className="w-5 h-5 text-white animate-pulse" />
-            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-300 ring-2 ring-emerald-700"></span>
-          </div>
-          <div className="flex flex-col text-left">
-            <span className="text-xs font-bold tracking-tight">Live Support</span>
-            <span className="text-[10px] text-emerald-100 font-medium leading-none">Instant Help & FAQs</span>
-          </div>
+          <MessageCircle className="w-5 h-5" />
+          <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-slate-900" />
         </button>
       )}
 
-      {/* 2. Chat Drawer / Window */}
+      {/* Support Drawer */}
       {isOpen && (
-        <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 w-[94vw] sm:w-[410px] h-[580px] max-h-[88vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-200">
-          {/* Header */}
-          <div className="p-4 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white flex items-center justify-between border-b border-slate-800 relative">
+        <div className="fixed bottom-20 right-3 md:bottom-6 md:right-6 z-50 w-[calc(100vw-1.5rem)] sm:w-[400px] h-[560px] max-h-[82vh] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-modal-in">
+          {/* Unified Header — Single Brand: U-Ads Support */}
+          <div className="px-4 py-3.5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-md shadow-emerald-500/20">
+              <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center shrink-0">
                 {conversation?.status === 'AGENT_ACTIVE' ? (
-                  <UserCheck className="w-5 h-5 text-slate-950" />
+                  <UserCheck className="w-4 h-4 text-white" />
                 ) : (
-                  <Bot className="w-5 h-5 text-slate-950" />
+                  <Headphones className="w-4 h-4 text-white" />
                 )}
               </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-bold flex items-center gap-1.5">
-                  U-Ads Support Desk
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
-                </span>
-                <span className="text-[11px] text-slate-300">
-                  {conversation?.status === 'WAITING_FOR_AGENT'
-                    ? '⏳ Agent connecting...'
+              <div className="min-w-0">
+                <div className="text-xs font-bold flex items-center gap-1.5">
+                  U-Ads Support
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+                </div>
+                <div className="text-[11px] text-slate-300 truncate">
+                  {!user
+                    ? 'Quick Answers & Help'
+                    : conversation?.status === 'WAITING_FOR_AGENT'
+                    ? 'Connecting you to a specialist'
                     : conversation?.status === 'AGENT_ACTIVE'
-                    ? `👨‍💼 ${conversation.assignedTo?.fullName || 'Support Specialist'}`
-                    : '🤖 AI Assistant (24/7)'}
-                </span>
+                    ? conversation.assignedTo?.fullName || 'Live Specialist'
+                    : 'Online 24/7'}
+                </div>
               </div>
             </div>
 
-            {/* Header Action Buttons */}
             <div className="flex items-center gap-1.5">
-              {conversation?.status === 'BOT' && (
+              {user && conversation?.status === 'BOT' && (
                 <button
+                  type="button"
                   onClick={handleEscalate}
                   disabled={escalating}
-                  className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold flex items-center gap-1 transition-all"
-                  title="Talk directly to a human support agent"
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
                 >
-                  <UserCheck className="w-3 h-3" />
-                  {escalating ? 'Connecting...' : 'Talk to Agent'}
+                  <UserCheck className="w-3.5 h-3.5" />
+                  {escalating ? 'Connecting…' : 'Talk to a human'}
                 </button>
               )}
               <button
+                type="button"
                 onClick={() => setIsOpen(false)}
-                className="w-8 h-8 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition-colors"
-                aria-label="Close Chat"
+                className="w-8 h-8 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                aria-label="Close Support"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* Status Alert Bar (if waiting for human agent — shows Ticket #, Queue Position, Est. Wait) */}
-          {conversation?.status === 'WAITING_FOR_AGENT' && (
-            <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200/80 space-y-1 text-[11px] text-amber-900">
-              <div className="flex items-center justify-between font-bold">
-                <span className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-amber-600 animate-spin" />
-                  Waiting for Support Agent
-                </span>
-                {conversation.ticketNumber && (
-                  <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-amber-100 border border-amber-300">
-                    {conversation.ticketNumber}
+          {/* Logged-out Guest Support Experience (§6) */}
+          {!user ? (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2">
+                <div className="text-xs font-bold text-slate-900">How can we help you today?</div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Browse instant answers below or sign in to chat live with our support team about your account.
+                </p>
+              </div>
+
+              {selectedGuestFaq ? (
+                <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3 animate-page-in">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedGuestFaq(null)}
+                    className="text-[11px] font-bold text-emerald-700 hover:underline cursor-pointer"
+                  >
+                    ← Back to topics
+                  </button>
+                  <div className="text-xs font-bold text-slate-900">{selectedGuestFaq.question}</div>
+                  <div className="text-xs text-slate-600 leading-relaxed">
+                    <FormattedChatText text={selectedGuestFaq.answer} />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-1">
+                    Common Questions
+                  </div>
+                  {(faqs.length > 0
+                    ? faqs
+                    : [
+                        {
+                          id: 'fallback-1',
+                          category: 'Deposits',
+                          question: 'How long does deposit verification take?',
+                          keywords: ['deposit'],
+                          answer: 'USD deposits are normally verified within **10 to 30 minutes** after you submit your transaction reference and receipt.',
+                        },
+                        {
+                          id: 'fallback-2',
+                          category: 'Withdrawals',
+                          question: 'What is the minimum withdrawal amount?',
+                          keywords: ['withdrawal'],
+                          answer: 'The minimum USD withdrawal is **$10.00**, available via Crypto (USDT TRC-20) or USD Bank Wire.',
+                        },
+                      ]
+                  ).map((faq) => (
+                    <button
+                      key={faq.id}
+                      type="button"
+                      onClick={() => setSelectedGuestFaq(faq)}
+                      className="w-full text-left p-3 rounded-xl bg-white hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-300 text-xs font-semibold text-slate-800 flex items-center justify-between gap-2 transition-all cursor-pointer"
+                    >
+                      <span>{faq.question}</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+                <div className="flex items-center gap-2 text-xs text-slate-600">
+                  <Mail className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    Email us: <strong className="text-slate-900">support@u-ads.com</strong>
                   </span>
+                </div>
+                {navigate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false);
+                      navigate('login');
+                    }}
+                    className="btn-primary w-full"
+                  >
+                    Sign In for Live Chat
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
                 )}
               </div>
-              <div className="flex items-center justify-between text-[10px] text-amber-700">
-                <span>Queue Position: #{conversation.queuePosition || 1}</span>
-                <span>Est. Wait: ~{conversation.estimatedWaitMinutes || 3} min</span>
-              </div>
             </div>
-          )}
-
-          {/* Messages Body */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-slate-50/50">
-            {loading ? (
-              <div className="h-full flex flex-col items-center justify-center space-y-3 text-slate-400">
-                <div className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs font-medium">Connecting to support...</span>
-              </div>
-            ) : (
-              <>
-                {/* Message items */}
-                {messages.map((msg) => {
-                  const isUser = msg.senderType === 'USER';
-                  const isAgent = msg.senderType === 'AGENT';
-
-                  return (
-                    <div
-                      key={msg.id}
-                      className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} space-y-1`}
-                    >
-                      {/* Sender label */}
-                      <span className="text-[10px] font-semibold text-slate-400 px-1">
-                        {isUser ? 'You' : isAgent ? `👨‍💼 ${msg.senderName}` : '🤖 U-Ads AI'}
+          ) : (
+            <>
+              {/* Queue Banner (Ticket #, Queue Position, Est. Wait) */}
+              {conversation?.status === 'WAITING_FOR_AGENT' && (
+                <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 space-y-1 text-[11px] text-amber-900">
+                  <div className="flex items-center justify-between font-bold">
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-600" />
+                      Waiting for a support specialist
+                    </span>
+                    {conversation.ticketNumber && (
+                      <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-amber-100 border border-amber-300">
+                        {conversation.ticketNumber}
                       </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-amber-700">
+                    <span>Queue position: #{conversation.queuePosition || 1}</span>
+                    <span>Estimated wait: ~{conversation.estimatedWaitMinutes || 3} min</span>
+                  </div>
+                </div>
+              )}
 
-                      {/* Bubble */}
-                      <div
-                        className={`max-w-[85%] rounded-2xl p-3.5 text-xs leading-relaxed shadow-2xs whitespace-pre-line ${
-                          isUser
-                            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-tr-xs'
-                            : isAgent
-                            ? 'bg-purple-50 text-slate-900 border border-purple-200 rounded-tl-xs'
-                            : 'bg-white text-slate-800 border border-slate-200/90 rounded-tl-xs'
-                        }`}
-                      >
-                        {msg.message}
-
-                        {/* Attachment display if present */}
-                        {msg.attachmentUrl && (
-                          <div className="mt-2.5 pt-2 border-t border-black/10">
-                            {msg.attachmentUrl.startsWith('data:image/') ||
-                            msg.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp)/i) ? (
-                              <div
-                                onClick={() => setLightboxImage(msg.attachmentUrl || null)}
-                                className="cursor-pointer group relative rounded-xl overflow-hidden border border-black/10 max-h-40 bg-black/5"
-                              >
-                                <img
-                                  src={msg.attachmentUrl}
-                                  alt={msg.attachmentName || 'Attachment'}
-                                  className="w-full object-cover group-hover:opacity-90 transition-opacity"
-                                />
-                                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white text-[10px] font-bold">
-                                  Click to expand
-                                </div>
-                              </div>
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-slate-50">
+                {loading ? (
+                  <div className="space-y-3 py-4">
+                    <div className="h-14 w-3/4 rounded-2xl skeleton-shimmer" />
+                    <div className="h-10 w-1/2 ml-auto rounded-2xl skeleton-shimmer" />
+                  </div>
+                ) : (
+                  <>
+                    {messages.map((msg) => {
+                      const isUser = msg.senderType === 'USER';
+                      const isAgent = msg.senderType === 'AGENT';
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} space-y-1`}
+                        >
+                          <span className="text-[10px] font-semibold text-slate-400 px-1 flex items-center gap-1">
+                            {isUser ? (
+                              'You'
+                            ) : isAgent ? (
+                              <>
+                                <UserCheck className="w-3 h-3 text-emerald-600" />
+                                {msg.senderName}
+                              </>
                             ) : (
-                              <a
-                                href={msg.attachmentUrl}
-                                download={msg.attachmentName || 'attachment'}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center gap-2 p-2 rounded-xl bg-black/5 hover:bg-black/10 text-inherit font-medium transition-colors text-[11px]"
-                              >
-                                <FileText className="w-4 h-4" />
-                                <span className="truncate max-w-[180px]">
-                                  {msg.attachmentName || 'Download File'}
-                                </span>
-                                <ExternalLink className="w-3 h-3 ml-auto opacity-70" />
-                              </a>
+                              <>
+                                <Headphones className="w-3 h-3 text-slate-400" />
+                                U-Ads Support
+                              </>
+                            )}
+                          </span>
+
+                          <div
+                            className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-2xs ${
+                              isUser
+                                ? 'bg-emerald-600 text-white rounded-tr-xs'
+                                : isAgent
+                                ? 'bg-emerald-50 text-slate-900 border border-emerald-200 rounded-tl-xs'
+                                : 'bg-white text-slate-700 border border-slate-200 rounded-tl-xs'
+                            }`}
+                          >
+                            <FormattedChatText text={msg.message} isUser={isUser} />
+
+                            {msg.attachmentUrl && (
+                              <div className="mt-2 pt-2 border-t border-black/10">
+                                {msg.attachmentUrl.startsWith('data:image/') ||
+                                msg.attachmentUrl.match(/\.(jpeg|jpg|gif|png|webp)/i) ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setLightboxImage(msg.attachmentUrl || null)}
+                                    className="block rounded-xl overflow-hidden border border-black/10 max-h-36 cursor-pointer"
+                                  >
+                                    <img
+                                      src={msg.attachmentUrl}
+                                      alt={msg.attachmentName || 'Attachment'}
+                                      className="w-full object-cover"
+                                    />
+                                  </button>
+                                ) : (
+                                  <a
+                                    href={msg.attachmentUrl}
+                                    download={msg.attachmentName || 'attachment'}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-2 p-2 rounded-lg bg-black/5 text-inherit font-medium text-[11px]"
+                                  >
+                                    <FileText className="w-4 h-4" />
+                                    <span className="truncate max-w-[180px]">
+                                      {msg.attachmentName || 'Download File'}
+                                    </span>
+                                    <ExternalLink className="w-3 h-3 ml-auto opacity-70" />
+                                  </a>
+                                )}
+                              </div>
                             )}
                           </div>
-                        )}
-                      </div>
 
-                      <span className="text-[9px] text-slate-400 px-1">
-                        {new Date(msg.createdAt).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                  );
-                })}
-
-                <div ref={messagesEndRef} />
-              </>
-            )}
-          </div>
-
-          {/* Quick Account-Aware & FAQ Suggestion Chips */}
-          {conversation?.status === 'BOT' && (
-            <div className="px-3 py-2 bg-slate-100/90 border-t border-slate-200 flex items-center gap-2 overflow-x-auto no-scrollbar">
-              <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-emerald-600" />
-                Quick:
-              </span>
-              {['What is my deposit status?', 'Check my referral progress', 'Check my wallet balance', ...faqs.slice(0, 2).map((f) => f.question)].map((promptText, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSendMessage(promptText)}
-                  className="px-2.5 py-1 rounded-full bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 hover:text-emerald-700 text-[10px] font-semibold whitespace-nowrap transition-all shadow-2xs cursor-pointer"
-                >
-                  {promptText}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Attachment Preview Chip */}
-          {attachmentData && (
-            <div className="px-3 py-1.5 bg-emerald-50 border-t border-emerald-200 flex items-center justify-between text-xs text-emerald-900">
-              <div className="flex items-center gap-2 truncate">
-                <ImageIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span className="text-[11px] font-medium truncate max-w-[240px]">
-                  {attachmentName}
-                </span>
+                          <span className="text-[10px] text-slate-400 px-1">
+                            {new Date(msg.createdAt).toLocaleTimeString('en-US', {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                              hour12: true,
+                            })}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    <div ref={messagesEndRef} />
+                  </>
+                )}
               </div>
-              <button
-                onClick={removeAttachment}
-                className="w-5 h-5 rounded-full hover:bg-emerald-200/80 flex items-center justify-center text-emerald-800 transition-colors"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
+
+              {/* Quick Account Prompts */}
+              {conversation?.status === 'BOT' && (
+                <div className="px-3 py-2 bg-white border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                  {[
+                    'Check my deposit status',
+                    'Check my wallet balance',
+                    'Check my referral progress',
+                    'Withdrawal limits',
+                  ].map((promptText, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleSendMessage(promptText)}
+                      className="px-2.5 py-1 rounded-full bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 hover:text-emerald-700 text-[11px] font-semibold whitespace-nowrap transition-colors cursor-pointer"
+                    >
+                      {promptText}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Attachment Preview */}
+              {attachmentData && (
+                <div className="px-3 py-1.5 bg-emerald-50 border-t border-emerald-200 flex items-center justify-between text-xs text-emerald-900">
+                  <div className="flex items-center gap-2 truncate">
+                    <ImageIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="text-[11px] font-medium truncate max-w-[240px]">{attachmentName}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={removeAttachment}
+                    className="w-5 h-5 rounded-full hover:bg-emerald-200/80 flex items-center justify-center text-emerald-800 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+
+              {/* Input Footer — clean placeholder, no internal trigger leak */}
+              <div className="p-3 bg-white border-t border-slate-200 flex items-center gap-2">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-9 h-9 rounded-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+                  title="Attach receipt or screenshot (Max 5 MB)"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+                <input
+                  type="text"
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                  placeholder="Write a message..."
+                  className="flex-1 h-9 px-3 bg-slate-50 border border-slate-200 rounded-[10px] text-xs text-slate-900 placeholder-slate-400 focus:border-emerald-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleSendMessage()}
+                  disabled={sending || (!inputMessage.trim() && !attachmentData)}
+                  className="w-9 h-9 rounded-[10px] bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white flex items-center justify-center transition-colors shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                  aria-label="Send message"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </>
           )}
-
-          {/* Input Footer */}
-          <div className="p-3 bg-white border-t border-slate-200 flex items-center gap-2">
-            {/* Hidden File Input */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-              accept="image/*,application/pdf"
-              className="hidden"
-            />
-
-            {/* Paperclip Button */}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors shrink-0"
-              title="Attach screenshot or receipt (Max 5MB)"
-            >
-              <Paperclip className="w-4 h-4" />
-            </button>
-
-            {/* Text Input */}
-            <input
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-              placeholder={
-                conversation?.status === 'WAITING_FOR_AGENT'
-                  ? 'Type your message for support agent...'
-                  : 'Ask question or type "agent"...'
-              }
-              className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-            />
-
-            {/* Send Button */}
-            <button
-              onClick={() => handleSendMessage()}
-              disabled={sending || (!inputMessage.trim() && !attachmentData)}
-              className="w-9 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white flex items-center justify-center transition-colors shrink-0 shadow-xs"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
         </div>
       )}
 
-      {/* 3. Image Lightbox Modal */}
+      {/* Lightbox */}
       {lightboxImage && (
         <div
           onClick={() => setLightboxImage(null)}
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-[80] bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4"
         >
-          <div className="relative max-w-2xl max-h-[90vh]">
+          <div className="relative max-w-2xl max-h-[90vh] animate-modal-in">
             <img
               src={lightboxImage}
-              alt="Full Preview"
+              alt="Attachment Preview"
               className="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl"
             />
             <button
+              type="button"
               onClick={() => setLightboxImage(null)}
-              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-900 border border-slate-700 text-white flex items-center justify-center shadow-lg"
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-900 border border-slate-700 text-white flex items-center justify-center shadow-lg cursor-pointer"
+              aria-label="Close preview"
             >
               <X className="w-4 h-4" />
             </button>

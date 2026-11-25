@@ -2,13 +2,22 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { WithdrawalRequest } from '../types/index.js';
+import { useToast } from '../components/ToastProvider.js';
+import {
+  formatDateTime,
+  formatPayoutMethod,
+  formatUSD,
+  shortenCode,
+} from '../utils/formatters.js';
 import {
   ArrowUpRight,
-  ArrowLeft,
   CheckCircle2,
   AlertCircle,
   Clock,
   Lock,
+  Copy,
+  Check,
+  RefreshCw,
 } from 'lucide-react';
 
 interface WithdrawalProps {
@@ -21,51 +30,56 @@ type SourceWalletKey =
   | 'USER_REFERRAL'
   | 'USER_OTHER_REWARDS';
 
-export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
+const MIN_WITHDRAWAL_USD = 10;
+
+export const WithdrawalPage: React.FC<WithdrawalProps> = () => {
   const { user, wallet, refreshWallet } = useAuth();
+  const { showToast } = useToast();
+
   const [sourceWallet, setSourceWallet] = useState<SourceWalletKey>('USER_AVAILABLE');
   const [payoutMethod, setPayoutMethod] = useState('CRYPTO_USDT');
   const [amountInput, setAmountInput] = useState('');
   const [accountTitle, setAccountTitle] = useState(user?.fullName || '');
   const [accountNumber, setAccountNumber] = useState('');
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ amount?: string; title?: string; number?: string }>({});
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const fetchWithdrawalData = async () => {
+  const fetchWithdrawalData = async (isManual = false) => {
+    if (isManual) setRefreshing(true);
+    else setLoading(true);
     try {
       const res = await api.getMyWithdrawals();
       if (res.success && res.data) {
         setWithdrawals(res.data);
       }
+      if (isManual) {
+        await refreshWallet();
+        showToast('Withdrawal status refreshed.', 'success');
+      }
     } catch (err) {
       console.error('Failed to load withdrawals:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
     refreshWallet();
-    fetchWithdrawalData();
+    fetchWithdrawalData(false);
   }, []);
 
   const walletBalances: Record<SourceWalletKey, { label: string; cents: number }> = {
-    USER_AVAILABLE: {
-      label: 'Main Account Credits',
-      cents: wallet?.USD?.availableCents ?? 0,
-    },
-    USER_VIDEO_REWARDS: {
-      label: 'Video Rewards Wallet',
-      cents: wallet?.USD?.videoRewardsCents ?? 0,
-    },
-    USER_REFERRAL: {
-      label: 'Referral Wallet',
-      cents: wallet?.USD?.referralCents ?? 0,
-    },
-    USER_OTHER_REWARDS: {
-      label: 'Approved Other Rewards',
-      cents: wallet?.USD?.otherRewardsCents ?? 0,
-    },
+    USER_AVAILABLE: { label: 'Main Account', cents: wallet?.USD?.availableCents ?? 0 },
+    USER_VIDEO_REWARDS: { label: 'Video Rewards', cents: wallet?.USD?.videoRewardsCents ?? 0 },
+    USER_REFERRAL: { label: 'Referral Wallet', cents: wallet?.USD?.referralCents ?? 0 },
+    USER_OTHER_REWARDS: { label: 'Bonus Rewards', cents: wallet?.USD?.otherRewardsCents ?? 0 },
   };
 
   const availableBalanceCents = walletBalances[sourceWallet].cents;
@@ -74,19 +88,25 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
     switch (status) {
       case 'PAID':
       case 'COMPLETED':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        return { label: 'Completed', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
       case 'REJECTED':
       case 'FAILED':
       case 'CANCELLED':
-        return 'bg-rose-50 text-rose-700 border-rose-200';
+        return { label: status === 'CANCELLED' ? 'Cancelled' : 'Rejected', cls: 'bg-rose-50 text-rose-700 border-rose-200' };
       case 'APPROVED':
       case 'PROCESSING':
-        return 'bg-blue-50 text-blue-700 border-blue-200';
       case 'UNDER_REVIEW':
-        return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+        return { label: 'In Review', cls: 'bg-amber-50 text-amber-700 border-amber-200' };
       default:
-        return 'bg-amber-50 text-amber-700 border-amber-200';
+        return { label: 'Pending', cls: 'bg-amber-50 text-amber-700 border-amber-200' };
     }
+  };
+
+  const handleCopyAddress = (id: string, val: string) => {
+    navigator.clipboard.writeText(val);
+    setCopiedId(id);
+    showToast('Payout address copied.', 'success');
+    setTimeout(() => setCopiedId(null), 1800);
   };
 
   const handleWithdrawalSubmit = async (e: React.FormEvent) => {
@@ -94,28 +114,36 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
     setErrorMsg(null);
     setSuccessMsg(null);
 
+    const errs: { amount?: string; title?: string; number?: string } = {};
     const parsedAmount = parseFloat(amountInput);
+
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      setErrorMsg('Please enter a valid USD amount.');
+      errs.amount = 'Enter a valid USD amount.';
+    } else if (parsedAmount < MIN_WITHDRAWAL_USD) {
+      errs.amount = `Minimum withdrawal is $${MIN_WITHDRAWAL_USD.toFixed(2)} USD.`;
+    } else if (Math.round(parsedAmount * 100) > availableBalanceCents) {
+      errs.amount = `Exceeds available ${walletBalances[sourceWallet].label} balance (${formatUSD(
+        availableBalanceCents
+      )}).`;
+    }
+
+    if (!accountTitle.trim()) {
+      errs.title = 'Enter the recipient account holder name.';
+    }
+    if (!accountNumber.trim()) {
+      errs.number =
+        payoutMethod === 'CRYPTO_USDT'
+          ? 'Enter your USDT TRC-20 wallet address.'
+          : 'Enter your bank account / IBAN and SWIFT details.';
+    }
+
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
       return;
     }
 
+    setFieldErrors({});
     const amountCents = Math.round(parsedAmount * 100);
-
-    if (amountCents > availableBalanceCents) {
-      setErrorMsg(
-        `Requested amount exceeds available balance of $${(availableBalanceCents / 100).toFixed(
-          2
-        )} USD in ${walletBalances[sourceWallet].label}.`
-      );
-      return;
-    }
-
-    if (!accountTitle.trim() || !accountNumber.trim()) {
-      setErrorMsg('Please provide your complete beneficiary account title and payout address/number.');
-      return;
-    }
-
     setSubmitting(true);
     try {
       const res = await api.createWithdrawalRequest({
@@ -129,14 +157,15 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
 
       if (res.success) {
         setSuccessMsg(
-          'USD withdrawal request created! Funds are safely placed on ledger hold pending Finance Admin review and payout settlement.'
+          `Withdrawal request for ${formatUSD(amountCents)} submitted. Your funds are reserved while our team completes the transfer.`
         );
+        showToast('Withdrawal request submitted.', 'success');
         setAmountInput('');
         setAccountNumber('');
         await refreshWallet();
-        await fetchWithdrawalData();
+        await fetchWithdrawalData(false);
       } else {
-        setErrorMsg(res.error?.message || 'Withdrawal request failed.');
+        setErrorMsg(res.error?.message || 'Unable to submit withdrawal request.');
       }
     } catch {
       setErrorMsg('Network error submitting withdrawal request.');
@@ -146,245 +175,300 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = ({ navigate }) => {
   };
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="pb-4 border-b border-slate-100 flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-extrabold text-slate-900">Request USD Payout & Withdrawal</h2>
-          <p className="text-xs text-slate-500">
-            Withdraw USD from your Main Account Credits, Video Rewards, or Referral Wallet. Funds are held securely until verified settlement.
-          </p>
-        </div>
-        {navigate && (
-          <button
-            onClick={() => navigate('wallet')}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Wallet
-          </button>
-        )}
-      </div>
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Left: Request Form (consistent left-form / right-history layout) */}
+      <div className="lg:col-span-6">
+        <form onSubmit={handleWithdrawalSubmit} noValidate className="card-white p-6 space-y-5">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">Request a USD Payout</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Minimum withdrawal: <strong className="text-slate-800">${MIN_WITHDRAWAL_USD}.00 USD</strong> · Available in selected wallet:{' '}
+              <strong className="text-emerald-700 tabular-nums">{formatUSD(availableBalanceCents)}</strong>
+            </p>
+          </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left: Request Form */}
-        <div className="lg:col-span-6 space-y-6">
-          <form
-            onSubmit={handleWithdrawalSubmit}
-            className="p-8 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-5"
-          >
-            {/* Source Wallet Selector */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-2">
-                Select Source USD Wallet
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                {(['USER_AVAILABLE', 'USER_VIDEO_REWARDS', 'USER_REFERRAL'] as SourceWalletKey[]).map(
-                  (key) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setSourceWallet(key)}
-                      className={`p-3 rounded-2xl border text-left transition-all ${
-                        sourceWallet === key
-                          ? 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-2xs'
-                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <div className="text-[11px] font-bold truncate">{walletBalances[key].label}</div>
-                      <div className="font-mono font-extrabold text-sm mt-0.5">
-                        ${(walletBalances[key].cents / 100).toFixed(2)}
-                      </div>
-                    </button>
-                  )
-                )}
-              </div>
-              {(wallet?.USD?.otherRewardsCents ?? 0) > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSourceWallet('USER_OTHER_REWARDS')}
-                  className={`mt-2 w-full p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between ${
-                    sourceWallet === 'USER_OTHER_REWARDS'
-                      ? 'bg-amber-50 border-amber-500 text-amber-900'
-                      : 'bg-slate-50 border-slate-200 text-slate-600'
-                  }`}
-                >
-                  <span>Approved Other Rewards</span>
-                  <span className="font-mono">
-                    ${((wallet?.USD?.otherRewardsCents ?? 0) / 100).toFixed(2)} USD
-                  </span>
-                </button>
+          {/* Source Wallet Selector */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-2">
+              Source Wallet <span className="text-rose-600">*</span>
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              {(['USER_AVAILABLE', 'USER_VIDEO_REWARDS', 'USER_REFERRAL'] as SourceWalletKey[]).map(
+                (key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setSourceWallet(key);
+                      setFieldErrors((f) => ({ ...f, amount: undefined }));
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      sourceWallet === key
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="text-[11px] font-bold">{walletBalances[key].label}</div>
+                    <div className="font-extrabold text-sm mt-0.5 tabular-nums text-slate-900">
+                      {formatUSD(walletBalances[key].cents)}
+                    </div>
+                  </button>
+                )
               )}
             </div>
-
-            {/* Payout Method */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                USD Payout Channel
-              </label>
-              <select
-                value={payoutMethod}
-                onChange={(e) => setPayoutMethod(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-500 font-semibold"
+            {(wallet?.USD?.otherRewardsCents ?? 0) > 0 && (
+              <button
+                type="button"
+                onClick={() => setSourceWallet('USER_OTHER_REWARDS')}
+                className={`mt-2 w-full p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between cursor-pointer ${
+                  sourceWallet === 'USER_OTHER_REWARDS'
+                    ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
+                    : 'bg-slate-50 border-slate-200 text-slate-700'
+                }`}
               >
-                <option value="CRYPTO_USDT">USDT (TRC-20 Network)</option>
-                <option value="USD_BANK_WIRE">USD International Bank / Wire Transfer</option>
-              </select>
-            </div>
-
-            {/* Amount */}
-            <div>
-              <div className="flex justify-between items-center mb-1.5">
-                <label className="text-xs font-semibold text-slate-700">
-                  Withdrawal Amount (USD)
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setAmountInput((availableBalanceCents / 100).toFixed(2))}
-                  className="text-[10px] text-emerald-600 hover:text-emerald-700 font-bold"
-                >
-                  Max Available (${(availableBalanceCents / 100).toFixed(2)})
-                </button>
-              </div>
-              <input
-                type="number"
-                step="0.01"
-                min="1"
-                placeholder="0.00"
-                value={amountInput}
-                onChange={(e) => setAmountInput(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500 font-mono font-bold"
-                required
-              />
-            </div>
-
-            {/* Beneficiary Details */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Beneficiary Full Name / Account Title
-              </label>
-              <input
-                type="text"
-                placeholder="Exact legal name on receiving account"
-                value={accountTitle}
-                onChange={(e) => setAccountTitle(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                {payoutMethod === 'CRYPTO_USDT'
-                  ? 'USDT TRC-20 Receiving Wallet Address'
-                  : 'USD Bank Account / IBAN & SWIFT'}
-              </label>
-              <input
-                type="text"
-                placeholder={
-                  payoutMethod === 'CRYPTO_USDT'
-                    ? 'e.g. TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-                    : 'e.g. IBAN / Account Number + SWIFT Code'
-                }
-                value={accountNumber}
-                onChange={(e) => setAccountNumber(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500 font-mono"
-                required
-              />
-            </div>
-
-            {/* Hold Disclaimer Box */}
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
-              <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-amber-600" />
-                Ledger Hold Invariant
-              </div>
-              <p>
-                The requested USD amount transitions immediately to Reserved Hold. If rejected or marked failed, the full hold is automatically released back to your wallet.
-              </p>
-            </div>
-
-            {/* Alerts */}
-            {errorMsg && (
-              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                <span>{errorMsg}</span>
-              </div>
+                <span>Bonus Rewards</span>
+                <span className="tabular-nums">{formatUSD(wallet?.USD?.otherRewardsCents ?? 0)}</span>
+              </button>
             )}
-            {successMsg && (
-              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-                <span>{successMsg}</span>
-              </div>
-            )}
+          </div>
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full py-3.5 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white transition-all flex items-center justify-center gap-2 shadow-sm text-sm cursor-pointer"
+          {/* Payout Method */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Payout Method <span className="text-rose-600">*</span>
+            </label>
+            <select
+              value={payoutMethod}
+              onChange={(e) => setPayoutMethod(e.target.value)}
+              className="w-full h-10 bg-slate-50 border border-slate-200 rounded-[10px] px-3.5 text-xs font-semibold text-slate-900 focus:border-emerald-500"
             >
-              <ArrowUpRight className="w-4 h-4" />
-              {submitting ? 'Reserving Ledger Balance...' : 'Confirm USD Withdrawal Request'}
-            </button>
-          </form>
-        </div>
+              <option value="CRYPTO_USDT">Crypto — USDT TRC-20</option>
+              <option value="USD_BANK_WIRE">USD Bank Wire</option>
+            </select>
+          </div>
 
-        {/* Right: Withdrawal Status & Queue */}
-        <div className="lg:col-span-6 space-y-6">
-          <div className="rounded-3xl bg-white border border-slate-200/90 shadow-xs p-6 space-y-4">
+          {/* Amount */}
+          <div>
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="text-xs font-bold text-slate-700">
+                Withdrawal Amount (USD) <span className="text-rose-600">*</span>
+              </label>
+              <button
+                type="button"
+                disabled={availableBalanceCents <= 0}
+                onClick={() => {
+                  setAmountInput((availableBalanceCents / 100).toFixed(2));
+                  setFieldErrors((f) => ({ ...f, amount: undefined }));
+                }}
+                className="text-xs font-bold text-emerald-700 hover:underline disabled:opacity-40 cursor-pointer tabular-nums"
+              >
+                Use max ({formatUSD(availableBalanceCents)})
+              </button>
+            </div>
+            <input
+              type="number"
+              step="0.01"
+              min={MIN_WITHDRAWAL_USD}
+              placeholder={`Minimum ${MIN_WITHDRAWAL_USD}.00`}
+              value={amountInput}
+              onChange={(e) => {
+                setAmountInput(e.target.value);
+                setFieldErrors((f) => ({ ...f, amount: undefined }));
+              }}
+              className={`w-full h-11 rounded-[10px] px-3.5 text-sm font-bold tabular-nums bg-slate-50 border text-slate-900 ${
+                fieldErrors.amount ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-emerald-500'
+              }`}
+            />
+            {fieldErrors.amount && (
+              <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                {fieldErrors.amount}
+              </p>
+            )}
+          </div>
+
+          {/* Beneficiary Name */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Recipient Name <span className="text-rose-600">*</span>
+            </label>
+            <input
+              type="text"
+              placeholder="Full name on receiving account"
+              value={accountTitle}
+              onChange={(e) => {
+                setAccountTitle(e.target.value);
+                setFieldErrors((f) => ({ ...f, title: undefined }));
+              }}
+              className={`w-full h-10 rounded-[10px] px-3.5 text-xs bg-slate-50 border text-slate-900 ${
+                fieldErrors.title ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-emerald-500'
+              }`}
+            />
+            {fieldErrors.title && (
+              <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                {fieldErrors.title}
+              </p>
+            )}
+          </div>
+
+          {/* Destination Address */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              {payoutMethod === 'CRYPTO_USDT'
+                ? 'USDT TRC-20 Wallet Address'
+                : 'Bank Account / IBAN & SWIFT'}{' '}
+              <span className="text-rose-600">*</span>
+            </label>
+            <input
+              type="text"
+              placeholder={
+                payoutMethod === 'CRYPTO_USDT'
+                  ? 'Paste your TRC-20 wallet address'
+                  : 'Enter your IBAN / account number and SWIFT code'
+              }
+              value={accountNumber}
+              onChange={(e) => {
+                setAccountNumber(e.target.value);
+                setFieldErrors((f) => ({ ...f, number: undefined }));
+              }}
+              className={`w-full h-10 rounded-[10px] px-3.5 text-xs font-mono bg-slate-50 border text-slate-900 ${
+                fieldErrors.number ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-emerald-500'
+              }`}
+            />
+            {fieldErrors.number && (
+              <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                {fieldErrors.number}
+              </p>
+            )}
+          </div>
+
+          {/* Plain-English Hold Explanation (no jargon!) */}
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-start gap-2.5 leading-relaxed">
+            <Lock className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+            <span>
+              Requested funds are temporarily held while our team reviews and sends your payout. If a request is declined, the full amount returns to your wallet automatically.
+            </span>
+          </div>
+
+          {errorMsg && (
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+          {successMsg && (
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span>{successMsg}</span>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting || availableBalanceCents < MIN_WITHDRAWAL_USD * 100}
+            title={
+              availableBalanceCents < MIN_WITHDRAWAL_USD * 100
+                ? `At least $${MIN_WITHDRAWAL_USD}.00 is required to withdraw from this wallet`
+                : 'Submit withdrawal request'
+            }
+            className="btn-primary w-full !h-11"
+          >
+            <ArrowUpRight className="w-4 h-4" />
+            <span>{submitting ? 'Submitting Request…' : 'Submit Withdrawal Request'}</span>
+          </button>
+        </form>
+      </div>
+
+      {/* Right: Payout History */}
+      <div className="lg:col-span-6">
+        <div className="card-white p-6 space-y-4">
+          <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <Clock className="w-4 h-4 text-emerald-600" />
-              Your Payout Requests & Lifecycle
+              Your Payout History
             </h3>
+            <button
+              type="button"
+              onClick={() => fetchWithdrawalData(true)}
+              disabled={refreshing}
+              className="btn-secondary !h-8 !px-3"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>{refreshing ? 'Refreshing…' : 'Refresh'}</span>
+            </button>
+          </div>
 
-            {withdrawals.length === 0 ? (
-              <p className="text-xs text-slate-400 py-6 text-center">
-                No withdrawal requests on record yet.
+          {loading ? (
+            <div className="space-y-3">
+              <div className="h-24 rounded-xl skeleton-shimmer" />
+              <div className="h-24 rounded-xl skeleton-shimmer" />
+            </div>
+          ) : withdrawals.length === 0 ? (
+            <div className="py-12 px-4 text-center space-y-2">
+              <div className="text-sm font-bold text-slate-900">No withdrawal requests yet</div>
+              <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                Once your balance reaches ${MIN_WITHDRAWAL_USD}.00 USD, you can request a payout to USDT TRC-20 or USD Bank Wire.
               </p>
-            ) : (
-              <div className="space-y-3">
-                {withdrawals.map((w) => (
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {withdrawals.map((w) => {
+                const badge = getStatusBadge(w.status);
+                return (
                   <div
                     key={w.id}
-                    className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 text-xs"
+                    className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="font-extrabold text-slate-900 text-sm">
-                        ${(w.amountCents / 100).toFixed(2)} USD
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-extrabold text-slate-900 text-base tabular-nums">
+                        {formatUSD(w.amountCents)}
                       </div>
-                      <span
-                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${getStatusBadge(
-                          w.status
-                        )}`}
-                      >
-                        {w.status.replace(/_/g, ' ')}
+                      <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${badge.cls}`}>
+                        {badge.label}
                       </span>
                     </div>
 
-                    <div className="text-[11px] text-slate-500 flex items-center justify-between">
-                      <span>Method: {w.payoutMethod}</span>
-                      <span>{new Date(w.createdAt).toLocaleString()}</span>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-slate-600">
+                      <span className="font-semibold">{formatPayoutMethod(w.payoutMethod)}</span>
+                      <span className="text-slate-400">{formatDateTime(w.createdAt)}</span>
                     </div>
 
-                    <div className="text-[10px] font-mono text-slate-600 truncate">
-                      To: {w.accountTitle} ({w.accountNumber})
+                    <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/80">
+                      <div className="text-[11px] text-slate-600 truncate">
+                        {w.accountTitle} ·{' '}
+                        <span className="font-mono text-slate-800">{shortenCode(w.accountNumber, 8, 6)}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyAddress(w.id, w.accountNumber)}
+                        className="text-[11px] font-bold text-slate-500 hover:text-emerald-700 flex items-center gap-1 shrink-0 cursor-pointer"
+                      >
+                        {copiedId === w.id ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                        <span>{copiedId === w.id ? 'Copied' : 'Copy'}</span>
+                      </button>
                     </div>
 
                     {w.payoutRef && (
-                      <div className="pt-2 border-t border-slate-200 text-[10px] text-emerald-700 font-mono font-semibold">
-                        Confirmed Payout Ref: {w.payoutRef}
+                      <div className="pt-1.5 border-t border-slate-200/80 text-[11px] text-emerald-700 font-semibold">
+                        Payout Reference: <span className="font-mono">{w.payoutRef}</span>
                       </div>
                     )}
                     {w.rejectionReason && (
-                      <div className="pt-2 border-t border-slate-200 text-[10px] text-rose-600">
+                      <div className="pt-1.5 border-t border-slate-200/80 text-[11px] text-rose-700">
                         Reason: {w.rejectionReason}
                       </div>
                     )}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>

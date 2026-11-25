@@ -96,17 +96,33 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
         </div>
 
         <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-slate-900 max-w-4xl mx-auto leading-[1.12]">
-          {content.heroTitle ? (
-            <>
-              {content.heroTitle}{' '}
-              {content.heroHighlight && <span className="text-emerald-600">{content.heroHighlight}</span>}
-            </>
-          ) : (
-            <>
-              Watch Curated Video Campaigns &amp; Earn{' '}
-              <span className="text-emerald-600">Verified USD</span> Rewards.
-            </>
-          )}
+          {(() => {
+            const rawTitle = (content.heroTitle || '').trim();
+            const rawHighlight = (content.heroHighlight || '').trim();
+            // Guard against clipped CMS headlines ending in "&" with no highlight
+            if (rawTitle && rawTitle.endsWith('&') && !rawHighlight) {
+              return (
+                <>
+                  {rawTitle}{' '}
+                  <span className="text-emerald-600">Earn Real USD Rewards</span>
+                </>
+              );
+            }
+            if (rawTitle) {
+              return (
+                <>
+                  {rawTitle}{' '}
+                  {rawHighlight && <span className="text-emerald-600">{rawHighlight}</span>}
+                </>
+              );
+            }
+            return (
+              <>
+                Watch Verified Campaigns &amp;{' '}
+                <span className="text-emerald-600">Earn Real USD Rewards</span>
+              </>
+            );
+          })()}
         </h1>
 
         <p className="mt-6 text-base sm:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
@@ -294,32 +310,33 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
             try {
               feats = JSON.parse(pkg.features || '[]');
             } catch {}
+            const isRecommended = pkg.name === 'Premium';
             return (
               <div
                 key={pkg.id}
-                className={`p-6 rounded-3xl bg-white border flex flex-col justify-between space-y-5 shadow-xs ${
-                  pkg.name === 'VIP' ? 'border-emerald-500 ring-2 ring-emerald-500/15' : 'border-slate-200/90'
+                className={`p-6 rounded-2xl bg-white border flex flex-col justify-between space-y-5 relative transition-all card-hover ${
+                  isRecommended
+                    ? 'border-2 border-emerald-500 ring-4 ring-emerald-500/10 shadow-md'
+                    : 'border-slate-200/90 shadow-xs'
                 }`}
               >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-lg font-extrabold text-slate-900">{pkg.name}</h4>
-                    {pkg.badge && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        {pkg.badge}
-                      </span>
-                    )}
+                {isRecommended && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider shadow-xs">
+                    Recommended
                   </div>
+                )}
+                <div className="space-y-3">
+                  <h4 className="text-lg font-extrabold text-slate-900">{pkg.name}</h4>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-black text-slate-900">
+                    <span className="text-3xl font-black text-slate-900 tabular-nums">
                       ${(pkg.priceCents / 100).toFixed(0)}
                     </span>
                     <span className="text-xs font-semibold text-slate-400">USD</span>
                   </div>
-                  <div className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5">
+                  <div className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
                     Unlocks {pkg.videoLimit} Video Campaigns
                   </div>
-                  <ul className="space-y-1.5 text-[11px] text-slate-600">
+                  <ul className="space-y-1.5 text-xs text-slate-600">
                     {feats.slice(0, 3).map((f, i) => (
                       <li key={i} className="flex items-start gap-1.5">
                         <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
@@ -330,7 +347,7 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
                 </div>
                 <button
                   onClick={() => navigate('packages')}
-                  className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-emerald-600 text-white text-xs font-bold transition-colors cursor-pointer"
+                  className={isRecommended ? 'btn-primary w-full' : 'btn-secondary w-full'}
                 >
                   Select {pkg.name}
                 </button>

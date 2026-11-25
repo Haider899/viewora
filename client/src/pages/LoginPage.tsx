@@ -1,7 +1,20 @@
 import React, { useState } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
-import { User as UserIcon, ShieldCheck, Lock, Mail, ArrowRight, AlertCircle, Eye, EyeOff, KeyRound, CheckCircle2 } from 'lucide-react';
+import { useToast } from '../components/ToastProvider.js';
+import {
+  User as UserIcon,
+  ShieldCheck,
+  Lock,
+  Mail,
+  ArrowRight,
+  AlertCircle,
+  Eye,
+  EyeOff,
+  KeyRound,
+  CheckCircle2,
+  X,
+} from 'lucide-react';
 
 interface LoginProps {
   navigate: (route: string) => void;
@@ -9,8 +22,8 @@ interface LoginProps {
 
 export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
   const { login, logout } = useAuth();
+  const { showToast } = useToast();
 
-  // Strictly lock to Admin Portal only on admin.* subdomain (or ?portal=admin for local dev)
   const isAdminPortal =
     typeof window !== 'undefined' &&
     (window.location.hostname.toLowerCase().startsWith('admin.') ||
@@ -21,13 +34,15 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
 
-  // Forgot / Reset Password flow (F6)
+  // Forgot / Reset Password flow
   const [resetMode, setResetMode] = useState<'none' | 'request' | 'confirm'>('none');
   const [resetEmail, setResetEmail] = useState('');
   const [resetCode, setResetCode] = useState('');
   const [generatedCodeHint, setGeneratedCodeHint] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [resetErr, setResetErr] = useState<string | null>(null);
   const [resetLoading, setResetLoading] = useState(false);
@@ -36,17 +51,19 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
     e.preventDefault();
     setResetErr(null);
     setResetMsg(null);
+    if (!resetEmail.trim() || !resetEmail.includes('@')) {
+      setResetErr('Please enter a valid email address.');
+      return;
+    }
     setResetLoading(true);
     try {
       const res = await api.forgotPassword(resetEmail.trim());
       if (res.success) {
-        setResetMsg(res.data?.message || 'Reset code generated.');
-        if (res.data?.resetCode) {
-          setGeneratedCodeHint(res.data.resetCode);
-        }
+        setResetMsg(res.data?.message || 'Recovery code generated.');
+        if (res.data?.resetCode) setGeneratedCodeHint(res.data.resetCode);
         setResetMode('confirm');
       } else {
-        setResetErr(res.error?.message || 'Unable to process request.');
+        setResetErr(res.error?.message || 'Unable to process recovery request.');
       }
     } finally {
       setResetLoading(false);
@@ -57,6 +74,14 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
     e.preventDefault();
     setResetErr(null);
     setResetMsg(null);
+    if (!resetCode.trim()) {
+      setResetErr('Enter the 6-digit reset code.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setResetErr('New password must be at least 8 characters.');
+      return;
+    }
     setResetLoading(true);
     try {
       const res = await api.resetPassword({
@@ -65,7 +90,8 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
         newPassword,
       });
       if (res.success) {
-        setResetMsg('Password reset successfully! You can now sign in with your new password.');
+        setResetMsg('Password updated! You can now sign in.');
+        showToast('Password reset successfully.', 'success');
         setEmail(resetEmail.trim());
         setPassword('');
         setTimeout(() => {
@@ -73,9 +99,9 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
           setResetCode('');
           setNewPassword('');
           setGeneratedCodeHint(null);
-        }, 1600);
+        }, 1400);
       } else {
-        setResetErr(res.error?.message || 'Reset failed.');
+        setResetErr(res.error?.message || 'Reset failed. Check your code and try again.');
       }
     } finally {
       setResetLoading(false);
@@ -85,8 +111,17 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
-    setLoading(true);
 
+    const errs: { email?: string; password?: string } = {};
+    if (!email.trim() || !email.includes('@')) errs.email = 'Enter a valid email address.';
+    if (!password) errs.password = 'Enter your password.';
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      return;
+    }
+    setFieldErrors({});
+
+    setLoading(true);
     try {
       const loggedInUser = await login({ email: email.trim(), password });
 
@@ -97,137 +132,83 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
         'SUPPORT_AGENT',
       ].includes(loggedInUser.role);
 
-      if (isAdminPortal) {
-        if (!isStaffOrAdmin) {
-          logout();
-          setErrorMsg(
-            'Access Denied: Member accounts are not authorized to sign in through the Administrator Gateway.'
-          );
-          return;
-        }
-      } else {
-        if (isStaffOrAdmin) {
-          logout();
-          setErrorMsg(
-            'Access Denied: Please use the authorized administrative portal to sign in.'
-          );
-          return;
-        }
+      if (isAdminPortal && !isStaffOrAdmin) {
+        logout();
+        setErrorMsg('Member accounts cannot sign in through the Administrator Gateway.');
+        return;
+      }
+      if (!isAdminPortal && isStaffOrAdmin) {
+        logout();
+        setErrorMsg('Please use the Administrator Portal to sign in with staff credentials.');
+        return;
       }
 
       navigate('home');
     } catch (err: any) {
-      setErrorMsg(err.message || 'Invalid credentials.');
+      setErrorMsg(err.message || 'Invalid email or password.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-md mx-auto px-4 py-14 space-y-6">
-      {/* Header */}
+    <div className="max-w-md mx-auto px-4 py-14 space-y-6 animate-page-in">
       <div className="text-center space-y-2">
         <div
-          className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto shadow-md transition-all duration-200 ${
-            isAdminPortal
-              ? 'bg-gradient-to-tr from-slate-900 via-indigo-950 to-slate-800 shadow-slate-900/30'
-              : 'bg-gradient-to-tr from-emerald-600 to-teal-500 shadow-emerald-500/20'
+          className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto shadow-md ${
+            isAdminPortal ? 'bg-slate-900' : 'bg-emerald-600'
           }`}
         >
           {isAdminPortal ? (
-            <ShieldCheck className="w-6 h-6 text-white stroke-[2.2]" />
+            <ShieldCheck className="w-6 h-6 text-white" />
           ) : (
-            <UserIcon className="w-6 h-6 text-white stroke-[2.2]" />
+            <UserIcon className="w-6 h-6 text-white" />
           )}
         </div>
         <h1 className="text-2xl font-extrabold text-slate-900">
-          {isAdminPortal ? 'Administrator Gateway' : 'Welcome Back'}
+          {isAdminPortal ? 'Administrator Sign In' : 'Sign in to U-Ads'}
         </h1>
         <p className="text-xs text-slate-500">
           {isAdminPortal
-            ? 'Restricted access portal for certified system managers and moderators.'
-            : 'Sign in to access your video catalog, USD wallets, and referral network.'}
+            ? 'Authorized staff and operations access.'
+            : 'Manage your USD wallets, watch verified campaigns, and track referrals.'}
         </p>
       </div>
 
-      <form
-        onSubmit={handleSubmit}
-        className="p-7 sm:p-8 rounded-3xl bg-white border border-slate-200/90 shadow-sm space-y-5"
-      >
+      <form onSubmit={handleSubmit} noValidate className="card-white p-6 sm:p-7 space-y-5">
         <div>
           <label className="block text-xs font-bold text-slate-700 mb-1.5">
-            {isAdminPortal ? 'Admin Email Address' : 'Email Address'}
+            Email Address <span className="text-rose-600">*</span>
           </label>
           <div className="relative">
             <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="email"
-              placeholder={
-                isAdminPortal
-                  ? 'admin@innovative.online'
-                  : 'user@u-ads.com'
-              }
+              placeholder="name@example.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
-              required
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setFieldErrors((f) => ({ ...f, email: undefined }));
+              }}
+              className={`w-full h-11 bg-slate-50 border rounded-[10px] pl-10 pr-4 text-xs text-slate-900 placeholder-slate-400 ${
+                fieldErrors.email ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-emerald-500'
+              }`}
             />
           </div>
+          {fieldErrors.email && (
+            <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              {fieldErrors.email}
+            </p>
+          )}
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1.5">
-            Password
-          </label>
-          <div className="relative">
-            <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="••••••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-10 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
-              required
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5 transition-colors"
-              title={showPassword ? 'Hide password' : 'Show password'}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-        </div>
-
-        {errorMsg && (
-          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
-            <span className="leading-relaxed">{errorMsg}</span>
-          </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className={`w-full py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 text-xs shadow-sm cursor-pointer ${
-            isAdminPortal
-              ? 'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/20'
-              : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
-          }`}
-        >
-          {loading
-            ? 'Authenticating...'
-            : isAdminPortal
-            ? 'Sign In to Admin Portal'
-            : 'Sign In'}
-          <ArrowRight className="w-4 h-4" />
-        </button>
-
-        {!isAdminPortal ? (
-          <div className="space-y-2 pt-1 text-center text-xs text-slate-500">
-            <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-bold text-slate-700">
+              Password <span className="text-rose-600">*</span>
+            </label>
+            {!isAdminPortal && (
               <button
                 type="button"
                 onClick={() => {
@@ -236,104 +217,155 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
                   setResetMsg(null);
                   setResetMode('request');
                 }}
-                className="text-slate-600 hover:text-emerald-700 font-semibold hover:underline cursor-pointer"
+                className="text-xs font-semibold text-emerald-700 hover:underline cursor-pointer"
               >
-                Forgot your password? Reset it here
+                Forgot password?
               </button>
-            </div>
-            <div>
-              Don&apos;t have an account?{' '}
-              <button
-                type="button"
-                onClick={() => navigate('register')}
-                className="text-emerald-700 font-bold hover:underline"
-              >
-                Create an Account
-              </button>
-            </div>
+            )}
           </div>
-        ) : (
-          <div className="text-center text-[11px] text-slate-400 pt-1 flex items-center justify-center gap-1.5">
-            <Lock className="w-3 h-3 text-slate-400" />
-            <span>Authorized administrators only • Audited gateway</span>
+          <div className="relative">
+            <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Enter your password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setFieldErrors((f) => ({ ...f, password: undefined }));
+              }}
+              className={`w-full h-11 bg-slate-50 border rounded-[10px] pl-10 pr-10 text-xs text-slate-900 placeholder-slate-400 ${
+                fieldErrors.password ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-emerald-500'
+              }`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          {fieldErrors.password && (
+            <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              {fieldErrors.password}
+            </p>
+          )}
+        </div>
+
+        {errorMsg && (
+          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        <button type="submit" disabled={loading} className="btn-primary w-full !h-11">
+          <span>{loading ? 'Signing in…' : isAdminPortal ? 'Sign In to Admin Portal' : 'Sign In'}</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
+
+        {!isAdminPortal && (
+          <div className="text-center text-xs text-slate-500 pt-1">
+            New to U-Ads?{' '}
+            <button
+              type="button"
+              onClick={() => navigate('register')}
+              className="text-emerald-700 font-bold hover:underline cursor-pointer"
+            >
+              Create an account
+            </button>
           </div>
         )}
       </form>
 
-      {/* Self-Service Password Recovery Modal */}
+      {/* Password Recovery Modal */}
       {resetMode !== 'none' && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-7 border border-slate-200 shadow-2xl space-y-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <KeyRound className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-base font-bold text-slate-900">Password Recovery</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setResetMode('none')}
-                className="text-xs font-bold text-slate-400 hover:text-slate-700 cursor-pointer"
-              >
-                Close
-              </button>
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 border border-slate-200 shadow-2xl space-y-5 relative animate-modal-in">
+            <button
+              type="button"
+              onClick={() => setResetMode('none')}
+              className="absolute top-4 right-4 w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-2 pr-8">
+              <KeyRound className="w-5 h-5 text-emerald-600" />
+              <h3 className="text-base font-bold text-slate-900">Reset Your Password</h3>
             </div>
 
             {resetMode === 'request' ? (
-              <form onSubmit={handleRequestReset} className="space-y-4">
-                <p className="text-xs text-slate-500">
-                  Enter your registered U-Ads email address to receive a 6-digit password reset code.
+              <form onSubmit={handleRequestReset} noValidate className="space-y-4">
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Enter your registered email address to generate a 6-digit recovery code.
                 </p>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Email Address <span className="text-rose-600">*</span>
+                  </label>
                   <input
                     type="email"
-                    required
                     value={resetEmail}
                     onChange={(e) => setResetEmail(e.target.value)}
-                    placeholder="user@u-ads.com"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs"
+                    placeholder="name@example.com"
+                    className="w-full h-10 px-3.5 rounded-[10px] bg-slate-50 border border-slate-200 text-xs focus:border-emerald-500"
                   />
                 </div>
                 {resetErr && (
                   <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">{resetErr}</div>
                 )}
-                <button
-                  type="submit"
-                  disabled={resetLoading}
-                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
-                >
-                  {resetLoading ? 'Generating Code...' : 'Send 6-Digit Reset Code'}
-                </button>
+                <div className="flex gap-2.5">
+                  <button type="button" onClick={() => setResetMode('none')} className="btn-secondary flex-1">
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={resetLoading} className="btn-primary flex-1">
+                    {resetLoading ? 'Sending…' : 'Get Reset Code'}
+                  </button>
+                </div>
               </form>
             ) : (
-              <form onSubmit={handleConfirmReset} className="space-y-4">
+              <form onSubmit={handleConfirmReset} noValidate className="space-y-4">
                 {generatedCodeHint && (
                   <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs">
-                    Your 6-digit recovery code: <span className="font-mono font-black">{generatedCodeHint}</span> (valid 15 min)
+                    Recovery code: <span className="font-mono font-black">{generatedCodeHint}</span> (valid 15 min)
                   </div>
                 )}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">6-Digit Reset Code</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    6-Digit Code <span className="text-rose-600">*</span>
+                  </label>
                   <input
                     type="text"
-                    required
                     value={resetCode}
                     onChange={(e) => setResetCode(e.target.value)}
-                    placeholder="123456"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold"
+                    placeholder="Enter 6-digit code"
+                    className="w-full h-10 px-3.5 rounded-[10px] bg-slate-50 border border-slate-200 text-xs font-mono font-bold focus:border-emerald-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">New Password (min 8 chars)</label>
-                  <input
-                    type="password"
-                    required
-                    minLength={8}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs"
-                  />
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    New Password <span className="text-rose-600">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Minimum 8 characters"
+                      className="w-full h-10 pl-3.5 pr-10 rounded-[10px] bg-slate-50 border border-slate-200 text-xs focus:border-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
                 {resetErr && (
                   <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">{resetErr}</div>
@@ -344,13 +376,14 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
                     <span>{resetMsg}</span>
                   </div>
                 )}
-                <button
-                  type="submit"
-                  disabled={resetLoading}
-                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
-                >
-                  {resetLoading ? 'Resetting Password...' : 'Confirm New Password'}
-                </button>
+                <div className="flex gap-2.5">
+                  <button type="button" onClick={() => setResetMode('none')} className="btn-secondary flex-1">
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={resetLoading} className="btn-primary flex-1">
+                    {resetLoading ? 'Updating…' : 'Confirm Password'}
+                  </button>
+                </div>
               </form>
             )}
           </div>

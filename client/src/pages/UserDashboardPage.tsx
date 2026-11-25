@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { NotificationItem } from '../types/index.js';
@@ -9,87 +9,152 @@ import { PackagesPage } from './PackagesPage.js';
 import { DepositPage } from './DepositPage.js';
 import { WithdrawalPage } from './WithdrawalPage.js';
 import { ReferralsPage } from './ReferralsPage.js';
-import { SupportChatWidget } from '../components/SupportChatWidget.js';
+import { TransactionsPage } from './TransactionsPage.js';
 import {
-  Wallet,
+  NotificationsPage,
+  getNotificationDestination,
+  getNotificationIcon,
+} from './NotificationsPage.js';
+import { ProfilePage } from './ProfilePage.js';
+import { SettingsPage } from './SettingsPage.js';
+import { SupportPage } from './SupportPage.js';
+import { SupportChatWidget } from '../components/SupportChatWidget.js';
+import { useToast } from '../components/ToastProvider.js';
+import {
+  formatUSD,
+  formatAccountLevelLabel,
+  formatRelativeTime,
+  getAccountLevelProgress,
+  getInitials,
+} from '../utils/formatters.js';
+import {
+  LayoutDashboard,
   PlaySquare,
   Layers,
   ArrowDownLeft,
   ArrowUpRight,
+  Receipt,
   Users,
+  Headphones,
+  User as UserIcon,
+  Settings,
   LogOut,
   Bell,
-  Award,
-  Calendar,
-  Hash,
+  ChevronDown,
+  Copy,
+  Check,
   CheckCheck,
+  Award,
   X,
-  User as UserIcon,
-  Lock,
-  CheckCircle2,
-  AlertCircle,
-  Save,
 } from 'lucide-react';
 
-export function formatAccountLevelLabel(level?: string | null): string {
-  if (!level || level === 'NEW_USER' || level === 'LEVEL_0') return 'New User';
-  const match = /^LEVEL_(\d+)$/i.exec(level);
-  if (match) return `Level ${match[1]}`;
-  return level.replace(/_/g, ' ');
-}
+export { formatAccountLevelLabel } from '../utils/formatters.js';
+
+type UserTab =
+  | 'overview'
+  | 'videos'
+  | 'player'
+  | 'packages'
+  | 'deposit'
+  | 'withdrawal'
+  | 'transactions'
+  | 'referrals'
+  | 'support'
+  | 'profile'
+  | 'settings'
+  | 'notifications';
+
+const PAGE_TITLES: Record<UserTab, { title: string; subtitle: string }> = {
+  overview: { title: 'Dashboard', subtitle: 'Your USD wallets and recent activity' },
+  videos: { title: 'Videos', subtitle: 'Watch verified campaigns to earn automatic USD rewards' },
+  player: { title: 'Campaign Player', subtitle: 'Full-duration verified playback' },
+  packages: { title: 'Packages', subtitle: 'Unlock expanded campaign access in USD' },
+  deposit: { title: 'Deposit', subtitle: 'Add USD funds to your Main Account' },
+  withdrawal: { title: 'Withdraw', subtitle: 'Request a payout to Crypto or Bank Wire' },
+  transactions: { title: 'Transactions', subtitle: 'Complete USD activity and double-entry records' },
+  referrals: { title: 'Referrals', subtitle: 'Commissions, ranks, and invitation network' },
+  support: { title: 'Support', subtitle: '24/7 account help and live specialists' },
+  profile: { title: 'Profile', subtitle: 'Personal details, Member ID, and account standing' },
+  settings: { title: 'Settings', subtitle: 'Password, notifications, and active session' },
+  notifications: { title: 'Notifications', subtitle: 'All updates across your U-Ads account' },
+};
 
 export const UserDashboardPage: React.FC = () => {
   const { user, wallet, logout, refreshUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<
-    'overview' | 'videos' | 'player' | 'packages' | 'deposit' | 'withdrawal' | 'referrals' | 'profile'
-  >('overview');
+  const { showToast } = useToast();
+
+  const [activeTab, setActiveTab] = useState<UserTab>('overview');
   const [activePlayerVideoId, setActivePlayerVideoId] = useState<string | null>(null);
 
-  // Notifications State
+  // Live Referral Rank summary (for sidebar card, avatar menu, and dashboard)
+  const [referralRank, setReferralRank] = useState<string>('New');
+  const [qualifiedReferrals, setQualifiedReferrals] = useState<number>(0);
+
+  // Notifications
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [notifOpen, setNotifOpen] = useState(false);
 
-  // Profile & Security State (F6)
-  const [profileName, setProfileName] = useState(user?.fullName || '');
-  const [profilePhone, setProfilePhone] = useState(user?.phone || '');
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
-  const [profileError, setProfileError] = useState<string | null>(null);
+  // Top bar dropdowns (only one open at a time)
+  const [openMenu, setOpenMenu] = useState<'none' | 'balance' | 'notif' | 'avatar'>('none');
+  const [copiedId, setCopiedId] = useState(false);
+  const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
 
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [savingPassword, setSavingPassword] = useState(false);
-  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const topBarRef = useRef<HTMLDivElement>(null);
 
+  // Close dropdowns on outside click or Escape
   useEffect(() => {
-    setProfileName(user?.fullName || '');
-    setProfilePhone(user?.phone || '');
-  }, [user?.fullName, user?.phone]);
+    const onClickOutside = (e: MouseEvent) => {
+      if (topBarRef.current && !topBarRef.current.contains(e.target as Node)) {
+        setOpenMenu('none');
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpenMenu('none');
+        setSignOutConfirmOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onClickOutside);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
 
   const loadNotifications = async () => {
     try {
-      const res = await api.getNotifications(1, 20);
+      const res = await api.getNotifications(1, 50);
       if (res.success && res.data) {
         const list = res.data.notifications || res.data.items || (Array.isArray(res.data) ? res.data : []);
         setNotifications(list);
-        setUnreadCount(
+        const trueUnread =
           typeof res.data.unreadCount === 'number'
             ? res.data.unreadCount
-            : list.filter((n: NotificationItem) => !n.isRead).length
-        );
+            : list.filter((n: NotificationItem) => !n.isRead).length;
+        setUnreadCount(trueUnread);
       }
     } catch {
       // silent
     }
   };
 
-  // Refresh live user (accountLevel, status, phone) and notifications on mount and periodically (F2)
+  const loadRankSummary = async () => {
+    try {
+      const res = await api.getReferralRankProgress();
+      if (res.success && res.data) {
+        setReferralRank(res.data.currentRank || 'New');
+        setQualifiedReferrals(res.data.qualifiedReferrals || 0);
+      }
+    } catch {
+      // silent
+    }
+  };
+
   useEffect(() => {
     refreshUser();
     loadNotifications();
+    loadRankSummary();
     const interval = setInterval(() => {
       loadNotifications();
       refreshUser();
@@ -99,554 +164,648 @@ export const UserDashboardPage: React.FC = () => {
 
   const handleMarkRead = async (id: string) => {
     await api.markNotificationRead(id).catch(() => {});
-    loadNotifications();
+    await loadNotifications();
   };
 
   const handleMarkAllRead = async () => {
     await api.markAllNotificationsRead().catch(() => {});
-    loadNotifications();
-  };
-
-  const handleSaveProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setProfileError(null);
-    setProfileSuccess(null);
-    setSavingProfile(true);
-    try {
-      const res = await api.updateProfile({
-        fullName: profileName.trim(),
-        phone: profilePhone.trim(),
-      });
-      if (res.success) {
-        setProfileSuccess('Profile details updated successfully!');
-        await refreshUser();
-      } else {
-        setProfileError(res.error?.message || 'Failed to update profile.');
-      }
-    } finally {
-      setSavingProfile(false);
-    }
-  };
-
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPasswordError(null);
-    setPasswordSuccess(null);
-    if (newPassword.length < 8) {
-      setPasswordError('New password must be at least 8 characters long.');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordError('New password and confirmation do not match.');
-      return;
-    }
-    setSavingPassword(true);
-    try {
-      const res = await api.changePassword({ currentPassword, newPassword });
-      if (res.success) {
-        setPasswordSuccess('Password updated successfully!');
-        setCurrentPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
-      } else {
-        setPasswordError(res.error?.message || 'Failed to update password.');
-      }
-    } finally {
-      setSavingPassword(false);
-    }
+    await loadNotifications();
+    showToast('All notifications marked as read.', 'success');
   };
 
   const navigateInternal = (target: string, state?: any) => {
+    setOpenMenu('none');
     if (target === 'player' && state?.videoId) {
       setActivePlayerVideoId(state.videoId);
       setActiveTab('player');
-    } else if (target === 'videos') {
-      setActiveTab('videos');
-    } else if (target === 'packages') {
-      setActiveTab('packages');
-    } else if (target === 'deposit') {
-      setActiveTab('deposit');
-    } else if (target === 'withdrawal') {
-      setActiveTab('withdrawal');
-    } else if (target === 'wallet' || target === 'overview') {
+    } else if (
+      [
+        'overview',
+        'videos',
+        'packages',
+        'deposit',
+        'withdrawal',
+        'transactions',
+        'referrals',
+        'support',
+        'profile',
+        'settings',
+        'notifications',
+      ].includes(target)
+    ) {
+      setActiveTab(target as UserTab);
+      if (target === 'overview') refreshUser();
+    } else if (target === 'wallet') {
       setActiveTab('overview');
       refreshUser();
-    } else if (target === 'referrals') {
-      setActiveTab('referrals');
-    } else if (target === 'profile') {
-      setActiveTab('profile');
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const navItemClass = (tab: string) =>
-    `px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
-      activeTab === tab
-        ? 'bg-emerald-600 text-white shadow-sm'
-        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-    }`;
+  const handleNotificationClick = async (n: NotificationItem) => {
+    setOpenMenu('none');
+    if (!n.isRead) {
+      await handleMarkRead(n.id);
+    }
+    const dest = getNotificationDestination(n);
+    navigateInternal(dest);
+  };
 
-  const totalRewardsCents =
-    (wallet?.USD?.videoRewardsCents ?? 0) + (wallet?.USD?.referralCents ?? 0) + (wallet?.USD?.otherRewardsCents ?? 0);
+  const handleCopyMemberId = () => {
+    if (!user?.memberCode) return;
+    navigator.clipboard.writeText(user.memberCode);
+    setCopiedId(true);
+    showToast('Member ID copied.', 'success');
+    setTimeout(() => setCopiedId(false), 1800);
+  };
+
+  const mainCents = wallet?.USD?.availableCents ?? 0;
+  const videoCents = wallet?.USD?.videoRewardsCents ?? 0;
+  const referralCents = wallet?.USD?.referralCents ?? 0;
+  const otherCents = wallet?.USD?.otherRewardsCents ?? 0;
+  const totalCombinedCents = mainCents + videoCents + referralCents + otherCents;
+  const levelProgress = getAccountLevelProgress(user?.accountLevel, totalCombinedCents);
+
+  const navGroups: Array<{
+    label: string;
+    items: Array<{ id: UserTab; label: string; icon: React.ReactNode }>;
+  }> = [
+    {
+      label: 'Overview',
+      items: [{ id: 'overview', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> }],
+    },
+    {
+      label: 'Earn',
+      items: [
+        { id: 'videos', label: 'Videos', icon: <PlaySquare className="w-4 h-4" /> },
+        { id: 'packages', label: 'Packages', icon: <Layers className="w-4 h-4" /> },
+      ],
+    },
+    {
+      label: 'Money',
+      items: [
+        { id: 'deposit', label: 'Deposit', icon: <ArrowDownLeft className="w-4 h-4" /> },
+        { id: 'withdrawal', label: 'Withdraw', icon: <ArrowUpRight className="w-4 h-4" /> },
+        { id: 'transactions', label: 'Transactions', icon: <Receipt className="w-4 h-4" /> },
+      ],
+    },
+    {
+      label: 'Grow',
+      items: [{ id: 'referrals', label: 'Referrals', icon: <Users className="w-4 h-4" /> }],
+    },
+    {
+      label: 'Help',
+      items: [{ id: 'support', label: 'Support', icon: <Headphones className="w-4 h-4" /> }],
+    },
+    {
+      label: 'Account',
+      items: [
+        { id: 'profile', label: 'Profile', icon: <UserIcon className="w-4 h-4" /> },
+        { id: 'settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
+      ],
+    },
+  ];
+
+  const pageMeta = PAGE_TITLES[activeTab] || PAGE_TITLES.overview;
+  const unreadLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      {/* User Dashboard Top Navigation */}
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200/90 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
-          {/* Logo */}
-          <div
-            onClick={() => navigateInternal('overview')}
-            className="flex items-center gap-3 cursor-pointer group shrink-0"
-          >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform">
-              <PlaySquare className="w-5 h-5 text-white stroke-[2.5]" />
+    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900">
+      {/* DESKTOP LEFT SIDEBAR (240px on xl+, collapses to 72px icon rail on md–lg) */}
+      <aside className="hidden md:flex flex-col w-[72px] xl:w-[240px] shrink-0 bg-white border-r border-slate-200/90 sticky top-0 h-screen transition-all duration-200 z-30">
+        {/* Clean Brand Logo (no "MEMBER PORTAL" pill) */}
+        <button
+          type="button"
+          onClick={() => navigateInternal('overview')}
+          className="h-[60px] px-4 xl:px-5 border-b border-slate-100 flex items-center justify-center xl:justify-start gap-2.5 cursor-pointer group shrink-0"
+        >
+          <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center shadow-xs group-hover:bg-emerald-700 transition-colors shrink-0">
+            <PlaySquare className="w-5 h-5 text-white stroke-[2.3]" />
+          </div>
+          <span className="hidden xl:inline text-lg font-extrabold tracking-tight text-slate-900">
+            U-<span className="text-emerald-600">Ads</span>
+          </span>
+        </button>
+
+        {/* Grouped Navigation */}
+        <nav className="flex-1 overflow-y-auto py-4 px-2 xl:px-3 space-y-5">
+          {navGroups.map((group) => (
+            <div key={group.label} className="space-y-1">
+              <div className="hidden xl:block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                {group.label}
+              </div>
+              {group.items.map((item) => {
+                const isActive =
+                  activeTab === item.id || (item.id === 'videos' && activeTab === 'player');
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => navigateInternal(item.id)}
+                    title={item.label}
+                    className={`w-full relative flex items-center justify-center xl:justify-start gap-3 px-2.5 xl:px-3 h-10 rounded-[10px] text-xs font-bold transition-all duration-150 cursor-pointer ${
+                      isActive
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    }`}
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-emerald-600" />
+                    )}
+                    <span className={isActive ? 'text-emerald-600' : 'text-slate-400'}>
+                      {item.icon}
+                    </span>
+                    <span className="hidden xl:inline truncate">{item.label}</span>
+                  </button>
+                );
+              })}
             </div>
-            <div className="flex flex-col">
-              <span className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-1.5">
-                U-<span className="text-emerald-600">Ads</span>
-                <span className="text-[10px] uppercase font-bold tracking-wider bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200">
-                  Member Portal
+          ))}
+        </nav>
+
+        {/* Pinned Bottom Level Progress Card (Motivation on every page without cluttering header) */}
+        <div className="p-3 border-t border-slate-100 shrink-0">
+          <button
+            type="button"
+            onClick={() => navigateInternal('profile')}
+            title={`${formatAccountLevelLabel(user?.accountLevel)} · ${referralRank} Rank`}
+            className="w-full p-2.5 xl:p-3.5 rounded-xl bg-slate-50 hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-200 text-left transition-all cursor-pointer space-y-2"
+          >
+            <div className="flex items-center justify-center xl:justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Award className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="hidden xl:inline text-xs font-extrabold text-slate-900 truncate">
+                  {formatAccountLevelLabel(user?.accountLevel)}
                 </span>
+              </div>
+              <span className="hidden xl:inline text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 shrink-0">
+                {referralRank}
               </span>
+            </div>
+            <div className="hidden xl:block space-y-1">
+              <div className="w-full h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-emerald-600 transition-all duration-300"
+                  style={{ width: `${levelProgress.percent}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-slate-500">
+                <span>{levelProgress.nextLabel ? `Next: ${levelProgress.nextLabel}` : 'Max Level'}</span>
+                <span className="font-bold tabular-nums">{levelProgress.percent}%</span>
+              </div>
+            </div>
+          </button>
+        </div>
+      </aside>
+
+      {/* RIGHT WORKSPACE COLUMN */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* SLIM SINGLE-ROW TOP BAR (60px) */}
+        <header
+          ref={topBarRef}
+          className="sticky top-0 z-30 h-[60px] bg-white/95 backdrop-blur-md border-b border-slate-200/90 px-4 sm:px-6 flex items-center justify-between gap-3"
+        >
+          {/* Left: Mobile Avatar OR Desktop Page Title */}
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() => setOpenMenu(openMenu === 'avatar' ? 'none' : 'avatar')}
+              className="md:hidden w-9 h-9 rounded-full bg-slate-900 text-white text-xs font-extrabold flex items-center justify-center shrink-0 cursor-pointer"
+              aria-label="Account menu"
+            >
+              {getInitials(user?.fullName)}
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-lg font-extrabold text-slate-900 truncate leading-tight">
+                {pageMeta.title}
+              </h1>
+              <p className="hidden sm:block text-[11px] text-slate-500 truncate leading-tight">
+                {pageMeta.subtitle}
+              </p>
             </div>
           </div>
 
-          {/* USD Balance Pill, Notifications Bell & Profile */}
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            {/* Real-time USD Balance */}
-            <div
-              onClick={() => navigateInternal('overview')}
-              className="cursor-pointer flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:border-emerald-500 transition-colors shadow-2xs"
-            >
-              <div className="flex items-center gap-1 text-xs font-bold text-emerald-700">
-                <span className="text-slate-400 font-semibold text-[11px]">Main USD:</span>
-                <span>${((wallet?.USD?.availableCents ?? 0) / 100).toFixed(2)}</span>
-              </div>
-              {totalRewardsCents > 0 && (
-                <>
-                  <div className="h-3.5 w-px bg-slate-300 hidden sm:block"></div>
-                  <div className="hidden sm:flex items-center gap-1 text-xs font-bold text-indigo-700">
-                    <span className="text-slate-400 font-semibold text-[11px]">Rewards:</span>
-                    <span>${(totalRewardsCents / 100).toFixed(2)}</span>
+          {/* Right: Combined Balance Dropdown · Bell · Avatar Menu */}
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            {/* 1. Combined Total Balance Dropdown (All 3 Wallets inside) */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setOpenMenu(openMenu === 'balance' ? 'none' : 'balance')}
+                className={`h-9 px-3 rounded-[10px] border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  openMenu === 'balance'
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-900'
+                }`}
+              >
+                <span className="tabular-nums font-extrabold">{formatUSD(totalCombinedCents)}</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${
+                    openMenu === 'balance' ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {openMenu === 'balance' && (
+                <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl border border-slate-200 shadow-xl z-50 overflow-hidden animate-dropdown-in">
+                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
+                    <div className="text-[11px] font-semibold text-slate-500">Total USD Balance</div>
+                    <div className="text-lg font-extrabold text-slate-900 tabular-nums">
+                      {formatUSD(totalCombinedCents)}
+                    </div>
                   </div>
-                </>
+                  <div className="p-3 space-y-2 text-xs">
+                    <div className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50">
+                      <span className="text-slate-600 font-medium">Main Account</span>
+                      <span className="font-bold text-slate-900 tabular-nums">{formatUSD(mainCents)}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50">
+                      <span className="text-slate-600 font-medium">Video Rewards</span>
+                      <span className="font-bold text-emerald-700 tabular-nums">{formatUSD(videoCents)}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50">
+                      <span className="text-slate-600 font-medium">Referral Wallet</span>
+                      <span className="font-bold text-emerald-700 tabular-nums">{formatUSD(referralCents)}</span>
+                    </div>
+                    {otherCents > 0 && (
+                      <div className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50">
+                        <span className="text-slate-600 font-medium">Bonus Rewards</span>
+                        <span className="font-bold text-emerald-700 tabular-nums">{formatUSD(otherCents)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-3 pt-0 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => navigateInternal('deposit')}
+                      className="btn-primary !h-9 w-full"
+                    >
+                      Deposit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigateInternal('withdrawal')}
+                      className="btn-secondary !h-9 w-full"
+                    >
+                      Withdraw
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 
-            {/* Notifications Bell */}
+            {/* 2. Notification Bell (True unread count, single source, 99+ cap) */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => {
-                  setNotifOpen(!notifOpen);
-                  if (!notifOpen) loadNotifications();
+                  const next = openMenu === 'notif' ? 'none' : 'notif';
+                  setOpenMenu(next);
+                  if (next === 'notif') loadNotifications();
                 }}
-                className="relative p-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors border border-slate-200 cursor-pointer"
+                className={`relative w-9 h-9 rounded-[10px] border flex items-center justify-center transition-colors cursor-pointer ${
+                  openMenu === 'notif'
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
+                }`}
+                aria-label="Notifications"
                 title="Notifications"
               >
                 <Bell className="w-4 h-4" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold flex items-center justify-center">
-                    {unreadCount > 9 ? '9+' : unreadCount}
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold flex items-center justify-center tabular-nums">
+                    {unreadLabel}
                   </span>
                 )}
               </button>
 
-              {notifOpen && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-2xl z-50 overflow-hidden">
-                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                    <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                      <Bell className="w-3.5 h-3.5 text-emerald-600" />
+              {openMenu === 'notif' && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-xl z-50 overflow-hidden animate-dropdown-in">
+                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900">
                       Notifications ({unreadCount} unread)
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {unreadCount > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleMarkAllRead}
-                          className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
-                        >
-                          <CheckCheck className="w-3 h-3" />
-                          Mark all read
-                        </button>
-                      )}
+                    </span>
+                    {unreadCount > 0 && (
                       <button
                         type="button"
-                        onClick={() => setNotifOpen(false)}
-                        className="text-slate-400 hover:text-slate-700 p-0.5"
+                        onClick={handleMarkAllRead}
+                        className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
                       >
-                        <X className="w-4 h-4" />
+                        <CheckCheck className="w-3.5 h-3.5" />
+                        Mark all read
                       </button>
-                    </div>
+                    )}
                   </div>
+
                   <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
                     {notifications.length === 0 ? (
-                      <div className="p-6 text-center text-xs text-slate-400">
+                      <div className="p-8 text-center text-xs text-slate-400">
                         No notifications yet.
                       </div>
                     ) : (
-                      notifications.map((n) => (
-                        <div
+                      notifications.slice(0, 8).map((n) => (
+                        <button
                           key={n.id}
-                          onClick={() => !n.isRead && handleMarkRead(n.id)}
-                          className={`p-3.5 text-xs space-y-1 cursor-pointer transition-colors ${
-                            n.isRead ? 'bg-white text-slate-500' : 'bg-emerald-50/50 text-slate-900 hover:bg-emerald-50'
+                          type="button"
+                          onClick={() => handleNotificationClick(n)}
+                          className={`w-full text-left px-4 py-3 flex items-start gap-3 transition-colors cursor-pointer ${
+                            n.isRead ? 'bg-white hover:bg-slate-50' : 'bg-emerald-50/40 hover:bg-emerald-50/80'
                           }`}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-bold text-slate-900">{n.title}</span>
-                            {!n.isRead && <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />}
+                          <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 mt-0.5">
+                            {getNotificationIcon(n)}
                           </div>
-                          <p className="text-[11px] text-slate-600 leading-relaxed whitespace-pre-line">
-                            {n.message || n.body}
-                          </p>
-                          <div className="text-[10px] text-slate-400">
-                            {new Date(n.createdAt).toLocaleString()}
+                          <div className="flex-1 min-w-0 space-y-0.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-slate-900 truncate">{n.title}</span>
+                              {!n.isRead && <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />}
+                            </div>
+                            <p className="text-[11px] text-slate-600 line-clamp-2 leading-snug">
+                              {n.message || n.body || 'Account activity update'}
+                            </p>
+                            <div className="text-[10px] text-slate-400">
+                              {formatRelativeTime(n.createdAt)}
+                            </div>
                           </div>
-                        </div>
+                        </button>
                       ))
                     )}
                   </div>
-                </div>
-              )}
-            </div>
 
-            {/* User Profile Info & Logout */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => navigateInternal('profile')}
-                className="hidden sm:block text-right hover:opacity-80 cursor-pointer"
-                title="Open Profile & Security Settings"
-              >
-                <div className="text-xs font-bold text-slate-900">{user?.fullName}</div>
-                <div className="text-[10px] text-slate-500 font-mono">{user?.memberCode || user?.email}</div>
-              </button>
-              <button
-                onClick={logout}
-                title="Sign Out"
-                className="p-2 rounded-xl bg-slate-100 text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition-colors border border-slate-200 cursor-pointer"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Portal Navigation Tabs */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-1 overflow-x-auto py-2 border-t border-slate-100 scrollbar-none">
-          <button onClick={() => navigateInternal('overview')} className={navItemClass('overview')}>
-            <Wallet className="w-4 h-4" />
-            Wallets &amp; Overview
-          </button>
-          <button onClick={() => navigateInternal('videos')} className={navItemClass('videos')}>
-            <PlaySquare className="w-4 h-4" />
-            Video Catalog
-          </button>
-          <button onClick={() => navigateInternal('packages')} className={navItemClass('packages')}>
-            <Layers className="w-4 h-4" />
-            Plans &amp; Packages
-          </button>
-          <button onClick={() => navigateInternal('deposit')} className={navItemClass('deposit')}>
-            <ArrowDownLeft className="w-4 h-4" />
-            Deposit USD
-          </button>
-          <button onClick={() => navigateInternal('withdrawal')} className={navItemClass('withdrawal')}>
-            <ArrowUpRight className="w-4 h-4" />
-            Withdraw USD
-          </button>
-          <button onClick={() => navigateInternal('referrals')} className={navItemClass('referrals')}>
-            <Users className="w-4 h-4" />
-            Referrals &amp; Ranks
-          </button>
-          <button onClick={() => navigateInternal('profile')} className={navItemClass('profile')}>
-            <UserIcon className="w-4 h-4" />
-            Profile &amp; Security
-          </button>
-        </div>
-      </header>
-
-      {/* Main Portal View Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'overview' && (
-          <div className="space-y-8">
-            {/* Quick Greeting, Account Level, Member Code & Registration Date */}
-            <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">
-                    U-Ads Member Portal
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                    <Award className="w-3 h-3" />
-                    {formatAccountLevelLabel(user?.accountLevel)}
-                  </span>
-                  {user?.memberCode && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                      <Hash className="w-3 h-3 text-slate-500" />
-                      ID: {user.memberCode}
-                    </span>
-                  )}
-                  {user?.createdAt && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-200">
-                      <Calendar className="w-3 h-3 text-slate-400" />
-                      Joined {new Date(user.createdAt).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-                <h1 className="text-2xl font-extrabold text-slate-900">
-                  Welcome back, {user?.fullName}!
-                </h1>
-                <p className="text-xs text-slate-500">
-                  Manage your USD Main Credits, Video Rewards, and Referral Wallet with full double-entry transparency.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5">
-                <button
-                  onClick={() => navigateInternal('deposit')}
-                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
-                >
-                  <ArrowDownLeft className="w-4 h-4" />
-                  Deposit USD
-                </button>
-                <button
-                  onClick={() => navigateInternal('withdrawal')}
-                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <ArrowUpRight className="w-4 h-4" />
-                  Request Payout
-                </button>
-                <button
-                  onClick={() => navigateInternal('videos')}
-                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <PlaySquare className="w-4 h-4" />
-                  Watch Videos
-                </button>
-              </div>
-            </div>
-
-            {/* Wallet Section (3 USD Wallets + Immutable Journal) */}
-            <WalletPage navigate={navigateInternal} />
-          </div>
-        )}
-
-        {activeTab === 'videos' && (
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xs">
-            <VideoCatalogPage navigate={navigateInternal} />
-          </div>
-        )}
-
-        {activeTab === 'player' && activePlayerVideoId && (
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xs">
-            <VideoPlayerPage videoId={activePlayerVideoId} navigate={navigateInternal} />
-          </div>
-        )}
-
-        {activeTab === 'packages' && (
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xs">
-            <PackagesPage navigate={navigateInternal} />
-          </div>
-        )}
-
-        {activeTab === 'deposit' && (
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xs">
-            <DepositPage navigate={navigateInternal} />
-          </div>
-        )}
-
-        {activeTab === 'withdrawal' && (
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xs">
-            <WithdrawalPage navigate={navigateInternal} />
-          </div>
-        )}
-
-        {activeTab === 'referrals' && (
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xs">
-            <ReferralsPage navigate={navigateInternal} />
-          </div>
-        )}
-
-        {/* PROFILE & ACCOUNT SECURITY TAB (F6) */}
-        {activeTab === 'profile' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Personal Information */}
-            <form
-              onSubmit={handleSaveProfile}
-              className="p-6 sm:p-8 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-5"
-            >
-              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
-                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
-                  <UserIcon className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-extrabold text-slate-900">Profile &amp; Account Details</h2>
-                  <p className="text-xs text-slate-500">Update your display name and contact phone number.</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
-                <div>
-                  <span className="text-[10px] font-bold uppercase text-slate-400">Unique Member ID</span>
-                  <div className="font-mono font-bold text-slate-900">{user?.memberCode || 'N/A'}</div>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold uppercase text-slate-400">Account Level</span>
-                  <div className="font-bold text-indigo-700">{formatAccountLevelLabel(user?.accountLevel)}</div>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold uppercase text-slate-400">Referral Code</span>
-                  <div className="font-mono font-bold text-emerald-700">{user?.referralCode}</div>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold uppercase text-slate-400">Registration Date</span>
-                  <div className="font-semibold text-slate-700">
-                    {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'}
+                  <div className="p-2.5 bg-slate-50 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => navigateInternal('notifications')}
+                      className="w-full py-2 rounded-lg text-xs font-bold text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
+                    >
+                      View all notifications
+                    </button>
                   </div>
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Email Address (Read-only)</label>
-                <input
-                  type="email"
-                  value={user?.email || ''}
-                  disabled
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 border border-slate-200 text-xs text-slate-500 cursor-not-allowed"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
-                <input
-                  type="text"
-                  required
-                  minLength={2}
-                  value={profileName}
-                  onChange={(e) => setProfileName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Phone Number</label>
-                <input
-                  type="text"
-                  value={profilePhone}
-                  onChange={(e) => setProfilePhone(e.target.value)}
-                  placeholder="e.g. +1 555 123 4567"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              {profileError && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{profileError}</span>
-                </div>
               )}
-              {profileSuccess && (
-                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>{profileSuccess}</span>
-                </div>
-              )}
+            </div>
 
+            {/* 3. Avatar Menu (Desktop & Tablet — mobile uses top-left avatar trigger sharing this dropdown) */}
+            <div className="relative">
               <button
-                type="submit"
-                disabled={savingProfile}
-                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
+                type="button"
+                onClick={() => setOpenMenu(openMenu === 'avatar' ? 'none' : 'avatar')}
+                className="hidden md:flex items-center gap-2.5 h-9 pl-1.5 pr-2.5 rounded-[10px] border border-slate-200 bg-white hover:bg-slate-50 transition-colors cursor-pointer"
               >
-                <Save className="w-4 h-4" />
-                {savingProfile ? 'Saving Changes...' : 'Save Profile Changes'}
+                <div className="w-7 h-7 rounded-full bg-slate-900 text-white text-[11px] font-extrabold flex items-center justify-center shrink-0">
+                  {getInitials(user?.fullName)}
+                </div>
+                <div className="hidden lg:block text-left leading-tight">
+                  <div className="text-xs font-bold text-slate-900 max-w-[120px] truncate">
+                    {user?.fullName}
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-semibold">
+                    {formatAccountLevelLabel(user?.accountLevel)}
+                  </div>
+                </div>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${
+                    openMenu === 'avatar' ? 'rotate-180' : ''
+                  }`}
+                />
               </button>
-            </form>
 
-            {/* Change Password */}
-            <form
-              onSubmit={handleChangePassword}
-              className="p-6 sm:p-8 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-5"
-            >
-              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
-                <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600">
-                  <Lock className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-extrabold text-slate-900">Change Account Password</h2>
-                  <p className="text-xs text-slate-500">Keep your USD account secure with a strong password.</p>
-                </div>
-              </div>
+              {openMenu === 'avatar' && (
+                <div className="absolute right-0 mt-2 w-68 bg-white rounded-2xl border border-slate-200 shadow-xl z-50 overflow-hidden animate-dropdown-in">
+                  {/* Identity Block */}
+                  <div className="p-4 bg-slate-50 border-b border-slate-100 space-y-2">
+                    <div>
+                      <div className="text-sm font-bold text-slate-900 truncate">{user?.fullName}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{user?.email}</div>
+                    </div>
+                    {user?.memberCode && (
+                      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px]">
+                        <span className="font-mono font-bold text-slate-700">{user.memberCode}</span>
+                        <button
+                          type="button"
+                          onClick={handleCopyMemberId}
+                          className="text-emerald-700 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          {copiedId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                          {copiedId ? 'Copied' : 'Copy'}
+                        </button>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        {formatAccountLevelLabel(user?.accountLevel)}
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-700">
+                        {referralRank} Rank
+                      </span>
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Current Password</label>
-                <input
-                  type="password"
-                  required
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
+                  {/* Menu Actions */}
+                  <div className="p-2 space-y-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => navigateInternal('profile')}
+                      className="w-full px-3 py-2 rounded-lg text-left font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <UserIcon className="w-4 h-4 text-slate-400" />
+                      <span>Profile</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigateInternal('settings')}
+                      className="w-full px-3 py-2 rounded-lg text-left font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <Settings className="w-4 h-4 text-slate-400" />
+                      <span>Settings</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigateInternal('support')}
+                      className="w-full px-3 py-2 rounded-lg text-left font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <Headphones className="w-4 h-4 text-slate-400" />
+                      <span>Support</span>
+                    </button>
+                  </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">New Password (min 8 characters)</label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Confirm New Password</label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              {passwordError && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{passwordError}</span>
+                  <div className="p-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenMenu('none');
+                        setSignOutConfirmOpen(true);
+                      }}
+                      className="w-full px-3 py-2 rounded-lg text-left text-xs font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
                 </div>
               )}
-              {passwordSuccess && (
-                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>{passwordSuccess}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={savingPassword}
-                className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Lock className="w-4 h-4" />
-                {savingPassword ? 'Updating Password...' : 'Update Password'}
-              </button>
-            </form>
+            </div>
           </div>
-        )}
-      </main>
+        </header>
 
-      {/* Clean User Portal Footer */}
-      <footer className="bg-white border-t border-slate-200 py-6 mt-12 text-center text-xs text-slate-400">
-        <p>© {new Date().getFullYear()} U-Ads Platform. Secure USD Double-Entry Audited Engine.</p>
-      </footer>
+        {/* MAIN PAGE CONTENT (max 1200px, generous bottom padding on mobile for bottom nav) */}
+        <main className="flex-1 w-full max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-10">
+          {activeTab === 'overview' && (
+            <WalletPage navigate={navigateInternal} referralRank={referralRank} />
+          )}
+          {activeTab === 'videos' && (
+            <div className="animate-page-in">
+              <VideoCatalogPage navigate={navigateInternal} />
+            </div>
+          )}
+          {activeTab === 'player' && activePlayerVideoId && (
+            <div className="animate-page-in">
+              <VideoPlayerPage videoId={activePlayerVideoId} navigate={navigateInternal} />
+            </div>
+          )}
+          {activeTab === 'packages' && (
+            <div className="animate-page-in">
+              <PackagesPage navigate={navigateInternal} />
+            </div>
+          )}
+          {activeTab === 'deposit' && (
+            <div className="animate-page-in">
+              <DepositPage navigate={navigateInternal} />
+            </div>
+          )}
+          {activeTab === 'withdrawal' && (
+            <div className="animate-page-in">
+              <WithdrawalPage navigate={navigateInternal} />
+            </div>
+          )}
+          {activeTab === 'transactions' && (
+            <TransactionsPage navigate={navigateInternal} />
+          )}
+          {activeTab === 'referrals' && (
+            <div className="animate-page-in">
+              <ReferralsPage navigate={navigateInternal} />
+            </div>
+          )}
+          {activeTab === 'support' && <SupportPage />}
+          {activeTab === 'profile' && (
+            <ProfilePage
+              navigate={navigateInternal}
+              referralRank={referralRank}
+              qualifiedReferrals={qualifiedReferrals}
+            />
+          )}
+          {activeTab === 'settings' && (
+            <SettingsPage onRequestSignOut={() => setSignOutConfirmOpen(true)} />
+          )}
+          {activeTab === 'notifications' && (
+            <NotificationsPage
+              notifications={notifications}
+              unreadCount={unreadCount}
+              onMarkRead={handleMarkRead}
+              onMarkAllRead={handleMarkAllRead}
+              onSelectNotification={handleNotificationClick}
+            />
+          )}
+        </main>
 
-      {/* Floating Customer Support Live Chat & Bot */}
-      <SupportChatWidget />
+        {/* Minimal Legal-Only Footer on Desktop */}
+        <footer className="hidden md:flex items-center justify-between px-8 py-4 border-t border-slate-200/80 bg-white text-[11px] text-slate-400">
+          <span>© {new Date().getFullYear()} U-Ads Platform · USD-only audited ledger</span>
+          <button
+            type="button"
+            onClick={() => navigateInternal('support')}
+            className="hover:text-emerald-700 font-semibold transition-colors cursor-pointer"
+          >
+            Need help? Contact Support
+          </button>
+        </footer>
+      </div>
+
+      {/* MOBILE FIXED BOTTOM NAVIGATION BAR (5 items, Deposit center emphasized, ≥44px touch targets) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 h-16 grid grid-cols-5 items-center">
+        {[
+          { id: 'overview' as UserTab, label: 'Home', icon: <LayoutDashboard className="w-5 h-5" /> },
+          { id: 'videos' as UserTab, label: 'Videos', icon: <PlaySquare className="w-5 h-5" /> },
+          { id: 'deposit' as UserTab, label: 'Deposit', icon: <ArrowDownLeft className="w-5 h-5" />, center: true },
+          { id: 'referrals' as UserTab, label: 'Referrals', icon: <Users className="w-5 h-5" /> },
+          { id: 'profile' as UserTab, label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },
+        ].map((item) => {
+          const isActive =
+            activeTab === item.id || (item.id === 'videos' && activeTab === 'player');
+          if (item.center) {
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => navigateInternal(item.id)}
+                className="flex flex-col items-center justify-center -mt-4 cursor-pointer"
+              >
+                <span className="w-12 h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/30 flex items-center justify-center transition-transform active:scale-95">
+                  {item.icon}
+                </span>
+                <span className="text-[10px] font-bold text-emerald-700 mt-0.5">{item.label}</span>
+              </button>
+            );
+          }
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => navigateInternal(item.id)}
+              className={`min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold transition-colors cursor-pointer ${
+                isActive ? 'text-emerald-600' : 'text-slate-500'
+              }`}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Confirmed Sign Out Modal (eliminates accidental instant logout trap) */}
+      {signOutConfirmOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full border border-slate-200 p-6 space-y-5 shadow-2xl relative animate-modal-in">
+            <button
+              type="button"
+              onClick={() => setSignOutConfirmOpen(false)}
+              className="absolute top-4 right-4 w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="space-y-1.5 pr-6">
+              <h3 className="text-base font-bold text-slate-900">Sign out of U-Ads?</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                You can sign back in anytime with your email and password.
+              </p>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setSignOutConfirmOpen(false)}
+                className="btn-secondary flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSignOutConfirmOpen(false);
+                  logout();
+                }}
+                className="btn-destructive flex-1"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Support Shortcut (hidden when already viewing dedicated Support page) */}
+      <SupportChatWidget navigate={navigateInternal} hidden={activeTab === 'support'} />
     </div>
   );
 };

@@ -2,19 +2,21 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { ReferralRankProgress } from '../types/index.js';
+import { useToast } from '../components/ToastProvider.js';
+import { formatDate, formatDateTime, formatUSD, maskEmail } from '../utils/formatters.js';
 import {
   Users,
   Copy,
+  Check,
   CheckCircle2,
   TrendingUp,
   Share2,
-  ShieldAlert,
   Award,
-  Zap,
   Target,
   Gift,
   GitBranch,
   Clock,
+  Lock,
 } from 'lucide-react';
 
 interface ReferralsProps {
@@ -22,20 +24,21 @@ interface ReferralsProps {
 }
 
 const DEFAULT_POSITIONS = [
-  { label: '1st Referral', ratePercent: 5, sub: 'Direct Rate' },
-  { label: '2nd Referral', ratePercent: 7, sub: 'Tier 2 Boost' },
-  { label: '3rd Referral', ratePercent: 10, sub: 'Tier 3 Boost' },
-  { label: '4th Referral', ratePercent: 12, sub: 'Tier 4 Boost' },
-  { label: '5th+ Referrals', ratePercent: 15, sub: 'Max Tier' },
+  { label: '1st Referral', ratePercent: 5, minPos: 1, maxPos: 1 },
+  { label: '2nd Referral', ratePercent: 7, minPos: 2, maxPos: 2 },
+  { label: '3rd Referral', ratePercent: 10, minPos: 3, maxPos: 3 },
+  { label: '4th Referral', ratePercent: 12, minPos: 4, maxPos: 4 },
+  { label: '5th+ Referrals', ratePercent: 15, minPos: 5, maxPos: 999999 },
 ];
 
 export const ReferralsPage: React.FC<ReferralsProps> = () => {
   const { user } = useAuth();
+  const { showToast } = useToast();
+
   const [data, setData] = useState<any>(null);
   const [rankProgress, setRankProgress] = useState<ReferralRankProgress | null>(null);
   const [loading, setLoading] = useState(true);
-  const [copiedCode, setCopiedCode] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedType, setCopiedType] = useState<'code' | 'link' | null>(null);
 
   useEffect(() => {
     const fetchReferralData = async () => {
@@ -44,13 +47,8 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
           api.getReferralSummary(),
           api.getReferralRankProgress(),
         ]);
-
-        if (summaryRes.success && summaryRes.data) {
-          setData(summaryRes.data);
-        }
-        if (rankRes.success && rankRes.data) {
-          setRankProgress(rankRes.data);
-        }
+        if (summaryRes.success && summaryRes.data) setData(summaryRes.data);
+        if (rankRes.success && rankRes.data) setRankProgress(rankRes.data);
       } catch (err) {
         console.error('Failed to load referral summary:', err);
       } finally {
@@ -61,40 +59,23 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
   }, []);
 
   const copyToClipboard = (text: string, type: 'code' | 'link') => {
+    if (!text) return;
     navigator.clipboard.writeText(text);
-    if (type === 'code') {
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2000);
-    } else {
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2000);
-    }
+    setCopiedType(type);
+    showToast(type === 'code' ? 'Referral code copied.' : 'Invitation link copied.', 'success');
+    setTimeout(() => setCopiedType(null), 2000);
   };
 
-  const getRankBadgeStyle = (rank: string) => {
-    switch (rank?.toUpperCase()) {
-      case 'DIAMOND':
-        return 'bg-cyan-50 text-cyan-800 border-cyan-300 ring-2 ring-cyan-400/20';
-      case 'PLATINUM':
-        return 'bg-purple-50 text-purple-800 border-purple-300 ring-2 ring-purple-400/20';
-      case 'GOLD':
-        return 'bg-amber-50 text-amber-800 border-amber-300 ring-2 ring-amber-400/20';
-      default:
-        return 'bg-slate-100 text-slate-800 border-slate-200';
-    }
-  };
-
-  // Derive dynamic commission tiers & documented rank ladder directly from backend referralConfig
   const dynamicPositions = (() => {
     const cfg = data?.referralConfig;
     if (cfg?.commissionRates) {
       const r = cfg.commissionRates;
       return [
-        { label: '1st Referral', ratePercent: Number(r.pos1 ?? 5), sub: 'Direct Rate' },
-        { label: '2nd Referral', ratePercent: Number(r.pos2 ?? 7), sub: 'Position #2' },
-        { label: '3rd Referral', ratePercent: Number(r.pos3 ?? 10), sub: 'Position #3' },
-        { label: '4th Referral', ratePercent: Number(r.pos4 ?? 12), sub: 'Position #4' },
-        { label: '5th+ Referrals', ratePercent: Number(r.pos5 ?? 15), sub: 'Max Tier' },
+        { label: '1st Referral', ratePercent: Number(r.pos1 ?? 5), minPos: 1, maxPos: 1 },
+        { label: '2nd Referral', ratePercent: Number(r.pos2 ?? 7), minPos: 2, maxPos: 2 },
+        { label: '3rd Referral', ratePercent: Number(r.pos3 ?? 10), minPos: 3, maxPos: 3 },
+        { label: '4th Referral', ratePercent: Number(r.pos4 ?? 12), minPos: 4, maxPos: 4 },
+        { label: '5th+ Referrals', ratePercent: Number(r.pos5 ?? 15), minPos: 5, maxPos: 999999 },
       ];
     }
     return DEFAULT_POSITIONS;
@@ -113,204 +94,243 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
     ];
   })();
 
-  const progressPercent = rankProgress
-    ? Math.min(100, Math.round((rankProgress.qualifiedReferrals / (rankProgress.targetQualified || 1)) * 100))
-    : 0;
+  const qualifiedCount = rankProgress?.qualifiedReferrals ?? data?.qualifiedReferrals ?? 0;
+
+  // Compute single consistent current rank & next rank/milestone (NEVER contradicts itself!)
+  const currentRankObj =
+    [...documentedRanks]
+      .reverse()
+      .find((r: any) => qualifiedCount >= (r.minQualified ?? 0)) || documentedRanks[0];
+
+  const nextMilestoneRank = documentedRanks.find(
+    (r: any) => (r.milestoneAt ?? 0) > qualifiedCount && (r.milestoneRewardUSD ?? 0) > 0
+  );
+
+  const nextTargetCount = nextMilestoneRank?.milestoneAt ?? currentRankObj?.milestoneAt ?? 5;
+  const remainingCount = Math.max(0, nextTargetCount - qualifiedCount);
+  const progressPercent = nextMilestoneRank
+    ? Math.min(100, Math.round((qualifiedCount / Math.max(1, nextTargetCount)) * 100))
+    : 100;
+
+  const nextReferralPos = qualifiedCount + 1;
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="pb-4 border-b border-slate-100">
-        <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest">
-          U-Ads Referral & Affiliation Program
-        </span>
-        <h2 className="text-2xl font-extrabold text-slate-900">Referrals, Ranks & Milestones</h2>
-        <p className="text-xs text-slate-500">
-          Earn tiered USD referral commissions on each invited user&apos;s first qualifying transaction, plus milestone rank rewards credited directly into your Referral Wallet.
-        </p>
-      </div>
-
-      {/* Referral Rank & Milestone Progress Showcase */}
-      <div className="p-7 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white shadow-md space-y-6 relative overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+    <div className="space-y-6">
+      {/* Unified Single-Truth Rank Progress Card */}
+      <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 text-white p-6 shadow-md border border-slate-800 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Award className="w-5 h-5 text-amber-400" />
-              <span className="text-xs font-bold text-indigo-200 uppercase tracking-wider">
-                Current Referral Rank
-              </span>
+            <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
+              <Award className="w-4 h-4" />
+              <span>Current Referral Rank</span>
             </div>
-            <div className="flex items-center gap-3">
-              <h3 className="text-3xl font-black tracking-tight text-white">
-                {rankProgress?.currentRank || 'New'}
-              </h3>
-              <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${getRankBadgeStyle(rankProgress?.currentRank || 'New')}`}>
-                ACTIVE RANK
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-3xl font-black tracking-tight">{currentRankObj.name}</h2>
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                Active
               </span>
             </div>
           </div>
 
-          {rankProgress?.nextRewardUSD ? (
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/10 flex items-center gap-3">
-              <Gift className="w-8 h-8 text-amber-300" />
+          {nextMilestoneRank && (
+            <div className="px-4 py-3 rounded-xl bg-white/10 border border-white/10 flex items-center gap-3">
+              <Gift className="w-6 h-6 text-emerald-300 shrink-0" />
               <div>
-                <span className="text-[10px] text-indigo-200 uppercase tracking-wider block font-bold">
-                  Next Milestone Cash Reward
-                </span>
-                <span className="text-xl font-black text-amber-300">
-                  +${rankProgress.nextRewardUSD}.00 USD
-                </span>
+                <div className="text-[10px] uppercase tracking-wider text-slate-300 font-bold">
+                  Next Milestone Bonus
+                </div>
+                <div className="text-lg font-extrabold text-white tabular-nums">
+                  +${nextMilestoneRank.milestoneRewardUSD}.00 USD
+                </div>
               </div>
             </div>
-          ) : null}
+          )}
         </div>
 
-        {/* Visual Progress Bar */}
-        <div className="space-y-2 relative z-10">
-          <div className="flex justify-between text-xs font-bold">
-            <span className="text-indigo-200">
-              Rank Milestone Progress ({rankProgress?.qualifiedReferrals || 0} / {rankProgress?.targetQualified || 5} Qualified)
+        {/* Clear Single Progress Message */}
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
+            <span className="text-slate-200">
+              {nextMilestoneRank
+                ? `Next milestone: ${nextMilestoneRank.name} ($${nextMilestoneRank.milestoneRewardUSD} bonus) — ${remainingCount} more qualified referral${
+                    remainingCount === 1 ? '' : 's'
+                  } needed`
+                : 'All rank milestones achieved!'}
             </span>
-            <span className="text-amber-300 font-mono">
-              {progressPercent}% Complete
+            <span className="text-emerald-300 tabular-nums">
+              {qualifiedCount} / {nextTargetCount} qualified ({progressPercent}%)
             </span>
           </div>
-
-          <div className="w-full h-3 rounded-full bg-white/10 overflow-hidden p-0.5 border border-white/10">
+          <div className="w-full h-2.5 rounded-full bg-white/10 overflow-hidden">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-500 shadow-sm"
+              className="h-full rounded-full bg-emerald-400 transition-all duration-300"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
-
-          <p className="text-[11px] text-indigo-200/80">
-            {rankProgress?.remainingToNext && rankProgress.remainingToNext > 0
-              ? `Current Rank: ${rankProgress.currentRank} — ${rankProgress.remainingToNext} more qualified referral${rankProgress.remainingToNext === 1 ? '' : 's'} needed to unlock the $${rankProgress.nextRewardUSD || 20}.00 ${rankProgress.nextRank} Milestone Bonus (${rankProgress.targetQualified} qualified).`
-              : `Maximum milestone achieved! You have qualified as a top-tier U-Ads affiliate.`}
-          </p>
         </div>
 
-        {/* Documented Rank Ladder Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-2 border-t border-white/10 relative z-10">
+        {/* Milestone Ladder with Achieved / In Progress / Locked states */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2 border-t border-white/10">
           {documentedRanks.map((rk: any) => {
-            const isCurrent = (rankProgress?.currentRank || 'New').toLowerCase() === (rk.name || '').toLowerCase();
+            const isAchieved =
+              rk.milestoneAt > 0 ? qualifiedCount >= rk.milestoneAt : qualifiedCount >= rk.minQualified;
+            const isInProgress = nextMilestoneRank?.key === rk.key;
+            const statusLabel = isAchieved ? 'Achieved' : isInProgress ? 'In progress' : 'Locked';
+
             return (
               <div
                 key={rk.key || rk.name}
-                className={`p-2.5 rounded-xl border text-center text-[10px] ${
-                  isCurrent
-                    ? 'bg-amber-400/20 border-amber-300 text-white'
-                    : 'bg-white/5 border-white/10 text-indigo-200'
+                className={`p-3 rounded-xl border text-left space-y-1 ${
+                  isInProgress
+                    ? 'bg-emerald-500/20 border-emerald-400/50 text-white'
+                    : isAchieved
+                    ? 'bg-white/10 border-white/20 text-white'
+                    : 'bg-white/5 border-white/10 text-slate-300'
                 }`}
               >
-                <div className="font-black text-xs">{rk.name}</div>
-                <div className="font-mono text-[10px] opacity-80">
-                  {rk.minQualified === 0 && rk.maxQualified === 0
-                    ? '0 qual.'
-                    : `${rk.minQualified}–${rk.maxQualified}`}
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-xs font-extrabold">{rk.name}</span>
+                  {isAchieved ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  ) : isInProgress ? (
+                    <Clock className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                  ) : (
+                    <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                  )}
                 </div>
-                {rk.milestoneRewardUSD > 0 && (
-                  <div className="text-amber-300 font-bold mt-0.5">
-                    +${rk.milestoneRewardUSD} @ {rk.milestoneAt}
-                  </div>
-                )}
+                <div className="text-[11px] opacity-80 tabular-nums">
+                  {rk.minQualified === 0 && rk.maxQualified === 0
+                    ? '0 qualified'
+                    : `${rk.minQualified}–${rk.maxQualified.toLocaleString()} qual.`}
+                </div>
+                <div className="text-[10px] font-bold text-emerald-300">
+                  {rk.milestoneRewardUSD > 0 ? `+$${rk.milestoneRewardUSD} at ${rk.milestoneAt}` : statusLabel}
+                </div>
               </div>
             );
           })}
         </div>
-
-        {/* Claimed Milestones */}
-        {rankProgress?.milestoneClaims && rankProgress.milestoneClaims.length > 0 && (
-          <div className="pt-3 border-t border-white/10 flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300">
-              Unlocked Milestone Rewards:
-            </span>
-            {rankProgress.milestoneClaims.map((claim) => (
-              <span
-                key={claim.id}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs font-bold"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                {claim.rankName}: +${(claim.rewardAmountCents / 100).toFixed(2)} USD
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
-      {/* KPI Cards Strip */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500 font-semibold">Total Registered Members</span>
+      {/* KPI Tiles */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="card-white p-5 space-y-1.5">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+            <span>Total Invited</span>
             <Users className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-3xl font-extrabold text-slate-900">
-            {loading ? '...' : data?.totalReferrals ?? 0}
+          <div className="text-3xl font-extrabold text-slate-900 tabular-nums">
+            {loading ? '—' : data?.totalReferrals ?? 0}
           </div>
-          <span className="text-[10px] text-slate-400">Direct registered peers</span>
+          <p className="text-xs text-slate-400">Direct registered members</p>
         </div>
 
-        <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500 font-semibold">Qualified Referrals</span>
-            <Target className="w-4 h-4 text-indigo-600" />
+        <div className="card-white p-5 space-y-1.5">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+            <span>Qualified Referrals</span>
+            <Target className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-3xl font-extrabold text-indigo-900">
-            {loading ? '...' : data?.qualifiedReferrals ?? 0}
+          <div className="text-3xl font-extrabold text-slate-900 tabular-nums">
+            {loading ? '—' : qualifiedCount}
           </div>
-          <span className="text-[10px] text-indigo-600 font-bold">Completed first qualifying USD package</span>
+          <p className="text-xs text-slate-400">Completed first qualifying USD plan</p>
         </div>
 
-        <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500 font-semibold">Total Referral Commissions</span>
+        <div className="card-white p-5 space-y-1.5">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+            <span>Total Commissions Earned</span>
             <TrendingUp className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-3xl font-extrabold text-emerald-700">
-            ${((data?.totalCommissionCents ?? 0) / 100).toFixed(2)} USD
+          <div className="text-3xl font-extrabold text-emerald-700 tabular-nums">
+            {formatUSD(data?.totalCommissionCents ?? 0)}
           </div>
-          <span className="text-[10px] text-emerald-600 font-bold">Credited in Separate Referral Wallet</span>
+          <p className="text-xs text-slate-400">Credited into Referral Wallet</p>
         </div>
       </div>
 
-      {/* Position-Based Commission Tier Schedule */}
-      <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-3">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-500" />
-            <h3 className="text-sm font-bold text-slate-900">
-              Position-Based Commission Rates
-            </h3>
+      {/* Share Link & Code */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="card-white p-5 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+            <Share2 className="w-4 h-4 text-emerald-600" />
+            <span>Your Invitation Link</span>
           </div>
-          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
-            First Qualifying Transaction Only
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-10 px-3 rounded-[10px] bg-slate-50 border border-slate-200 font-mono text-xs text-slate-700 flex items-center truncate">
+              <span className="truncate">{data?.referralLink || `${window.location.origin}/?ref=${user?.referralCode || ''}`}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                copyToClipboard(
+                  data?.referralLink || `${window.location.origin}/?ref=${user?.referralCode || ''}`,
+                  'link'
+                )
+              }
+              className="btn-primary shrink-0"
+            >
+              {copiedType === 'link' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              <span>{copiedType === 'link' ? 'Copied' : 'Copy Link'}</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="card-white p-5 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+            <Share2 className="w-4 h-4 text-slate-500" />
+            <span>Personal Referral Code</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-10 px-3 rounded-[10px] bg-slate-50 border border-slate-200 font-mono text-sm font-bold text-emerald-700 flex items-center">
+              {data?.referralCode || user?.referralCode || '—'}
+            </div>
+            <button
+              type="button"
+              onClick={() => copyToClipboard(data?.referralCode || user?.referralCode || '', 'code')}
+              className="btn-secondary shrink-0"
+            >
+              {copiedType === 'code' ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+              <span>{copiedType === 'code' ? 'Copied' : 'Copy Code'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Position-Based Commission Table (Highlights User's Next Active Position) */}
+      <div className="card-white p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Commission Rates by Referral Position</h3>
+            <p className="text-xs text-slate-500">
+              Earned once on each invited member&apos;s first qualifying USD plan.
+            </p>
+          </div>
+          <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+            Your next referral earns{' '}
+            {dynamicPositions.find((p) => nextReferralPos >= p.minPos && nextReferralPos <= p.maxPos)?.ratePercent ?? 15}%
           </span>
         </div>
-        <p className="text-xs text-slate-500">
-          Commissions scale by your direct referral position and apply strictly to each invited user&apos;s first qualifying transaction:
-        </p>
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
-          {dynamicPositions.map((pos: any, idx: number) => {
-            const isMax = idx === dynamicPositions.length - 1;
+          {dynamicPositions.map((pos, idx) => {
+            const isNext = nextReferralPos >= pos.minPos && nextReferralPos <= pos.maxPos;
             return (
               <div
                 key={idx}
-                className={`p-3 rounded-2xl border text-center space-y-1 ${
-                  isMax
-                    ? 'bg-indigo-50 border-indigo-200 col-span-2 sm:col-span-1'
+                className={`p-3.5 rounded-xl border text-center space-y-1 transition-all ${
+                  isNext
+                    ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/15'
                     : 'bg-slate-50 border-slate-200'
                 }`}
               >
-                <div className={`text-[10px] uppercase font-bold ${isMax ? 'text-indigo-500' : 'text-slate-400'}`}>
+                <div className={`text-[11px] font-bold ${isNext ? 'text-emerald-700' : 'text-slate-500'}`}>
                   {pos.label}
                 </div>
-                <div className={`text-lg font-black ${isMax ? 'text-indigo-700' : 'text-emerald-600'}`}>
+                <div className={`text-xl font-black tabular-nums ${isNext ? 'text-emerald-700' : 'text-slate-900'}`}>
                   {pos.ratePercent}%
                 </div>
-                <div className={`text-[10px] ${isMax ? 'text-indigo-600 font-bold' : 'text-slate-500'}`}>
-                  {pos.sub}
+                <div className="text-[10px] font-semibold text-slate-500">
+                  {isNext ? 'Your next tier' : 'First plan'}
                 </div>
               </div>
             );
@@ -318,139 +338,81 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
         </div>
       </div>
 
-      {/* Invitation Links & Codes */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-3">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <Share2 className="w-4 h-4 text-emerald-600" />
-            Your Unique Referral Code
-          </h3>
-          <p className="text-xs text-slate-500">
-            Share this identifier with new users during their U-Ads account registration.
-          </p>
-
-          <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-200 font-mono text-sm font-bold text-emerald-700">
-            <span>{data?.referralCode || user?.referralCode || 'LOADING...'}</span>
-            <button
-              onClick={() => copyToClipboard(data?.referralCode || user?.referralCode || '', 'code')}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 cursor-pointer"
-              title="Copy"
-            >
-              <Copy className="w-4 h-4" />
-            </button>
+      {/* Referral Network Tree (Per-child branch connectors, high-contrast root, masked emails!) */}
+      <div className="card-white p-6 space-y-5">
+        <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <GitBranch className="w-4 h-4 text-emerald-600" />
+            <h3 className="text-sm font-bold text-slate-900">Your Referral Network</h3>
           </div>
-          {copiedCode && <div className="text-xs text-emerald-600 font-bold">Code copied!</div>}
+          <span className="text-xs font-semibold text-slate-500">
+            {data?.referrals?.length ?? 0} direct member{(data?.referrals?.length ?? 0) === 1 ? '' : 's'}
+          </span>
         </div>
 
-        <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-3">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <Share2 className="w-4 h-4 text-teal-600" />
-            Shareable Invitation Link
-          </h3>
-          <p className="text-xs text-slate-500">
-            Direct onboarding link with your referral code automatically embedded.
-          </p>
-
-          <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-200 font-mono text-xs text-slate-700 truncate gap-2">
-            <span className="truncate">{data?.referralLink || 'Generating link...'}</span>
-            <button
-              onClick={() => copyToClipboard(data?.referralLink || '', 'link')}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 shrink-0 cursor-pointer"
-              title="Copy"
-            >
-              <Copy className="w-4 h-4" />
-            </button>
-          </div>
-          {copiedLink && <div className="text-xs text-emerald-600 font-bold">Link copied!</div>}
-        </div>
-      </div>
-
-      {/* Visual Referral Hierarchy Tree & Direct Lineage Network */}
-      <div className="p-7 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <GitBranch className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-bold text-slate-900">
-                Direct Referral Hierarchy Tree
-              </h3>
-            </div>
-            <p className="text-xs text-slate-500">
-              Visual parent-child lineage map showing direct attributed accounts, position tiers, and qualification status.
-            </p>
-          </div>
-          <div className="text-right">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Direct Network Size</span>
-            <span className="text-sm font-black text-slate-800">{data?.referrals?.length ?? 0} Members</span>
-          </div>
-        </div>
-
-        <div className="p-6 rounded-2xl bg-slate-50/70 border border-slate-200/80 space-y-6">
-          {/* Root Node */}
-          <div className="flex flex-col items-center">
-            <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white shadow-md border border-indigo-500/20 max-w-md w-full justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center font-black text-emerald-400">
-                  ROOT
-                </div>
-                <div>
-                  <div className="text-xs font-black text-white">{user?.fullName || 'Your Account'}</div>
-                  <div className="text-[10px] text-indigo-300 font-mono">Code: {data?.referralCode || user?.referralCode}</div>
-                </div>
+        {/* Root Node */}
+        <div className="space-y-0">
+          <div className="inline-flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 text-white shadow-xs">
+            <span className="px-2 py-0.5 rounded-md bg-emerald-500 text-slate-950 text-[10px] font-extrabold uppercase tracking-wider">
+              You
+            </span>
+            <div>
+              <div className="text-xs font-bold">{user?.fullName}</div>
+              <div className="text-[11px] text-slate-300">
+                {currentRankObj.name} Rank · Code {data?.referralCode || user?.referralCode}
               </div>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getRankBadgeStyle(rankProgress?.currentRank || 'New')}`}>
-                {rankProgress?.currentRank || 'New'} Rank
-              </span>
             </div>
-
-            <div className="w-0.5 h-6 bg-slate-300 my-1" />
-            <div className="px-3 py-1 rounded-full bg-slate-200 text-[10px] font-bold text-slate-600 uppercase tracking-wider">
-              Direct Level-1 Branch ({data?.referrals?.length ?? 0})
-            </div>
-            <div className="w-0.5 h-6 bg-slate-300 my-1" />
           </div>
 
-          {(!data?.referrals || data.referrals.length === 0) ? (
-            <div className="text-center py-8 text-xs text-slate-400 bg-white rounded-xl border border-dashed border-slate-200 p-6">
-              No direct referrals registered yet. Share your unique invitation link above to grow your referral network!
+          {/* Per-child Tree Branches */}
+          {!data?.referrals || data.referrals.length === 0 ? (
+            <div className="mt-4 p-8 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-center space-y-2">
+              <div className="text-sm font-bold text-slate-900">No invited members yet</div>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                Copy your invitation link above and share it with friends to start earning 5%–15% USD referral commissions.
+              </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            <div className="ml-5 pl-5 border-l-2 border-slate-200 pt-4 space-y-3">
               {data.referrals.map((ref: any, idx: number) => {
                 const position = idx + 1;
                 const posObj = dynamicPositions[Math.min(idx, dynamicPositions.length - 1)];
-                const posRate = `${posObj?.ratePercent ?? 15}%`;
-
                 return (
-                  <div
-                    key={ref.id || idx}
-                    className="p-4 rounded-xl bg-white border border-slate-200 shadow-2xs space-y-3 hover:border-slate-300 transition-all"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                        Position #{position} ({posRate} Tier)
+                  <div key={ref.id || idx} className="relative">
+                    {/* Horizontal branch connector */}
+                    <span className="absolute -left-5 top-6 w-5 h-0.5 bg-slate-200" />
+                    <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-bold text-slate-900 truncate">{ref.fullName}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600">
+                            #{position} · {posObj?.ratePercent ?? 15}% tier
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {maskEmail(ref.email)} · Joined {formatDate(ref.createdAt)}
+                        </div>
+                      </div>
+
+                      <span
+                        className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full border shrink-0 w-fit ${
+                          ref.isQualified
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}
+                      >
+                        {ref.isQualified ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Qualified
+                          </>
+                        ) : (
+                          <>
+                            <Clock className="w-3.5 h-3.5" />
+                            Pending plan
+                          </>
+                        )}
                       </span>
-                      {ref.isQualified ? (
-                        <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          Qualified
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                          <Clock className="w-3 h-3 text-amber-600" />
-                          Pending Package
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="space-y-0.5">
-                      <div className="text-xs font-bold text-slate-900 truncate">{ref.fullName}</div>
-                      <div className="text-[11px] font-mono text-slate-400 truncate">{ref.email}</div>
-                    </div>
-
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
-                      <span>Joined: {new Date(ref.createdAt).toLocaleDateString()}</span>
-                      <span className="font-semibold text-slate-600">Direct Level 1</span>
                     </div>
                   </div>
                 );
@@ -460,59 +422,34 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
         </div>
       </div>
 
-      {/* Commission Lineage Journal */}
-      <div className="rounded-3xl bg-white border border-slate-200/90 shadow-xs overflow-hidden space-y-4">
-        <div className="p-6 pb-2 flex items-center justify-between border-b border-slate-100">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-600" />
-            Verified Commission History
-          </h3>
-          <span className="text-xs text-slate-400">
-            Total Events: {data?.commissions?.length ?? 0}
-          </span>
+      {/* Commission History */}
+      <div className="card-white overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-900">Commission History</h3>
+          <span className="text-xs text-slate-500">{data?.commissions?.length ?? 0} payouts</span>
         </div>
 
         {!data?.commissions || data.commissions.length === 0 ? (
-          <div className="p-12 text-center text-xs text-slate-400">
-            No referral commissions credited yet. When your referred members complete their first qualifying USD package purchase, earned rewards will appear here.
+          <div className="p-10 text-center text-xs text-slate-500">
+            No referral commissions credited yet. When your invited members purchase their first qualifying USD plan, your commission appears here automatically.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
-                <tr>
-                  <th className="py-3 px-6">Source Member</th>
-                  <th className="py-3 px-6">Tier Rate</th>
-                  <th className="py-3 px-6">Credited Amount</th>
-                  <th className="py-3 px-6 text-right">Timestamp</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {data.commissions.map((comm: any) => (
-                  <tr key={comm.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-4 px-6 font-bold text-slate-900">{comm.sourceUserName}</td>
-                    <td className="py-4 px-6 text-emerald-700 font-bold">{comm.ratePercent}%</td>
-                    <td className="py-4 px-6 font-mono font-bold text-emerald-700">
-                      +${(comm.commissionCents / 100).toFixed(2)} USD
-                    </td>
-                    <td className="py-4 px-6 text-right text-slate-400">
-                      {new Date(comm.createdAt).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="divide-y divide-slate-100">
+            {data.commissions.map((comm: any) => (
+              <div key={comm.id} className="px-5 py-3.5 flex items-center justify-between gap-4 text-xs">
+                <div>
+                  <div className="font-bold text-slate-900">{comm.sourceUserName}</div>
+                  <div className="text-slate-500 mt-0.5">
+                    {comm.ratePercent}% commission · {formatDateTime(comm.createdAt)}
+                  </div>
+                </div>
+                <span className="font-extrabold text-emerald-600 text-sm tabular-nums">
+                  +{formatUSD(comm.commissionCents)}
+                </span>
+              </div>
+            ))}
           </div>
         )}
-      </div>
-
-      {/* Compliance Notice */}
-      <div className="p-4 rounded-2xl bg-white border border-slate-200 text-[11px] text-slate-500 flex items-start gap-3 shadow-2xs">
-        <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-        <div>
-          <span className="font-bold text-slate-800">U-Ads Referral Program Compliance: </span>
-          Commissions are strictly awarded once per referred user on their first qualifying USD package transaction and credited to your separate USD Referral Wallet.
-        </div>
       </div>
     </div>
   );

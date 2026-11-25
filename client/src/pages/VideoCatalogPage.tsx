@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import api from '../services/api.js';
 import { Video } from '../types/index.js';
+import { formatDurationMMSS, formatUSD } from '../utils/formatters.js';
 import {
   Play,
   Lock,
   Search,
   Clock,
-  CheckCircle,
+  CheckCircle2,
   Sparkles,
-  Layers,
+  PlaySquare,
 } from 'lucide-react';
 
 interface VideoCatalogProps {
@@ -55,122 +56,104 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
     fetchVideos();
   };
 
-  const formatDuration = (seconds: number) => {
-    if (!seconds || seconds <= 0) return 'Auto';
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    if (mins === 0) return `${secs}s`;
-    return `${mins}m ${secs > 0 ? secs + 's' : ''}`;
-  };
-
   const categories = useMemo(
-    () => (allCategories.length > 1 ? allCategories : ['All', 'Featured Campaigns', 'Brand Showcase', 'Product Spotlight', 'Special Assignment']),
+    () => (allCategories.length > 1 ? allCategories : ['All']),
     [allCategories]
   );
 
   return (
-    <div className="space-y-8">
-      {/* Search & Category Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-slate-100">
-        <div className="space-y-1">
-          <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-widest">
-            U-Ads Video Library
-          </span>
-          <h2 className="text-2xl font-extrabold text-slate-900">
-            Curated Video Campaigns ({videos.length})
-          </h2>
-          <p className="text-slate-500 text-xs max-w-xl">
-            Watch full verified videos without skipping to earn automatic USD credits in your Video Rewards Wallet.
-          </p>
+    <div className="space-y-6">
+      {/* Search & Wrapping Category Filters (never clips or overflows!) */}
+      <div className="card-white p-4 sm:p-5 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">
+              Available Campaigns ({videos.length})
+            </h2>
+            <p className="text-xs text-slate-500">
+              Watch unlocked campaigns to completion for automatic USD Video Rewards.
+            </p>
+          </div>
+
+          <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 w-full md:w-auto md:min-w-[300px]">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search campaigns..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full h-10 bg-slate-50 border border-slate-200 rounded-[10px] pl-10 pr-4 text-xs text-slate-900 placeholder-slate-400 focus:border-emerald-500"
+              />
+            </div>
+            <button type="submit" className="btn-secondary">
+              Search
+            </button>
+          </form>
         </div>
 
-        {/* Search Bar */}
-        <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 max-w-md w-full">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search videos..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition-colors"
-            />
-          </div>
-          <button
-            type="submit"
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors"
-          >
-            Search
-          </button>
-        </form>
+        {/* Clean Wrapping Category Chips */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setSelectedCategory(cat)}
+              className={`px-3 py-1.5 rounded-[10px] text-xs font-bold transition-all cursor-pointer border ${
+                selectedCategory === cat
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Category Pills Filter */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-        {categories.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat)}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${
-              selectedCategory === cat
-                ? 'bg-emerald-600 text-white shadow-2xs'
-                : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200 border border-slate-200'
-            }`}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
-
-      {/* Specially Assigned Videos Section */}
+      {/* Directly Assigned Campaigns */}
       {videos.some((v) => v.isAssignedToUser) && (
-        <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-teal-500/10 border border-amber-500/30 shadow-xs space-y-4">
-          <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-amber-500 text-white shadow-sm">
-              <Sparkles className="w-4 h-4 fill-white" />
-            </span>
+        <div className="card-white p-5 border-emerald-200 bg-emerald-50/40 space-y-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+              <Sparkles className="w-4 h-4" />
+            </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                Exclusive Videos Assigned Directly to You
-              </h3>
-              <p className="text-[11px] text-slate-600">
-                The U-Ads administrator has granted you direct access to the following video campaigns.
+              <h3 className="text-sm font-bold text-slate-900">Assigned Directly to You</h3>
+              <p className="text-xs text-slate-600">
+                Special campaigns unlocked specifically for your account.
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {videos
               .filter((v) => v.isAssignedToUser)
               .map((assignedVid) => (
                 <div
                   key={assignedVid.id}
-                  className="p-3.5 rounded-2xl bg-white/95 border border-amber-300 shadow-xs flex items-center justify-between gap-4"
+                  className="p-3.5 rounded-xl bg-white border border-emerald-200 flex items-center justify-between gap-3 shadow-2xs"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <img
                       src={assignedVid.thumbnailUrl}
                       alt={assignedVid.title}
-                      className="w-20 h-14 rounded-xl object-cover shrink-0 bg-slate-900"
+                      className="w-20 h-13 rounded-lg object-cover shrink-0 bg-slate-900"
                     />
                     <div className="min-w-0">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                        Admin Assigned
-                      </span>
-                      <h4 className="text-xs font-bold text-slate-900 truncate mt-0.5">
-                        {assignedVid.title}
-                      </h4>
-                      <p className="text-[10px] text-slate-500">
-                        {formatDuration(assignedVid.durationSeconds)} • {assignedVid.category}
+                      <h4 className="text-xs font-bold text-slate-900 truncate">{assignedVid.title}</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
+                        {formatDurationMMSS(assignedVid.durationSeconds)} · {formatUSD(assignedVid.rewardAmountCents)} reward
                       </p>
                     </div>
                   </div>
                   <button
+                    type="button"
                     onClick={() => navigate('player', { videoId: assignedVid.id })}
-                    className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shrink-0 flex items-center gap-1.5 shadow-sm transition-all hover:scale-105"
+                    className="btn-primary !h-9 shrink-0"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
-                    Play Now
+                    <span>Watch</span>
                   </button>
                 </div>
               ))}
@@ -178,131 +161,141 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
         </div>
       )}
 
-      {/* Videos Grid */}
+      {/* Video Grid */}
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[1, 2, 3, 4, 5, 6].map((n) => (
-            <div key={n} className="h-72 rounded-2xl bg-slate-100 animate-pulse border border-slate-200" />
+            <div key={n} className="h-80 rounded-2xl skeleton-shimmer border border-slate-200" />
           ))}
         </div>
       ) : videos.length === 0 ? (
-        <div className="text-center py-20 bg-slate-50 rounded-3xl border border-slate-200 space-y-4">
-          <Layers className="w-10 h-10 text-slate-400 mx-auto" />
-          <h3 className="text-base font-bold text-slate-900">No Videos Found</h3>
-          <p className="text-xs text-slate-500">Try adjusting your search criteria or category filter.</p>
+        <div className="card-white py-16 px-6 text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+            <PlaySquare className="w-6 h-6" />
+          </div>
+          <h3 className="text-sm font-bold text-slate-900">No campaigns match your filter</h3>
+          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+            Try switching back to All categories or clearing your search query.
+          </p>
+          {(selectedCategory !== 'All' || searchQuery) && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCategory('All');
+                setSearchQuery('');
+              }}
+              className="btn-secondary"
+            >
+              Reset Filters
+            </button>
+          )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {videos.map((video) => {
             const isUnlocked = video.hasAccess;
 
             return (
               <div
                 key={video.id}
-                className={`group rounded-2xl bg-white overflow-hidden shadow-xs card-hover flex flex-col justify-between border ${
-                  video.isAssignedToUser ? 'border-amber-400 ring-2 ring-amber-400/20' : 'border-slate-200/90'
-                }`}
+                className="group card-white card-hover overflow-hidden flex flex-col justify-between"
               >
-                {/* Thumbnail & Badges */}
+                {/* Poster / Thumbnail */}
                 <div className="relative aspect-video bg-slate-900 overflow-hidden">
                   <img
                     src={video.thumbnailUrl}
                     alt={video.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-90"
+                    className={`w-full h-full object-cover transition-transform duration-300 ${
+                      isUnlocked ? 'group-hover:scale-105 opacity-95' : 'opacity-50 scale-[1.01]'
+                    }`}
                     loading="lazy"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/15 to-transparent" />
 
                   {/* Top Badges */}
-                  <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
-                    {video.isAssignedToUser ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500 text-white shadow-sm flex items-center gap-1">
-                        <Sparkles className="w-3 h-3 fill-white" />
-                        Assigned to You
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/95 text-slate-900 shadow-sm">
-                        {video.minPackageTier} Tier
-                      </span>
-                    )}
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-black/60 text-white flex items-center gap-1 backdrop-blur-md">
+                  <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-white/95 text-slate-900 shadow-xs">
+                      {video.isAssignedToUser ? 'Assigned' : `${video.minPackageTier} Plan`}
+                    </span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-950/80 text-white flex items-center gap-1 tabular-nums">
                       <Clock className="w-3 h-3" />
-                      {formatDuration(video.durationSeconds)}
+                      {formatDurationMMSS(video.durationSeconds)}
                     </span>
                   </div>
 
-                  {/* Center Action Overlay */}
+                  {/* Center Overlay */}
                   {isUnlocked ? (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <button
+                        type="button"
                         onClick={() => navigate('player', { videoId: video.id })}
-                        className="w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center shadow-lg transition-transform hover:scale-110"
+                        className="w-12 h-12 rounded-full bg-emerald-600/95 hover:bg-emerald-500 text-white flex items-center justify-center shadow-lg transition-transform duration-200 group-hover:scale-105 cursor-pointer"
+                        aria-label={`Play ${video.title}`}
                       >
                         <Play className="w-5 h-5 fill-current ml-0.5" />
                       </button>
                     </div>
                   ) : (
-                    <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-[2px] flex flex-col items-center justify-center p-3 text-center space-y-1.5">
-                      <div className="w-10 h-10 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center shadow-md">
-                        <Lock className="w-5 h-5 text-rose-400" />
+                    <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-[1.5px] flex flex-col items-center justify-center p-4 text-center space-y-2">
+                      <div className="w-10 h-10 rounded-full bg-white/15 border border-white/25 text-white flex items-center justify-center">
+                        <Lock className="w-4 h-4" />
                       </div>
-                      <span className="text-[11px] font-bold text-white tracking-wide">
-                        Video Locked
-                      </span>
-                      <span className="text-[9px] text-slate-300 max-w-[190px] leading-tight">
-                        Requires active USD package or qualifying Account Level to unlock
-                      </span>
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-bold text-white">
+                          Requires {video.minPackageTier} Plan
+                        </div>
+                        <div className="text-[11px] text-slate-200">
+                          Upgrade your plan to unlock &amp; earn {formatUSD(video.rewardAmountCents)}
+                        </div>
+                      </div>
                     </div>
                   )}
 
-                  {/* Completion Status */}
+                  {/* Completed Pill */}
                   {video.isWatched && (
-                    <div className="absolute bottom-2.5 right-3 text-[10px] font-bold text-emerald-300 flex items-center gap-1 bg-slate-900/90 px-2 py-0.5 rounded border border-emerald-500/40">
-                      <CheckCircle className="w-3 h-3 text-emerald-400" />
+                    <div className="absolute bottom-2.5 left-3 text-[11px] font-bold text-white flex items-center gap-1 bg-emerald-600 px-2.5 py-0.5 rounded-md shadow-xs">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
                       Completed
+                    </div>
+                  )}
+
+                  {/* Reward Pill */}
+                  {video.rewardEligible && (
+                    <div className="absolute bottom-2.5 right-3 text-[11px] font-bold text-white bg-slate-900/90 border border-white/15 px-2.5 py-0.5 rounded-md tabular-nums">
+                      +{formatUSD(video.rewardAmountCents)}
                     </div>
                   )}
                 </div>
 
-                {/* Video Info */}
-                <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                {/* Details + Unified Action Button */}
+                <div className="p-4 flex-1 flex flex-col justify-between gap-4">
                   <div className="space-y-1">
-                    <div className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
-                      {video.category}
-                    </div>
-                    <h3 className="text-sm font-bold text-slate-900 group-hover:text-emerald-700 transition-colors line-clamp-1">
-                      {video.title}
-                    </h3>
+                    <div className="text-[11px] font-semibold text-emerald-700">{video.category}</div>
+                    <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{video.title}</h3>
                     <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
                       {video.description}
                     </p>
                   </div>
 
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                    {isUnlocked ? (
-                      <button
-                        onClick={() => navigate('player', { videoId: video.id })}
-                        className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1"
-                      >
-                        Watch Video
-                        <Play className="w-3 h-3 fill-current" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => navigate('packages')}
-                        className="text-[11px] font-bold text-rose-700 hover:text-rose-800 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 transition-all hover:bg-rose-100"
-                      >
-                        <Lock className="w-3.5 h-3.5 text-rose-500" />
-                        Unlock via Package
-                      </button>
-                    )}
-
-                    {video.rewardEligible && (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                        +${(video.rewardAmountCents / 100).toFixed(2)} USD
-                      </span>
-                    )}
-                  </div>
+                  {isUnlocked ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate('player', { videoId: video.id })}
+                      className="btn-primary w-full"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>{video.isWatched ? 'Watch Again' : 'Watch Campaign'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => navigate('packages')}
+                      className="btn-secondary w-full"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Unlock with {video.minPackageTier}</span>
+                    </button>
+                  )}
                 </div>
               </div>
             );

@@ -13,79 +13,79 @@ export const SUPPORT_FAQS: BotFaqItem[] = [
     category: 'Deposits & Payments',
     question: 'How long does deposit verification take?',
     keywords: ['deposit', 'verify', 'verification', 'time', 'kitna time', 'pending', 'approval', 'approve', 'kitni der', 'kab hoga'],
-    answer: `⏱️ **Deposit Verification Time**:
-Our Finance Audit Team typically verifies manual USD deposits within **10 to 30 minutes**.
+    answer: `**Deposit Verification Time**
+Our finance team typically verifies USD deposits within **10 to 30 minutes**.
 
-Once you submit an authentic Transaction ID / TxHash and upload your clear payment receipt, your USD balance is credited to your **Main Account** immediately after admin verification.
+Once you submit your Transaction ID / TxHash and upload a clear payment receipt, your USD balance is credited to your **Main Account** immediately after review.
 
-If more than 30 minutes have passed, attach your receipt here and click **"Talk to Agent"** for immediate assistance.`,
-    quickPrompts: ['How do I deposit USD?', 'What are the withdrawal rules?', 'Talk to Agent'],
+If more than 30 minutes have passed, attach your receipt here and select **Talk to a human** for direct help.`,
+    quickPrompts: ['How do I deposit USD?', 'What are the withdrawal rules?', 'Talk to a human'],
   },
   {
     id: 'how_to_deposit',
     category: 'Deposits & Payments',
     question: 'How do I deposit USD into my U-Ads wallet?',
     keywords: ['how to deposit', 'deposit kaise', 'usdt', 'bank', 'wire', 'payment kaise', 'transfer', 'method', 'channel'],
-    answer: `💳 **How to Submit a USD Deposit**:
-1. Open **"Deposit Funds"** inside your User Dashboard.
-2. Select an active **USD Payment Channel** (such as USDT TRC-20 or USD Bank Wire).
-3. Send the exact USD amount to the listed treasury account/wallet.
-4. Enter the exact **Transaction ID / TxHash** and attach your receipt screenshot.
-5. Click **Submit Deposit for Verification** — verified by Admin within **10–30 minutes**.`,
-    quickPrompts: ['How long does deposit verification take?', 'Package details?', 'Talk to Agent'],
+    answer: `**How to Submit a USD Deposit**
+1. Open **Deposit** from the left menu.
+2. Select an active **USD payment channel** (USDT TRC-20 or USD Bank Wire).
+3. Send the exact USD amount to the listed recipient details.
+4. Enter your **Transaction ID / TxHash** and attach your receipt screenshot.
+5. Submit — deposits are normally verified within **10–30 minutes**.`,
+    quickPrompts: ['How long does deposit verification take?', 'What are the plans?', 'Talk to a human'],
   },
   {
     id: 'withdrawal_process_limits',
     category: 'Withdrawals',
     question: 'What is the withdrawal process and minimum limit?',
     keywords: ['withdrawal', 'withdraw', 'payout', 'nikalna', 'paise nikalna', 'min withdraw', 'limit', 'minimum limit'],
-    answer: `💸 **USD Withdrawal Process & Limits**:
-• **Currency:** USD Only
-• **Minimum Limit:** **$10.00 USD**
-• **How to Withdraw:**
-1. Open the **"Withdrawal Payout"** tab.
-2. Choose your payout channel and source wallet (Main Account, Video Rewards, or Referral Wallet).
-3. Enter your receiving account details and confirm.
-4. Funds move securely into **Reserved Hold** while Finance Admin reviews, approves, and completes payout with proof reference.`,
-    quickPrompts: ['How do I deposit USD?', 'How do video rewards work?', 'Talk to Agent'],
+    answer: `**USD Withdrawal Process & Limits**
+• **Currency:** USD only
+• **Minimum withdrawal:** **$10.00 USD**
+• **How to withdraw:**
+1. Open **Withdraw** from the left menu.
+2. Choose your source wallet (Main Account, Video Rewards, or Referral Wallet) and payout method.
+3. Enter your receiving details and confirm.
+4. The amount is held safely while our team reviews and sends your payout with a confirmation reference.`,
+    quickPrompts: ['How do I deposit USD?', 'How do video rewards work?', 'Talk to a human'],
   },
   {
     id: 'packages_pricing',
     category: 'Packages & Tiers',
     question: 'What are the U-Ads access packages and limits?',
     keywords: ['package', 'packages', 'tier', 'starter', 'basic', 'premium', 'vip', 'price', 'pricing', 'kharidna', 'buy package', 'plans'],
-    answer: `💎 **U-Ads Membership Plans (USD Only)**:
-• **Starter ($20 USD):** Unlocks 2 video campaigns + Video Rewards eligibility.
-• **Basic ($50 USD):** Unlocks 6 video campaigns + full referral rank eligibility.
-• **Premium ($100 USD):** Unlocks 15 video campaigns + priority support.
-• **VIP ($500 USD):** Unlocks up to 60 video campaigns + priority settlement review.
+    answer: `**U-Ads Membership Plans (USD)**
+• **Starter ($20):** Unlocks 2 video campaigns and Video Rewards eligibility.
+• **Basic ($50):** Unlocks 6 video campaigns and full referral rank eligibility.
+• **Premium ($100):** Unlocks 15 video campaigns and priority support.
+• **VIP ($500):** Unlocks up to 60 video campaigns and priority payout review.
 
-*Upgrade anytime using your Main Account USD balance.*`,
-    quickPrompts: ['How do video rewards work?', 'How do referral commissions work?', 'Talk to Agent'],
+Upgrade anytime using your Main Account balance.`,
+    quickPrompts: ['How do video rewards work?', 'How do referral commissions work?', 'Talk to a human'],
   },
   {
     id: 'video_rewards_claim',
     category: 'Videos & Rewards',
     question: 'How do video watch rewards get credited?',
     keywords: ['reward', 'video', 'videos', 'watch', 'earn', 'claim', '0.50', 'dekh kar', 'paise', 'earning'],
-    answer: `🎬 **Automatic Video Reward Verification**:
-1. Open an unlocked video from your **Video Catalog** (based on your Account Level / Package).
-2. Watch the **full actual video duration** from start to finish (pause and seeking forward are disabled).
-3. As soon as the full playback finishes, the server verifies the session and **automatically credits** the USD reward directly to your **Video Rewards Wallet**!
-*(Each video can only generate a reward once).*`,
-    quickPrompts: ['Package details?', 'What is the withdrawal process and minimum limit?', 'Talk to Agent'],
+    answer: `**Automatic Video Reward Credits**
+1. Open an unlocked campaign from **Videos**.
+2. Watch the **full video** from start to finish (seeking forward is disabled during verification).
+3. As soon as playback finishes, your USD reward is **credited automatically** to your **Video Rewards** wallet.
+Each campaign awards its credit once.`,
+    quickPrompts: ['What are the plans?', 'What is the withdrawal process and minimum limit?', 'Talk to a human'],
   },
   {
     id: 'referral_commission_rules',
     category: 'Referrals & Ranks',
     question: 'How do referral commissions and ranks work?',
     keywords: ['referral', 'invite', 'refer', 'commission', '5%', 'link', 'dost', 'earning', 'rank', 'milestone'],
-    answer: `🤝 **U-Ads Referral & Rank Program**:
-• Share your personal invitation link from the **Referrals & Ranks** tab.
-• Commissions apply strictly to your referred member's **first qualifying transaction**, credited into your separate **Referral Wallet**.
+    answer: `**U-Ads Referral & Rank Program**
+• Share your personal invitation link from **Referrals**.
+• Commissions apply to each referred member's **first qualifying package**, credited to your **Referral Wallet**.
 • **Position Rates:** 1st: 5%, 2nd: 7%, 3rd: 10%, 4th: 12%, 5th+: 15%.
 • **Ranks & Milestones:** Gold (1–5, +$20 at 5), Platinum (6–10, +$100 at 10), Diamond (11–100), Rank 4 (101–500), Rank 5 (501–10,000).`,
-    quickPrompts: ['What is the withdrawal process and minimum limit?', 'Package details?', 'Talk to Agent'],
+    quickPrompts: ['What is the withdrawal process and minimum limit?', 'What are the plans?', 'Talk to a human'],
   },
 ];
 
@@ -145,11 +145,11 @@ export class SupportBotService {
 
     if (this.isEscalationRequest(lower)) {
       return {
-        answer: `👨‍💼 **Support Team Alerted**:
-Your request has been forwarded to an available **U-Ads Support Agent**. A live agent will respond directly in this chat shortly.
+        answer: `**Support Team Notified**
+Your conversation has been routed to an available **U-Ads Support** specialist. A team member will reply here shortly.
 
-Feel free to share your transaction reference or attach a screenshot while waiting.`,
-        quickPrompts: ['Deposit verification issue', 'Withdrawal status check', 'Account level query'],
+You can share your transaction reference or attach a screenshot while you wait.`,
+        quickPrompts: ['Deposit verification issue', 'Withdrawal status check', 'Account level question'],
         suggestEscalation: true,
       };
     }
@@ -168,29 +168,29 @@ Feel free to share your transaction reference or attach a screenshot while waiti
       if (asksPersonal && (lower.includes('deposit') || lower.includes('payment'))) {
         if (ctx.latestDeposits.length === 0) {
           return {
-            answer: `📊 **Your Deposit Status (${ctx.memberCode || ctx.fullName})**:
-You have no submitted USD deposit requests yet.
-• **Main Account Balance:** $${ctx.mainUSD.toFixed(2)} USD
-You can submit a deposit anytime from the **Deposit USD** tab (verified in 10–30 minutes).`,
+            answer: `**Your Deposit Status (${ctx.memberCode || ctx.fullName})**
+You have not submitted any USD deposit requests yet.
+• **Main Account Balance:** $${ctx.mainUSD.toFixed(2)}
+You can submit a deposit anytime from the **Deposit** page (verified in 10–30 minutes).`,
             matchedFaqId: 'account_deposit_status',
-            quickPrompts: ['How do I deposit USD?', 'Check my wallet balance', 'Talk to Agent'],
+            quickPrompts: ['How do I deposit USD?', 'Check my wallet balance', 'Talk to a human'],
             suggestEscalation: false,
           };
         }
         const lines = ctx.latestDeposits.slice(0, 3).map(
           (d) =>
-            `• **$${d.amountUSD.toFixed(2)} USD** — **${d.status}** (Ref: \`${d.transactionRef}\`)${
+            `• **$${d.amountUSD.toFixed(2)}** — **${d.status}** (Ref: \`${d.transactionRef}\`)${
               d.rejectionReason ? ` — Reason: ${d.rejectionReason}` : ''
             }`
         );
         return {
-          answer: `📊 **Your Recent USD Deposits (${ctx.memberCode || ctx.fullName})**:
+          answer: `**Your Recent USD Deposits (${ctx.memberCode || ctx.fullName})**
 ${lines.join('\n')}
 
-• **Current Main Account Balance:** $${ctx.mainUSD.toFixed(2)} USD
-*(Pending deposits are normally verified within 10–30 minutes.)*`,
+• **Current Main Account Balance:** $${ctx.mainUSD.toFixed(2)}
+Pending deposits are normally verified within 10–30 minutes.`,
           matchedFaqId: 'account_deposit_status',
-          quickPrompts: ['Check my withdrawal status', 'Check my referral progress', 'Talk to Agent'],
+          quickPrompts: ['Check my withdrawal status', 'Check my referral progress', 'Talk to a human'],
           suggestEscalation: false,
         };
       }
@@ -198,28 +198,28 @@ ${lines.join('\n')}
       if (asksPersonal && (lower.includes('withdraw') || lower.includes('payout'))) {
         if (ctx.latestWithdrawals.length === 0) {
           return {
-            answer: `💸 **Your Withdrawal Status**:
+            answer: `**Your Withdrawal Status**
 You have no withdrawal requests on record yet.
-• **Main Balance:** $${ctx.mainUSD.toFixed(2)} USD | **Video Rewards:** $${ctx.videoRewardsUSD.toFixed(2)} USD | **Referral:** $${ctx.referralUSD.toFixed(2)} USD
-• **Reserved Hold:** $${ctx.reservedUSD.toFixed(2)} USD`,
+• **Main Account:** $${ctx.mainUSD.toFixed(2)} | **Video Rewards:** $${ctx.videoRewardsUSD.toFixed(2)} | **Referral:** $${ctx.referralUSD.toFixed(2)}
+• **In Hold:** $${ctx.reservedUSD.toFixed(2)}`,
             matchedFaqId: 'account_withdrawal_status',
-            quickPrompts: ['What is the withdrawal process and minimum limit?', 'Check my deposit status', 'Talk to Agent'],
+            quickPrompts: ['What is the withdrawal process and minimum limit?', 'Check my deposit status', 'Talk to a human'],
             suggestEscalation: false,
           };
         }
         const lines = ctx.latestWithdrawals.slice(0, 3).map(
           (w) =>
-            `• **$${w.amountUSD.toFixed(2)} USD** — **${w.status}**${
-              w.payoutRef ? ` (Tx: \`${w.payoutRef}\`)` : ''
+            `• **$${w.amountUSD.toFixed(2)}** — **${w.status}**${
+              w.payoutRef ? ` (Ref: \`${w.payoutRef}\`)` : ''
             }${w.rejectionReason ? ` — Reason: ${w.rejectionReason}` : ''}`
         );
         return {
-          answer: `💸 **Your Recent USD Withdrawals**:
+          answer: `**Your Recent Withdrawals**
 ${lines.join('\n')}
 
-• **Active Reserved Hold:** $${ctx.reservedUSD.toFixed(2)} USD`,
+• **Currently Held for Payout:** $${ctx.reservedUSD.toFixed(2)}`,
           matchedFaqId: 'account_withdrawal_status',
-          quickPrompts: ['Check my wallet balance', 'Check my deposit status', 'Talk to Agent'],
+          quickPrompts: ['Check my wallet balance', 'Check my deposit status', 'Talk to a human'],
           suggestEscalation: false,
         };
       }
@@ -228,14 +228,14 @@ ${lines.join('\n')}
         const nextTarget = ctx.qualifiedReferrals < 5 ? 5 : ctx.qualifiedReferrals < 10 ? 10 : ctx.qualifiedReferrals < 100 ? 100 : 500;
         const remaining = Math.max(0, nextTarget - ctx.qualifiedReferrals);
         return {
-          answer: `🤝 **Your Live Referral Progress (${ctx.memberCode || ctx.fullName})**:
+          answer: `**Your Referral Progress (${ctx.memberCode || ctx.fullName})**
 • **Current Rank:** ${ctx.referralRank}
 • **Total Direct Referrals:** ${ctx.totalReferrals}
 • **Qualified Referrals:** ${ctx.qualifiedReferrals}
 • **Next Milestone Target:** ${nextTarget} qualified (${remaining} more needed)
-• **Referral Wallet Balance:** $${ctx.referralUSD.toFixed(2)} USD`,
+• **Referral Wallet Balance:** $${ctx.referralUSD.toFixed(2)}`,
           matchedFaqId: 'account_referral_progress',
-          quickPrompts: ['Check my wallet balance', 'Check my deposit status', 'Talk to Agent'],
+          quickPrompts: ['Check my wallet balance', 'Check my deposit status', 'Talk to a human'],
           suggestEscalation: false,
         };
       }
@@ -246,15 +246,15 @@ ${lines.join('\n')}
             ? 'New User'
             : ctx.accountLevel.replace('_', ' ');
         return {
-          answer: `💼 **Your U-Ads Account Summary (${ctx.memberCode || ctx.fullName})**:
+          answer: `**Your U-Ads Account Summary (${ctx.memberCode || ctx.fullName})**
 • **Account Level:** ${prettyLevel}
-• **Main Account Credits:** $${ctx.mainUSD.toFixed(2)} USD
-• **Video Rewards Wallet:** $${ctx.videoRewardsUSD.toFixed(2)} USD
-• **Referral Wallet:** $${ctx.referralUSD.toFixed(2)} USD
-• **Reserved (Withdrawal Hold):** $${ctx.reservedUSD.toFixed(2)} USD
+• **Main Account:** $${ctx.mainUSD.toFixed(2)}
+• **Video Rewards:** $${ctx.videoRewardsUSD.toFixed(2)}
+• **Referral Wallet:** $${ctx.referralUSD.toFixed(2)}
+• **Pending Withdrawal Hold:** $${ctx.reservedUSD.toFixed(2)}
 • **Referral Rank:** ${ctx.referralRank} (${ctx.qualifiedReferrals} qualified / ${ctx.totalReferrals} total)`,
           matchedFaqId: 'account_summary',
-          quickPrompts: ['Check my deposit status', 'Check my referral progress', 'Talk to Agent'],
+          quickPrompts: ['Check my deposit status', 'Check my referral progress', 'Talk to a human'],
           suggestEscalation: false,
         };
       }
@@ -289,21 +289,21 @@ ${lines.join('\n')}
     }
 
     return {
-      answer: `👋 Welcome! I am the **U-Ads AI Support Assistant**.
+      answer: `Welcome to **U-Ads Support**.
 
 Ask me anything about:
-• **USD Deposits:** Payment channels & 10–30 minute audit verification
-• **USD Withdrawals:** Payout lifecycle & minimum $10.00 limit
-• **Access Plans:** Starter, Basic, Premium, VIP tiers
-• **Video Rewards:** Automatic USD credits on full completion
-• **Referrals & Ranks:** Tiered commissions & milestone bonuses
+• **Deposits:** Payment channels and 10–30 minute verification
+• **Withdrawals:** Payout process and $10.00 minimum
+• **Plans:** Starter, Basic, Premium, and VIP tiers
+• **Video Rewards:** Automatic USD credits on completion
+• **Referrals & Ranks:** Commission tiers and milestones
 
-Click a topic below or select **"Talk to Agent"** to connect with live support!`,
+Pick a quick question below or select **Talk to a human** to connect with a support specialist.`,
       quickPrompts: [
         'How long does deposit verification take?',
         'What is the withdrawal process and minimum limit?',
         'How do video watch rewards get credited?',
-        'Talk to Agent',
+        'Talk to a human',
       ],
       suggestEscalation: false,
     };

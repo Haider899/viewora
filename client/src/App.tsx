@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
+import { ToastProvider } from './components/ToastProvider.js';
 import { Navbar } from './components/Navbar.js';
 import { Footer } from './components/Footer.js';
+import { SupportChatWidget } from './components/SupportChatWidget.js';
 import { HomePage } from './pages/HomePage.js';
 import { HowItWorksPage } from './pages/HowItWorksPage.js';
 import { VideoCatalogPage } from './pages/VideoCatalogPage.js';
@@ -91,17 +93,20 @@ function AppContent() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans selection:bg-emerald-500 selection:text-white">
       <Navbar currentRoute={currentRoute} navigate={navigate} />
-      <main className="flex-1">{renderPublicPage()}</main>
+      <main className="flex-1 animate-page-in" key={currentRoute}>{renderPublicPage()}</main>
       <Footer navigate={navigate} />
+      <SupportChatWidget navigate={navigate} />
     </div>
   );
 }
 
 export function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ToastProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ToastProvider>
   );
 }
 

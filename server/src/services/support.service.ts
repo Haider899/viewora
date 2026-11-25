@@ -163,16 +163,16 @@ export class SupportService {
       },
     });
 
-    // Add initial greeting from U-Ads AI Support Bot
+    // Add initial greeting from U-Ads Support
     const welcome = await prisma.supportMessage.create({
       data: {
         conversationId: newConvo.id,
         senderType: 'BOT',
-        senderName: 'U-Ads AI Assistant',
-        message: `👋 Welcome to **U-Ads Support**!
-I am available 24/7 to assist you with USD deposits, withdrawals, access plans, video rewards, and referrals.
+        senderName: 'U-Ads Support',
+        message: `Welcome to **U-Ads Support**.
+I can answer questions about your deposits, withdrawals, plans, video rewards, and referral progress right away.
 
-Ask a question below or select **"Talk to Agent"** to connect with a live support specialist.`,
+Ask a question below or select **Talk to a human** to connect with a specialist.`,
       },
     });
 
@@ -323,11 +323,11 @@ Ask a question below or select **"Talk to Agent"** to connect with a live suppor
       data: {
         conversationId: params.conversationId,
         senderType: 'BOT',
-        senderName: 'U-Ads AI Assistant',
-        message: `🔔 **Human Support Requested**:
-Your request has been routed to our Support Desk queue. An available Support Agent will respond directly here shortly.
+        senderName: 'U-Ads Support',
+        message: `**Human Support Requested**
+Your conversation has been added to our live support queue. A specialist will reply directly in this chat shortly.
 
-Feel free to share your transaction reference or attach a screenshot.`,
+Feel free to share your transaction reference or attach a receipt screenshot.`,
       },
     });
 

@@ -1310,276 +1310,273 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
+  const adminNavGroups: Array<{
+    label: string;
+    items: Array<{ id: typeof activeTab; label: string; icon: React.ReactNode; badge?: number }>;
+  }> = [
+    {
+      label: 'Overview',
+      items: [{ id: 'kpis', label: 'Dashboard & KPIs', icon: <TrendingUp className="w-4 h-4" /> }],
+    },
+    {
+      label: 'Finance & Queues',
+      items: [
+        { id: 'deposits', label: 'Deposits', icon: <CreditCard className="w-4 h-4" />, badge: pendingDepositsCount },
+        { id: 'withdrawals', label: 'Withdrawals', icon: <ArrowUpRight className="w-4 h-4" />, badge: pendingWithdrawalsCount },
+        { id: 'wallets', label: 'Wallet Adjustments', icon: <Wallet className="w-4 h-4" /> },
+        { id: 'gateways', label: 'USD Channels', icon: <CreditCard className="w-4 h-4" /> },
+      ],
+    },
+    {
+      label: 'Growth & Content',
+      items: [
+        { id: 'users', label: 'Users', icon: <Users className="w-4 h-4" /> },
+        { id: 'packages', label: 'Packages', icon: <Layers className="w-4 h-4" /> },
+        { id: 'levels', label: 'Account Levels', icon: <Sparkles className="w-4 h-4" /> },
+        { id: 'referrals', label: 'Referrals & Ranks', icon: <Users className="w-4 h-4" /> },
+        { id: 'bonuses', label: 'Bonuses', icon: <Gift className="w-4 h-4" /> },
+        { id: 'videos', label: 'Videos', icon: <PlaySquare className="w-4 h-4" /> },
+        { id: 'documents', label: 'Documents', icon: <FileCheck className="w-4 h-4" /> },
+      ],
+    },
+    {
+      label: 'Operations',
+      items: [
+        { id: 'support', label: 'Live Support', icon: <MessageSquare className="w-4 h-4" />, badge: waitingSupportCount },
+        { id: 'reports', label: 'Reports & Audit', icon: <FileBarChart className="w-4 h-4" /> },
+        { id: 'settings', label: 'Settings & CMS', icon: <Settings className="w-4 h-4" /> },
+      ],
+    },
+  ];
+
+  const activeAdminItem = adminNavGroups.flatMap((g) => g.items).find((i) => i.id === activeTab);
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      {/* Dedicated Admin Header */}
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200/90 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center shadow-md shadow-purple-500/20">
-              <ShieldCheck className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <span className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                U-<span className="text-purple-600">Ads</span>
-                <span className="text-[10px] uppercase font-bold tracking-wider bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
-                  {user?.role}
-                </span>
-              </span>
-            </div>
+    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900">
+      {/* GROUPED LEFT SIDEBAR (Admin Appendix — replaces 16-item scrolling pill row) */}
+      <aside className="hidden md:flex flex-col w-[72px] xl:w-[244px] shrink-0 bg-white border-r border-slate-200/90 sticky top-0 h-screen z-30">
+        <div className="h-[60px] px-4 xl:px-5 border-b border-slate-100 flex items-center justify-center xl:justify-start gap-2.5 shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-slate-900 flex items-center justify-center shadow-xs shrink-0">
+            <ShieldCheck className="w-5 h-5 text-emerald-400" />
           </div>
+          <div className="hidden xl:flex flex-col leading-tight min-w-0">
+            <span className="text-base font-extrabold tracking-tight text-slate-900">
+              U-<span className="text-emerald-600">Ads</span> Admin
+            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 truncate">
+              {(user?.role || 'ADMIN').replace(/_/g, ' ')}
+            </span>
+          </div>
+        </div>
 
-          <div className="flex items-center gap-2.5">
-            {/* Agent Availability Selector (F17) */}
-            {(user?.role === 'SUPPORT_AGENT' || user?.role === 'SUPER_ADMIN') && (
-              <select
-                value={agentPresence}
-                onChange={async (e) => {
-                  const next = e.target.value as 'ONLINE' | 'BUSY' | 'OFFLINE';
-                  setAgentPresence(next);
-                  await api.updateAgentAvailability(next).catch(() => {});
-                  setActionSuccess(`Availability updated to ${next}.`);
-                }}
-                title="Live Support Availability"
-                className="px-2.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-800 cursor-pointer"
-              >
-                <option value="ONLINE">🟢 Online</option>
-                <option value="BUSY">🟡 Busy</option>
-                <option value="OFFLINE">⚫ Offline</option>
-              </select>
-            )}
+        <nav className="flex-1 overflow-y-auto py-4 px-2 xl:px-3 space-y-5">
+          {adminNavGroups.map((group) => (
+            <div key={group.label} className="space-y-1">
+              <div className="hidden xl:block px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                {group.label}
+              </div>
+              {group.items.map((item) => {
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveTab(item.id)}
+                    title={item.label}
+                    className={`w-full relative flex items-center justify-center xl:justify-between gap-2.5 px-2.5 xl:px-3 h-9 rounded-[10px] text-xs font-bold transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    }`}
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-emerald-600" />
+                    )}
+                    <span className="flex items-center gap-2.5 min-w-0">
+                      <span className={isActive ? 'text-emerald-600' : 'text-slate-400'}>
+                        {item.icon}
+                      </span>
+                      <span className="hidden xl:inline truncate">{item.label}</span>
+                    </span>
+                    {item.badge && item.badge > 0 ? (
+                      <span className="hidden xl:inline-flex min-w-[20px] h-5 px-1.5 rounded-full bg-rose-600 text-white text-[10px] font-extrabold items-center justify-center tabular-nums">
+                        {item.badge}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
 
-            {/* Configurable 2-5s Chime Interval + Mute Toggle (F17) */}
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setSoundAlertsEnabled(!soundAlertsEnabled)}
-                title={soundAlertsEnabled ? 'Mute Support Alert Chime' : 'Enable Support Alert Chime'}
-                className={`p-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
-                  soundAlertsEnabled
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-slate-100 text-slate-500 border-slate-200'
-                }`}
-              >
-                {soundAlertsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-                <span className="hidden md:inline">{soundAlertsEnabled ? 'Alerts' : 'Muted'}</span>
-              </button>
-              {soundAlertsEnabled && (
+        <div className="p-3 border-t border-slate-100 shrink-0">
+          <button
+            type="button"
+            onClick={logout}
+            title="Sign Out"
+            className="w-full h-9 px-3 rounded-[10px] text-xs font-bold text-slate-600 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center xl:justify-start gap-2.5 transition-colors cursor-pointer"
+          >
+            <LogOut className="w-4 h-4 shrink-0" />
+            <span className="hidden xl:inline">Sign Out</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* RIGHT WORKSPACE COLUMN */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Slim Admin Top Bar */}
+        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/90">
+          <div className="h-[60px] px-4 sm:px-6 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-lg font-extrabold text-slate-900 truncate">
+                {activeAdminItem?.label || 'Admin Console'}
+              </h1>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Agent Availability Selector (F17) */}
+              {(user?.role === 'SUPPORT_AGENT' || user?.role === 'SUPER_ADMIN') && (
                 <select
-                  value={chimeIntervalSec}
-                  onChange={(e) => setChimeIntervalSec(parseInt(e.target.value, 10) || 3)}
-                  title="Repeat ring interval (2–5 seconds)"
-                  className="px-2 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800 cursor-pointer"
+                  value={agentPresence}
+                  onChange={async (e) => {
+                    const next = e.target.value as 'ONLINE' | 'BUSY' | 'OFFLINE';
+                    setAgentPresence(next);
+                    await api.updateAgentAvailability(next).catch(() => {});
+                    setActionSuccess(`Availability updated to ${next}.`);
+                  }}
+                  title="Live Support Availability"
+                  className="h-9 px-2.5 rounded-[10px] bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800 cursor-pointer"
                 >
-                  <option value={2}>2s</option>
-                  <option value={3}>3s</option>
-                  <option value={4}>4s</option>
-                  <option value={5}>5s</option>
+                  <option value="ONLINE">Online</option>
+                  <option value="BUSY">Busy</option>
+                  <option value="OFFLINE">Offline</option>
                 </select>
               )}
+
+              {/* Configurable 2-5s Chime Interval + Mute Toggle (F17) */}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setSoundAlertsEnabled(!soundAlertsEnabled)}
+                  title={soundAlertsEnabled ? 'Mute Support Alert Chime' : 'Enable Support Alert Chime'}
+                  className={`h-9 px-2.5 rounded-[10px] border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                    soundAlertsEnabled
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-slate-50 text-slate-500 border-slate-200'
+                  }`}
+                >
+                  {soundAlertsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                  <span className="hidden sm:inline">{soundAlertsEnabled ? 'Alerts' : 'Muted'}</span>
+                </button>
+                {soundAlertsEnabled && (
+                  <select
+                    value={chimeIntervalSec}
+                    onChange={(e) => setChimeIntervalSec(parseInt(e.target.value, 10) || 3)}
+                    title="Repeat ring interval (2–5 seconds)"
+                    className="h-9 px-2 rounded-[10px] bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 cursor-pointer"
+                  >
+                    <option value={2}>2s</option>
+                    <option value={3}>3s</option>
+                    <option value={4}>4s</option>
+                    <option value={5}>5s</option>
+                  </select>
+                )}
+              </div>
+
+              <div className="hidden sm:block text-right pl-1">
+                <div className="text-xs font-bold text-slate-900">{user?.fullName}</div>
+                <div className="text-[10px] text-slate-500 font-medium">U-Ads Operations</div>
+              </div>
+
+              <button
+                onClick={logout}
+                title="Sign Out"
+                className="md:hidden h-9 px-2.5 rounded-[10px] bg-slate-100 text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition-colors border border-slate-200 flex items-center gap-1 text-xs font-bold cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
-            <div className="hidden sm:block text-right">
-              <div className="text-xs font-bold text-slate-900">{user?.fullName}</div>
-              <div className="text-[10px] text-slate-500 font-medium">U-Ads Admin Console</div>
-            </div>
-            <button
-              onClick={logout}
-              title="Sign Out"
-              className="p-2 rounded-xl bg-slate-100 text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition-colors border border-slate-200 flex items-center gap-1.5 text-xs font-semibold"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Sign Out</span>
-            </button>
           </div>
-        </div>
 
-        {/* Admin Navigation Tabs */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-1 overflow-x-auto py-2 border-t border-slate-100 scrollbar-none">
-          <button
-            onClick={() => setActiveTab('kpis')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'kpis'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <TrendingUp className="w-4 h-4" />
-            Executive KPIs
-          </button>
-          <button
-            onClick={() => setActiveTab('deposits')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'deposits'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <CreditCard className="w-4 h-4" />
-            Deposits
-            {pendingDepositsCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
-                {pendingDepositsCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('withdrawals')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'withdrawals'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <ArrowUpRight className="w-4 h-4" />
-            Withdrawals
-            {pendingWithdrawalsCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
-                {pendingWithdrawalsCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'users'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            Users
-          </button>
-          <button
-            onClick={() => setActiveTab('wallets')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'wallets'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Wallet className="w-4 h-4" />
-            Wallet Adjustments
-          </button>
-          <button
-            onClick={() => setActiveTab('gateways')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'gateways'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <CreditCard className="w-4 h-4" />
-            USD Channels
-          </button>
-          <button
-            onClick={() => setActiveTab('packages')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'packages'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            Packages
-          </button>
-          <button
-            onClick={() => setActiveTab('levels')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'levels'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            Levels
-          </button>
-          <button
-            onClick={() => setActiveTab('referrals')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'referrals'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            Referrals Config
-          </button>
-          <button
-            onClick={() => setActiveTab('bonuses')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'bonuses'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Gift className="w-4 h-4" />
-            Bonuses
-          </button>
-          <button
-            onClick={() => setActiveTab('videos')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'videos'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <PlaySquare className="w-4 h-4" />
-            Videos
-          </button>
-          <button
-            onClick={() => setActiveTab('documents')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'documents'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <FileCheck className="w-4 h-4" />
-            Documents
-          </button>
-          <button
-            onClick={() => setActiveTab('support')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'support'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <MessageSquare className="w-4 h-4" />
-            Live Support
-            {waitingSupportCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
-                {waitingSupportCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('reports')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'reports'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <FileBarChart className="w-4 h-4" />
-            Reports &amp; Logs
-          </button>
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'settings'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            Settings &amp; CMS
-          </button>
-        </div>
-      </header>
+          {/* Mobile-only compact tab strip */}
+          <div className="md:hidden px-3 py-2 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            {adminNavGroups.flatMap((g) => g.items).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveTab(item.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === item.id
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {item.label}
+                {item.badge && item.badge > 0 ? (
+                  <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px]">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </header>
 
-      {/* Main Admin View Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {/* Main Admin View Content */}
+        <main className="flex-1 max-w-[1280px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 animate-page-in">
+          {/* Actionable Pending Queues Strip on Dashboard Overview */}
+          {activeTab === 'kpis' && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <button
+                type="button"
+                onClick={() => setActiveTab('deposits')}
+                className="card-white card-hover p-4 text-left flex items-center justify-between gap-3 cursor-pointer"
+              >
+                <div>
+                  <div className="text-xs font-semibold text-slate-500">Pending Deposits Queue</div>
+                  <div className="text-2xl font-black text-slate-900 tabular-nums mt-0.5">
+                    {pendingDepositsCount}
+                  </div>
+                </div>
+                <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${pendingDepositsCount > 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                  {pendingDepositsCount > 0 ? 'Review →' : 'Clear'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('withdrawals')}
+                className="card-white card-hover p-4 text-left flex items-center justify-between gap-3 cursor-pointer"
+              >
+                <div>
+                  <div className="text-xs font-semibold text-slate-500">Pending Withdrawals Queue</div>
+                  <div className="text-2xl font-black text-slate-900 tabular-nums mt-0.5">
+                    {pendingWithdrawalsCount}
+                  </div>
+                </div>
+                <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${pendingWithdrawalsCount > 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                  {pendingWithdrawalsCount > 0 ? 'Review →' : 'Clear'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('support')}
+                className="card-white card-hover p-4 text-left flex items-center justify-between gap-3 cursor-pointer"
+              >
+                <div>
+                  <div className="text-xs font-semibold text-slate-500">Waiting Support Chats</div>
+                  <div className="text-2xl font-black text-slate-900 tabular-nums mt-0.5">
+                    {waitingSupportCount}
+                  </div>
+                </div>
+                <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${waitingSupportCount > 0 ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                  {waitingSupportCount > 0 ? 'Respond →' : 'Clear'}
+                </span>
+              </button>
+            </div>
+          )}
         {/* Global Action Messages */}
         {actionSuccess && (
           <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between">
@@ -1865,11 +1862,25 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                           {(w.amountCents / 100).toFixed(2)} {w.currency}
                         </td>
 
-                        <td className="py-4 px-6 font-semibold">{w.payoutMethod}</td>
+                        <td className="py-4 px-6 font-semibold">
+                          {w.payoutMethod === 'CRYPTO_USDT'
+                            ? 'Crypto — USDT TRC-20'
+                            : w.payoutMethod === 'USD_BANK_WIRE'
+                            ? 'USD Bank Wire'
+                            : (w.payoutMethod || '').replace(/_/g, ' ')}
+                        </td>
 
                         <td className="py-4 px-6">
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded border border-amber-300 text-amber-800 bg-amber-50">
-                            {w.status}
+                          <span
+                            className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                              w.status === 'COMPLETED' || w.status === 'PAID'
+                                ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
+                                : w.status === 'REJECTED' || w.status === 'FAILED' || w.status === 'CANCELLED'
+                                ? 'border-rose-200 text-rose-700 bg-rose-50'
+                                : 'border-amber-200 text-amber-800 bg-amber-50'
+                            }`}
+                          >
+                            {w.status.replace(/_/g, ' ')}
                           </span>
                         </td>
 
@@ -2270,53 +2281,88 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               </button>
             </div>
 
-            <div className="space-y-4">
-              {settings.map((s) => (
-                <div
-                  key={s.id}
-                  className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs"
-                >
-                  <div className="space-y-0.5 flex-1 max-w-lg">
-                    <div className="font-mono font-bold text-slate-900">{s.key}</div>
-                    <div className="text-[11px] text-slate-500">{s.description}</div>
-                  </div>
+            <div className="space-y-3">
+              {settings
+                .filter((s) => !['REFERRAL_CONFIG', 'BONUS_SETTINGS', 'NOTIFICATION_SETTINGS', 'LANDING_CONTENT'].includes(s.key))
+                .map((s) => {
+                  const humanMeta: Record<string, { title: string; unit?: string; isBool?: boolean; isGuarded?: boolean }> = {
+                    REWARDS_ENABLED: { title: 'Video Watch Rewards', isBool: true },
+                    COMMISSIONS_ENABLED: { title: 'Referral Commissions', isBool: true },
+                    MAINTENANCE_MODE: { title: 'Maintenance Mode (Emergency Pause)', isBool: true, isGuarded: true },
+                    MIN_WITHDRAWAL_USD_CENTS: { title: 'Minimum Withdrawal Amount', unit: 'USD cents (1000 = $10.00)' },
+                    MIN_DEPOSIT_USD_CENTS: { title: 'Minimum Deposit Amount', unit: 'USD cents (2000 = $20.00)' },
+                    DEPOSIT_VERIFICATION_TIME_TEXT: { title: 'Expected Deposit Verification Time', unit: 'Display label' },
+                    SUPPORT_REASSIGN_TIMEOUT_SECONDS: { title: 'Support Auto-Reassign Timeout', unit: 'Seconds' },
+                  };
+                  const meta = humanMeta[s.key] || {
+                    title: s.key.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+                  };
+                  const currentVal = settingEdits[s.key] ?? s.value;
 
-                  <div className="flex items-center gap-3">
-                    {/* If boolean toggle */}
-                    {['COMMISSIONS_ENABLED', 'MAINTENANCE_MODE', 'REWARDS_ENABLED'].includes(s.key) ? (
-                      <select
-                        value={settingEdits[s.key] ?? s.value}
-                        onChange={(e) =>
-                          setSettingEdits({ ...settingEdits, [s.key]: e.target.value })
-                        }
-                        className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 font-bold text-slate-900 focus:outline-none focus:border-purple-500 text-xs"
-                      >
-                        <option value="true">true (Active)</option>
-                        <option value="false">false (Disabled)</option>
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        value={settingEdits[s.key] ?? s.value}
-                        onChange={(e) =>
-                          setSettingEdits({ ...settingEdits, [s.key]: e.target.value })
-                        }
-                        className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 font-mono font-bold text-slate-900 focus:outline-none focus:border-purple-500 text-xs w-36"
-                      />
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => handleSaveSetting(s.key)}
-                      disabled={savingSettingKey === s.key}
-                      className="px-3.5 py-1.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-500 text-white text-xs flex items-center gap-1.5 transition-colors shadow-2xs disabled:opacity-50"
+                  return (
+                    <div
+                      key={s.id}
+                      className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs ${
+                        meta.isGuarded && currentVal === 'true'
+                          ? 'bg-rose-50/70 border-rose-300'
+                          : 'bg-slate-50 border-slate-200'
+                      }`}
                     >
-                      <Save className="w-3.5 h-3.5" />
-                      {savingSettingKey === s.key ? 'Saving...' : 'Save'}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                      <div className="space-y-0.5 flex-1 max-w-lg">
+                        <div className="font-bold text-slate-900 flex flex-wrap items-center gap-2">
+                          <span>{meta.title}</span>
+                          {meta.unit && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-500">
+                              {meta.unit}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500">{s.description}</div>
+                      </div>
+
+                      <div className="flex items-center gap-2.5">
+                        {meta.isBool ? (
+                          <select
+                            value={currentVal}
+                            onChange={(e) => {
+                              const nextVal = e.target.value;
+                              if (meta.isGuarded && nextVal === 'true') {
+                                const confirmed = window.confirm(
+                                  'Enable Maintenance Mode? Regular members will be paused from normal activity until you turn it off.'
+                                );
+                                if (!confirmed) return;
+                              }
+                              setSettingEdits({ ...settingEdits, [s.key]: nextVal });
+                            }}
+                            className="h-9 px-3 rounded-[10px] bg-white border border-slate-200 font-bold text-slate-900 text-xs"
+                          >
+                            <option value="true">Enabled</option>
+                            <option value="false">Disabled</option>
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            value={currentVal}
+                            onChange={(e) =>
+                              setSettingEdits({ ...settingEdits, [s.key]: e.target.value })
+                            }
+                            className="h-9 px-3 rounded-[10px] bg-white border border-slate-200 font-bold text-slate-900 text-xs w-44"
+                          />
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => handleSaveSetting(s.key)}
+                          disabled={savingSettingKey === s.key}
+                          className="btn-primary !h-9"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          <span>{savingSettingKey === s.key ? 'Saving…' : 'Save'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
 
             <AdminCmsAndNotificationsPanel
@@ -3335,6 +3381,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           />
         )}
       </main>
+      </div>
 
       {/* EDIT GATEWAY MODAL */}
       {editingGateway && (
