@@ -328,7 +328,10 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
           <div>
             <h3 className="text-sm font-bold text-slate-900">Commission Rates by Referral Position</h3>
             <p className="text-xs text-slate-500">
-              Earned once on each invited member&apos;s first qualifying USD plan.
+              Earned once on each invited member&apos;s first qualifying USD package subscription.
+              {data?.referralConfig?.maxCommissionReferrals > 0
+                ? ` Commission applies up to your first ${data.referralConfig.maxCommissionReferrals} qualified referrals.`
+                : ''}
             </p>
           </div>
           <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -401,8 +404,9 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
           ) : (
             <div className="ml-5 pl-5 border-l-2 border-slate-200 pt-4 space-y-3">
               {data.referrals.map((ref: any, idx: number) => {
-                // Issue #8: Use authoritative qualification positionNumber (identical to Commission History!)
+                // Part 5 #2: Single clear status per row — NEVER two contradictory labels!
                 const position = ref.positionNumber ?? null;
+                const isTrulyQualified = Boolean(ref.isQualified);
                 const posObj = position ? dynamicPositions[Math.min(position - 1, dynamicPositions.length - 1)] : null;
                 return (
                   <div key={ref.id || idx} className="relative">
@@ -412,13 +416,9 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
                       <div className="space-y-0.5 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-bold text-slate-900 truncate">{ref.fullName}</span>
-                          {position !== null ? (
+                          {isTrulyQualified && position !== null && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
                               Position #{position} · {posObj?.ratePercent ?? 15}% tier
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
-                              Awaiting qualification
                             </span>
                           )}
                         </div>
@@ -429,12 +429,12 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
 
                       <span
                         className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full border shrink-0 w-fit ${
-                          ref.isQualified
+                          isTrulyQualified
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             : 'bg-amber-50 text-amber-700 border-amber-200'
                         }`}
                       >
-                        {ref.isQualified ? (
+                        {isTrulyQualified ? (
                           <>
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             Qualified
@@ -442,7 +442,7 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
                         ) : (
                           <>
                             <Clock className="w-3.5 h-3.5" />
-                            Pending plan
+                            Awaiting Qualification
                           </>
                         )}
                       </span>

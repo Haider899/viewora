@@ -132,9 +132,10 @@ export const DepositPage: React.FC<DepositProps> = () => {
       return;
     }
 
-    const parsedAmount = parseFloat(amountInput);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      nextFieldErrors.amount = 'Enter a valid USD amount.';
+    const normalizedAmount = amountInput.replace(/[$,\s]/g, '');
+    const parsedAmount = Number(normalizedAmount);
+    if (!normalizedAmount || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      nextFieldErrors.amount = 'Enter a valid USD amount (e.g. 50 or 50.00).';
     } else {
       const amountCents = Math.round(parsedAmount * 100);
       if (amountCents < selectedMethod.minAmountCents || amountCents > selectedMethod.maxAmountCents) {
@@ -325,17 +326,19 @@ export const DepositPage: React.FC<DepositProps> = () => {
                 Deposit Amount (USD) <span className="text-rose-600">*</span>
               </label>
               <input
-                type="number"
-                step="any"
-                min="1"
+                type="text"
+                inputMode="decimal"
                 placeholder="50.00"
                 value={amountInput}
                 onChange={(e) => {
-                  setAmountInput(e.target.value);
-                  setFieldErrors((f) => ({ ...f, amount: undefined }));
+                  const val = e.target.value;
+                  if (/^[0-9.,\s$]*$/.test(val)) {
+                    setAmountInput(val);
+                    setFieldErrors((f) => ({ ...f, amount: undefined }));
+                  }
                 }}
                 className={`w-full h-11 rounded-[10px] px-3.5 text-sm font-bold tabular-nums bg-slate-50 border text-slate-900 placeholder-slate-400 ${
-                  fieldErrors.amount ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-emerald-500'
+                  fieldErrors.amount ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-orange-500'
                 }`}
               />
               {fieldErrors.amount && (

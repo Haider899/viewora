@@ -23,7 +23,7 @@ import { getYouTubeEmbedUrl } from '../utils/youtube.js';
 
 interface VideoPlayerProps {
   videoId: string;
-  navigate: (route: string) => void;
+  navigate: (route: string, state?: any) => void;
 }
 
 export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate }) => {
@@ -38,6 +38,8 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
   const [watchSeconds, setWatchSeconds] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
   const [hasClaimed, setHasClaimed] = useState(false);
+  const [alreadyClaimedBeforeWatch, setAlreadyClaimedBeforeWatch] = useState(false);
+  const [creditedThisSession, setCreditedThisSession] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [claimSuccessMsg, setClaimSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -63,9 +65,11 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
         const res = await api.getVideo(videoId);
         if (res.success && res.data) {
           setVideo(res.data);
-          setHasClaimed(res.data.hasClaimedReward || false);
+          const already = Boolean(res.data.hasClaimedReward);
+          setHasClaimed(already);
+          setAlreadyClaimedBeforeWatch(already);
         } else {
-          setErrorMsg(res.error?.message || 'Unable to load this video campaign.');
+          setErrorMsg(res.error?.message || 'Unable to load this ad.');
         }
       } catch {
         setErrorMsg('Network error loading video campaign.');
@@ -153,18 +157,21 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
       const res = await api.claimVideoReward(videoId, sessionToken);
       if (res.success) {
         setHasClaimed(true);
-        const rewardFormatted = formatUSD(video?.rewardAmountCents ?? 0);
+        setCreditedThisSession(true);
+        const creditedCents = res.data?.amountCents ?? video?.rewardAmountCents ?? 0;
+        const rewardFormatted = formatUSD(creditedCents);
         setClaimSuccessMsg(
-          `${rewardFormatted} has been automatically credited to your Video Rewards wallet.`
+          `${rewardFormatted} has been automatically credited to your Video Ad Rewards.`
         );
         await refreshWallet();
-        showToast(`+${rewardFormatted} credited to Video Rewards!`, 'success');
+        showToast(`+${rewardFormatted} credited to Video Ad Rewards!`, 'success');
       } else {
         const errCode = res.error?.code || '';
         const errMessage = res.error?.message || '';
         if (errCode === 'ALREADY_CLAIMED' || errMessage.toLowerCase().includes('already claimed')) {
           setHasClaimed(true);
-          setClaimSuccessMsg('Reward was already credited once for this campaign.');
+          setAlreadyClaimedBeforeWatch(true);
+          setClaimSuccessMsg(null);
         } else {
           setErrorMsg(errMessage || 'Reward verification is still processing.');
         }
@@ -257,10 +264,14 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
         </div>
         <div className="flex items-center justify-center gap-3">
           <button type="button" onClick={() => navigate('videos')} className="btn-secondary">
-            Back to Videos
+            Back to Ads
           </button>
-          <button type="button" onClick={() => navigate('packages')} className="btn-primary">
-            View Packages
+          <button
+            type="button"
+            onClick={() => navigate('packages', { autoSelectTier: video?.minPackageTier })}
+            className="btn-primary"
+          >
+            Unlock {video?.minPackageTier || 'Plan'}
           </button>
         </div>
       </div>
@@ -285,7 +296,7 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
           className="btn-secondary !h-9"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Videos</span>
+          <span>Back to Ads</span>
         </button>
 
         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
@@ -383,10 +394,8 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
                     setWatchSeconds(targetDuration);
                     maxWatchedRef.current = targetDuration;
                     setIsCompleted(true);
-                    if (!hasClaimed) {
+                    if (!hasClaimed && !claimLockRef.current) {
                       triggerAutomaticReward(targetDuration);
-                    } else {
-                      setClaimSuccessMsg('Replay complete. Reward was already credited once for this campaign.');
                     }
                   }}
                   onContextMenu={(e) => e.preventDefault()}
@@ -482,48 +491,66 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
           </div>
         </div>
 
-        {/* Dedicated Reward Panel (Flips cleanly to Success State with New Balance) */}
+        {/* Dedicated Reward Panel (Part 4 #5 & #6: Never shows fake credit on replay, accurate first-watch wording) */}
         <div className="lg:col-span-4 space-y-4">
           <div
             className={`card-white p-5 space-y-4 transition-all duration-300 ${
-              hasClaimed || claimSuccessMsg
+              creditedThisSession
                 ? 'border-emerald-300 bg-emerald-50/40'
-                : 'border-slate-200'
+                : alreadyClaimedBeforeWatch
+                ? 'border-slate-300 bg-slate-50'
+                : 'border-orange-200'
             }`}
           >
             <div className="flex items-center gap-3">
               <div
                 className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                  hasClaimed || claimSuccessMsg
+                  creditedThisSession
                     ? 'bg-emerald-600 text-white'
-                    : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                    : alreadyClaimedBeforeWatch
+                    ? 'bg-slate-200 text-slate-600'
+                    : 'bg-orange-50 text-orange-600 border border-orange-200'
                 }`}
               >
-                {hasClaimed || claimSuccessMsg ? (
+                {creditedThisSession ? (
                   <CheckCircle2 className="w-5 h-5" />
+                ) : alreadyClaimedBeforeWatch ? (
+                  <Clock className="w-5 h-5" />
                 ) : (
                   <Sparkles className="w-5 h-5" />
                 )}
               </div>
               <div>
-                <div className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-                  {hasClaimed || claimSuccessMsg ? 'Reward Credited' : 'Campaign Reward'}
+                <div
+                  className={`text-xs font-bold uppercase tracking-wider ${
+                    creditedThisSession
+                      ? 'text-emerald-700'
+                      : alreadyClaimedBeforeWatch
+                      ? 'text-slate-600'
+                      : 'text-orange-700'
+                  }`}
+                >
+                  {creditedThisSession
+                    ? 'Reward Credited!'
+                    : alreadyClaimedBeforeWatch
+                    ? 'Already Claimed This Cycle'
+                    : 'Watch Ads & Earn'}
                 </div>
                 <div className="text-xl font-extrabold text-slate-900 tabular-nums">
-                  +{rewardFormatted} USD
+                  {alreadyClaimedBeforeWatch ? '$0.00 (Claimed)' : `+${rewardFormatted} USD`}
                 </div>
               </div>
             </div>
 
-            {hasClaimed || claimSuccessMsg ? (
+            {creditedThisSession ? (
               <div className="space-y-3">
-                <p className="text-xs text-emerald-900 leading-relaxed">
-                  {claimSuccessMsg || 'This campaign reward has been credited to your Video Rewards wallet.'}
+                <p className="text-xs text-emerald-900 leading-relaxed font-medium">
+                  {claimSuccessMsg || `${rewardFormatted} has been credited to your Video Ad Rewards.`}
                 </p>
                 <div className="p-3.5 rounded-xl bg-white border border-emerald-200 flex items-center justify-between text-xs">
                   <span className="text-slate-500 flex items-center gap-1.5">
                     <Wallet className="w-3.5 h-3.5 text-emerald-600" />
-                    Video Rewards Balance
+                    Video Ad Rewards
                   </span>
                   <span className="font-extrabold text-slate-900 tabular-nums">
                     {videoWalletFormatted}
@@ -534,24 +561,37 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
                   onClick={() => navigate('videos')}
                   className="btn-primary w-full"
                 >
-                  Watch Another Campaign
+                  Back to Ads
+                </button>
+              </div>
+            ) : alreadyClaimedBeforeWatch ? (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  You already claimed the reward for this ad in the current 24-hour cycle (8:00 PM – 7:59:59 PM). No additional reward is credited on replay. Come back after 8:00 PM for the next cycle!
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate('videos')}
+                  className="btn-secondary w-full"
+                >
+                  Back to Ads
                 </button>
               </div>
             ) : (
               <div className="space-y-3">
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Watch to the end — <strong className="text-slate-900">{rewardFormatted}</strong> is credited automatically to your Video Rewards wallet as soon as playback finishes.
+                  Watch to the end — <strong className="text-slate-900">{rewardFormatted}</strong> is credited automatically to your Video Ad Rewards as soon as playback finishes.
                 </p>
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-xs font-semibold">
                     <span className="text-slate-500">
                       {claiming ? 'Verifying completion…' : 'Verification progress'}
                     </span>
-                    <span className="text-emerald-700 tabular-nums">{progressPct}%</span>
+                    <span className="text-orange-700 tabular-nums">{progressPct}%</span>
                   </div>
                   <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-emerald-600 transition-all duration-300"
+                      className="h-full rounded-full bg-orange-500 transition-all duration-300"
                       style={{ width: `${progressPct}%` }}
                     />
                   </div>

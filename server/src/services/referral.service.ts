@@ -110,6 +110,13 @@ export class ReferralService {
     });
     const position = priorDirectCount + 1;
 
+    // Part 3 #5: Enforce Admin-configurable Total Referral Limit (maxCommissionReferrals > 0 caps commissionable referrals)
+    const maxLimit = Number(config.maxCommissionReferrals ?? 0);
+    if (maxLimit > 0 && position > maxLimit) {
+      await this.checkAndAwardMilestones(beneficiary.id, Currency.USD, tx, config);
+      return null;
+    }
+
     const rates = config.commissionRates || DEFAULT_REFERRAL_CONFIG.commissionRates;
     let ratePercent = Number(rates.pos1 ?? 5);
     if (position === 1) ratePercent = Number(rates.pos1 ?? 5);

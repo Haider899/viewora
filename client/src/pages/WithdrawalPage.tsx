@@ -25,7 +25,6 @@ interface WithdrawalProps {
 }
 
 type SourceWalletKey =
-  | 'USER_AVAILABLE'
   | 'USER_VIDEO_REWARDS'
   | 'USER_REFERRAL'
   | 'USER_OTHER_REWARDS';
@@ -33,14 +32,16 @@ type SourceWalletKey =
 const MIN_WITHDRAWAL_USD = 10;
 
 export const WithdrawalPage: React.FC<WithdrawalProps> = () => {
-  const { user, wallet, refreshWallet } = useAuth();
+  const { user, wallet, refreshWallet, refreshUser } = useAuth();
   const { showToast } = useToast();
 
-  const [sourceWallet, setSourceWallet] = useState<SourceWalletKey>('USER_AVAILABLE');
-  const [payoutMethod, setPayoutMethod] = useState('CRYPTO_USDT');
+  // Part 1 Rule 3 & Part 3 #3: ONLY earned wallets can be withdrawn (NEVER deposited subscription money!)
+  const [sourceWallet, setSourceWallet] = useState<SourceWalletKey>('USER_VIDEO_REWARDS');
+  // Part 3 #8: Auto-fill saved payout details so member never has to retype
+  const [payoutMethod, setPayoutMethod] = useState(user?.savedPayoutMethod || 'CRYPTO_USDT');
   const [amountInput, setAmountInput] = useState('');
-  const [accountTitle, setAccountTitle] = useState(user?.fullName || '');
-  const [accountNumber, setAccountNumber] = useState('');
+  const [accountTitle, setAccountTitle] = useState(user?.savedAccountTitle || user?.fullName || '');
+  const [accountNumber, setAccountNumber] = useState(user?.savedAccountNumber || '');
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,10 +76,15 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = () => {
     fetchWithdrawalData(false);
   }, []);
 
+  useEffect(() => {
+    if (user?.savedPayoutMethod) setPayoutMethod(user.savedPayoutMethod);
+    if (user?.savedAccountTitle) setAccountTitle(user.savedAccountTitle);
+    if (user?.savedAccountNumber) setAccountNumber(user.savedAccountNumber);
+  }, [user?.savedPayoutMethod, user?.savedAccountTitle, user?.savedAccountNumber]);
+
   const walletBalances: Record<SourceWalletKey, { label: string; cents: number }> = {
-    USER_AVAILABLE: { label: 'Main Account', cents: wallet?.USD?.availableCents ?? 0 },
-    USER_VIDEO_REWARDS: { label: 'Video Rewards', cents: wallet?.USD?.videoRewardsCents ?? 0 },
-    USER_REFERRAL: { label: 'Referral Wallet', cents: wallet?.USD?.referralCents ?? 0 },
+    USER_VIDEO_REWARDS: { label: 'Video Ad Rewards', cents: wallet?.USD?.videoRewardsCents ?? 0 },
+    USER_REFERRAL: { label: 'Referral Earnings', cents: wallet?.USD?.referralCents ?? 0 },
     USER_OTHER_REWARDS: { label: 'Bonus Rewards', cents: wallet?.USD?.otherRewardsCents ?? 0 },
   };
 
@@ -134,6 +140,8 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = () => {
       errs.number =
         payoutMethod === 'CRYPTO_USDT'
           ? 'Enter your USDT TRC-20 wallet address.'
+          : payoutMethod === 'BINANCE'
+          ? 'Enter your Binance Pay ID, UID, or registered email.'
           : 'Enter your bank account / IBAN and SWIFT details.';
     }
 
@@ -157,13 +165,11 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = () => {
 
       if (res.success) {
         setSuccessMsg(
-          `Withdrawal request for ${formatUSD(amountCents)} submitted. Your funds are reserved while our team completes the transfer.`
+          `Withdrawal request for ${formatUSD(amountCents)} submitted. Your payout details have been saved for future withdrawals.`
         );
-        showToast('Withdrawal request submitted.', 'success');
+        showToast('Withdrawal request submitted & payout details saved.', 'success');
         setAmountInput('');
-        setAccountNumber('');
-        await refreshWallet();
-        await fetchWithdrawalData(false);
+        await Promise.all([refreshWallet(), refreshUser(), fetchWithdrawalData(false)]);
       } else {
         setErrorMsg(res.error?.message || 'Unable to submit withdrawal request.');
       }
@@ -187,13 +193,13 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = () => {
             </p>
           </div>
 
-          {/* Source Wallet Selector */}
+          {/* Source Wallet Selector — EARNED WALLETS ONLY (Rule 3) */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-2">
-              Source Wallet <span className="text-rose-600">*</span>
+              Withdraw From Earnings Wallet <span className="text-rose-600">*</span>
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              {(['USER_AVAILABLE', 'USER_VIDEO_REWARDS', 'USER_REFERRAL'] as SourceWalletKey[]).map(
+              {(['USER_VIDEO_REWARDS', 'USER_REFERRAL', 'USER_OTHER_REWARDS'] as SourceWalletKey[]).map(
                 (key) => (
                   <button
                     key={key}
@@ -204,7 +210,7 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = () => {
                     }}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                       sourceWallet === key
-                        ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
+                        ? 'bg-orange-50 border-orange-500 text-orange-950'
                         : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
                     }`}
                   >
@@ -216,33 +222,23 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = () => {
                 )
               )}
             </div>
-            {(wallet?.USD?.otherRewardsCents ?? 0) > 0 && (
-              <button
-                type="button"
-                onClick={() => setSourceWallet('USER_OTHER_REWARDS')}
-                className={`mt-2 w-full p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between cursor-pointer ${
-                  sourceWallet === 'USER_OTHER_REWARDS'
-                    ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
-                    : 'bg-slate-50 border-slate-200 text-slate-700'
-                }`}
-              >
-                <span>Bonus Rewards</span>
-                <span className="tabular-nums">{formatUSD(wallet?.USD?.otherRewardsCents ?? 0)}</span>
-              </button>
-            )}
+            <p className="mt-2 text-[11px] text-slate-500">
+              Only earned money (Video Ad Rewards, Referral Commissions, and Bonuses) is withdrawable. Package subscription payments are non-withdrawable.
+            </p>
           </div>
 
-          {/* Payout Method */}
+          {/* Payout Method (USDT TRC-20, Binance, USD Bank Wire — Part 3 #8) */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              Payout Method <span className="text-rose-600">*</span>
+              Payout Channel <span className="text-rose-600">*</span>
             </label>
             <select
               value={payoutMethod}
               onChange={(e) => setPayoutMethod(e.target.value)}
-              className="w-full h-10 bg-slate-50 border border-slate-200 rounded-[10px] px-3.5 text-xs font-semibold text-slate-900 focus:border-emerald-500"
+              className="w-full h-10 bg-slate-50 border border-slate-200 rounded-[10px] px-3.5 text-xs font-semibold text-slate-900 focus:border-orange-500"
             >
               <option value="CRYPTO_USDT">Crypto — USDT TRC-20</option>
+              <option value="BINANCE">Binance (Binance Pay / UID)</option>
               <option value="USD_BANK_WIRE">USD Bank Wire</option>
             </select>
           </div>
@@ -317,6 +313,8 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = () => {
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
               {payoutMethod === 'CRYPTO_USDT'
                 ? 'USDT TRC-20 Wallet Address'
+                : payoutMethod === 'BINANCE'
+                ? 'Binance Pay ID / UID / Email'
                 : 'Bank Account / IBAN & SWIFT'}{' '}
               <span className="text-rose-600">*</span>
             </label>
@@ -325,6 +323,8 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = () => {
               placeholder={
                 payoutMethod === 'CRYPTO_USDT'
                   ? 'Paste your TRC-20 wallet address'
+                  : payoutMethod === 'BINANCE'
+                  ? 'Enter your Binance Pay ID, UID, or Binance email'
                   : 'Enter your IBAN / account number and SWIFT code'
               }
               value={accountNumber}
@@ -333,9 +333,14 @@ export const WithdrawalPage: React.FC<WithdrawalProps> = () => {
                 setFieldErrors((f) => ({ ...f, number: undefined }));
               }}
               className={`w-full h-10 rounded-[10px] px-3.5 text-xs font-mono bg-slate-50 border text-slate-900 ${
-                fieldErrors.number ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-emerald-500'
+                fieldErrors.number ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-orange-500'
               }`}
             />
+            {user?.savedAccountNumber && (
+              <p className="mt-1 text-[11px] text-emerald-700 font-medium">
+                Saved payout details auto-filled. Any update you submit will be saved automatically.
+              </p>
+            )}
             {fieldErrors.number && (
               <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />

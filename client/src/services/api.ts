@@ -302,8 +302,67 @@ class ApiClient {
     return this.request<any>(`/admin/users/${userId}/financial-dossier`);
   }
 
-  async getAdminIpGroups() {
-    return this.request<any[]>('/admin/users/ip-groups');
+  async getAdminIpGroups(search?: string) {
+    const qs = search && search.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
+    return this.request<any[]>(`/admin/users/ip-groups${qs}`);
+  }
+
+  async sendDirectMessageToUser(
+    userId: string,
+    data: { subject?: string; message: string; attachmentUrl?: string; attachmentName?: string }
+  ) {
+    return this.request<any>(`/admin/users/${userId}/message`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getUserDirectMessagesAdmin(userId: string) {
+    return this.request<any[]>(`/admin/users/${userId}/messages`);
+  }
+
+  async getMyDirectMessages() {
+    return this.request<any[]>('/messages');
+  }
+
+  async markDirectMessageRead(messageId: string) {
+    return this.request<any>(`/messages/${messageId}/read`, { method: 'POST' });
+  }
+
+  async getLivePopups() {
+    return this.request<{ settings: { enabled: boolean; intervalSeconds: number; durationSeconds: number }; items: any[] }>('/live-popups');
+  }
+
+  async getAdminLivePopups() {
+    return this.request<{ settings: { enabled: boolean; intervalSeconds: number; durationSeconds: number }; items: any[] }>('/admin/live-popups');
+  }
+
+  async createLivePopup(data: { eventType: string; amountText: string; timeText: string; isActive?: boolean }) {
+    return this.request<any>('/admin/live-popups', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateLivePopup(
+    id: string,
+    data: Partial<{ eventType: string; amountText: string; timeText: string; isActive: boolean; orderIndex: number }>
+  ) {
+    return this.request<any>(`/admin/live-popups/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteLivePopup(id: string) {
+    return this.request<any>(`/admin/live-popups/${id}`, { method: 'DELETE' });
+  }
+
+  async updateLivePopupSettings(data: Partial<{ enabled: boolean; intervalSeconds: number; durationSeconds: number }>) {
+    return this.request<any>('/admin/live-popups-settings', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   }
 
   async adminAssignSupportConversation(conversationId: string, agentId: string) {

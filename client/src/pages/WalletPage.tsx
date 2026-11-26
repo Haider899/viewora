@@ -1,728 +1,475 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
-import { Video } from '../types/index.js';
-import { useToast } from '../components/ToastProvider.js';
+import { LedgerEntryItem, Package, PackagePurchase, Video } from '../types/index.js';
 import {
-  formatUSD,
-  formatAccountLevelLabel,
+  formatDateTime,
   formatDurationMMSS,
+  formatUSD,
+  groupLedgerEntries,
+  getTonePillClass,
 } from '../utils/formatters.js';
 import {
-  ArrowRight,
   ArrowDownLeft,
   ArrowUpRight,
-  RefreshCw,
-  CreditCard,
-  CheckCircle2,
-  Share2,
-  DollarSign,
-  AlertCircle,
-  X,
-  PlaySquare,
-  Gift,
-  Award,
-  Users,
-  Copy,
-  Check,
-  Clock,
   Play,
   Lock,
-  Receipt,
+  Clock,
+  CheckCircle2,
+  Users,
+  Gift,
   Sparkles,
+  Layers,
+  ChevronRight,
+  Receipt,
+  ShieldCheck,
 } from 'lucide-react';
 
-interface WalletProps {
-  navigate?: (route: string, state?: any) => void;
+interface WalletPageProps {
+  navigate: (route: string, state?: any) => void;
   referralRank?: string;
 }
 
-export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'New' }) => {
-  const { user, wallet, refreshWallet, refreshUser } = useAuth();
-  const { showToast } = useToast();
+export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank = 'New' }) => {
+  const { wallet, refreshWallet } = useAuth();
 
   const [videos, setVideos] = useState<Video[]>([]);
-  const [loadingVideos, setLoadingVideos] = useState(true);
-  const [dailyStatus, setDailyStatus] = useState<any>(null);
-  const [loadingDaily, setLoadingDaily] = useState(true);
-  const [claimingDaily, setClaimingDaily] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [copiedInvite, setCopiedInvite] = useState(false);
-
-  // Locked video upgrade prompt modal (Requirement #4)
-  const [lockedModalVideo, setLockedModalVideo] = useState<Video | null>(null);
-
-  // Transfer Modal (Video Rewards or Referral Wallet -> Main Account)
-  const [transferSource, setTransferSource] = useState<'REFERRAL' | 'VIDEO_REWARDS' | null>(null);
-  const [transferAmountInput, setTransferAmountInput] = useState('');
-  const [transferring, setTransferring] = useState(false);
-  const [transferSuccess, setTransferSuccess] = useState<{ msg: string; updatedMainCents: number } | null>(null);
-  const [transferError, setTransferError] = useState<string | null>(null);
-
-  const loadDashboardData = async (isManual = false) => {
-    if (isManual) setRefreshing(true);
-    else {
-      setLoadingVideos(true);
-      setLoadingDaily(true);
-    }
-    try {
-      const [vidRes, dailyRes] = await Promise.all([
-        api.getVideos(),
-        api.getDailyVideoStatus(),
-      ]);
-      if (vidRes.success && Array.isArray(vidRes.data)) {
-        setVideos(vidRes.data);
-      }
-      if (dailyRes.success && dailyRes.data) {
-        setDailyStatus(dailyRes.data);
-      }
-      if (isManual) {
-        await Promise.all([refreshWallet(), refreshUser()]);
-        showToast('Balances and campaigns refreshed.', 'success');
-      }
-    } catch (err) {
-      console.error('Failed to load dashboard data:', err);
-      if (isManual) showToast('Could not refresh right now.', 'error');
-    } finally {
-      setLoadingVideos(false);
-      setLoadingDaily(false);
-      setRefreshing(false);
-    }
-  };
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [activePurchase, setActivePurchase] = useState<PackagePurchase | null>(null);
+  const [entries, setEntries] = useState<LedgerEntryItem[]>([]);
+  const [refSummary, setRefSummary] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+    const loadAll = async () => {
+      try {
+        const [vidRes, pkgRes, actRes, txRes, refRes] = await Promise.all([
+          api.getVideos(),
+          api.getPackages(),
+          api.getMyActivePackage(),
+          api.getTransactions(1, 20),
+          api.getReferralSummary().catch(() => ({ success: false, data: null })),
+        ]);
+        if (!mounted) return;
+        if (vidRes.success && Array.isArray(vidRes.data)) setVideos(vidRes.data);
+        if (pkgRes.success && Array.isArray(pkgRes.data)) setPackages(pkgRes.data);
+        if (actRes.success && actRes.data) setActivePurchase(actRes.data);
+        if (txRes.success && txRes.data) setEntries(txRes.data.entries || []);
+        if (refRes.success && refRes.data) setRefSummary(refRes.data);
+      } catch {
+        // silent
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
     refreshWallet();
-    loadDashboardData(false);
+    loadAll();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const walletLoaded = wallet !== null;
-  const mainAvailableCents = wallet?.USD?.availableCents ?? 0;
-  const mainReservedCents = wallet?.USD?.reservedCents ?? 0;
-  const videoRewardsCents = wallet?.USD?.videoRewardsCents ?? 0;
-  const referralAvailableCents = wallet?.USD?.referralCents ?? 0;
-  const otherRewardsCents = wallet?.USD?.otherRewardsCents ?? 0;
-  const combinedCents =
-    mainAvailableCents + videoRewardsCents + referralAvailableCents + otherRewardsCents;
+  // Part 1 Rule 3: ONLY show earned balances (NEVER paid-in deposit money!)
+  const videoCents = wallet?.USD?.videoRewardsCents ?? 0;
+  const referralCents = wallet?.USD?.referralCents ?? 0;
+  const otherCents = wallet?.USD?.otherRewardsCents ?? 0;
+  const totalEarningsCents = videoCents + referralCents + otherCents;
 
-  // Authoritative server-calculated Level Progress (strictly from qualifying volume — never cash balance!)
-  const lp = user?.levelProgress;
-  const currentLevelLabel = lp?.currentLevelName || formatAccountLevelLabel(user?.accountLevel);
-  const nextLevelLabel = lp?.nextLevelName || null;
-  const levelPercent = lp?.progressPercent ?? 0;
-  const levelNeededCents = lp?.neededCents ?? 0;
-
-  const activeSourceCents =
-    transferSource === 'VIDEO_REWARDS' ? videoRewardsCents : referralAvailableCents;
-
-  // All 10 published videos shown in a 2-column grid (no video hidden — Requirement #2)
-  const homeVideos = videos.slice(0, 10);
-
-  const handleCopyInvite = () => {
-    const code = user?.referralCode || '';
-    const link = `${window.location.origin}/?ref=${code}`;
-    navigator.clipboard.writeText(link);
-    setCopiedInvite(true);
-    showToast('Invitation link copied to clipboard.', 'success');
-    setTimeout(() => setCopiedInvite(false), 2000);
-  };
-
-  const openTransferModal = (source: 'REFERRAL' | 'VIDEO_REWARDS') => {
-    setTransferSource(source);
-    setTransferAmountInput('');
-    setTransferError(null);
-    setTransferSuccess(null);
-  };
-
-  const handleExecuteTransfer = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!transferSource || transferring) return;
-    setTransferError(null);
-
-    const parsedUSD = parseFloat(transferAmountInput);
-    if (isNaN(parsedUSD) || parsedUSD <= 0) {
-      setTransferError('Enter a valid amount greater than $0.00.');
-      return;
-    }
-
-    const amountCents = Math.round(parsedUSD * 100);
-    if (amountCents > activeSourceCents) {
-      setTransferError(`Amount exceeds available balance (${formatUSD(activeSourceCents)}).`);
-      return;
-    }
-
-    const expectedMainAfter = mainAvailableCents + amountCents;
-    setTransferring(true);
-    try {
-      const res =
-        transferSource === 'VIDEO_REWARDS'
-          ? await api.transferVideoRewardsToMain(amountCents)
-          : await api.transferReferralToMainBalance(amountCents);
-
-      if (res.success) {
-        // Set success state BEFORE refreshWallet() so zero-frame wrong-balance flash never happens (#9)
-        setTransferSuccess({
-          msg: `Moved ${formatUSD(amountCents)} into your Main Account.`,
-          updatedMainCents: expectedMainAfter,
-        });
-        showToast(`${formatUSD(amountCents)} transferred to Main Account.`, 'success');
-        await refreshWallet();
-      } else {
-        setTransferError(res.error?.message || 'Transfer could not be completed.');
-      }
-    } catch (err: any) {
-      setTransferError(err.message || 'Transfer error.');
-    } finally {
-      setTransferring(false);
-    }
-  };
-
-  const handleClaimDailyReward = async () => {
-    if (claimingDaily) return;
-    setClaimingDaily(true);
-    try {
-      const res = await api.claimDailyVideoReward();
-      if (res.success) {
-        showToast(res.message || 'Daily reward claimed!', 'success');
-        await Promise.all([refreshWallet(), loadDashboardData(false)]);
-      } else {
-        showToast(res.error?.message || 'Unable to claim daily reward yet.', 'error');
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Could not claim daily reward.', 'error');
-    } finally {
-      setClaimingDaily(false);
-    }
-  };
-
-  const formatLocalDeadline = (iso?: string) => {
-    if (!iso) return '8:00 AM';
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '8:00 AM';
-    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-  };
-
-  const firstName = (user?.fullName || 'Member').split(' ')[0];
+  const recentFive = useMemo(() => groupLedgerEntries(entries).slice(0, 5), [entries]);
+  const unlockedCount = videos.filter((v) => v.hasAccess).length;
+  const claimedTodayCount = videos.filter((v) => v.hasAccess && v.hasClaimedReward).length;
 
   return (
-    <div className="space-y-5 animate-page-in">
-      {/* Greeting Row with Authoritative Level Progress */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="space-y-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
-              Good to see you, {firstName}
-            </h2>
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              <Award className="w-3 h-3" />
-              {currentLevelLabel}
-            </span>
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-              <Users className="w-3 h-3 text-slate-500" />
-              {referralRank} Rank
-            </span>
+    <div className="space-y-6">
+      {/* 1. FIRST SCREEN: Earnings Balances + Deposit / Withdraw Buttons (Nothing above them!) */}
+      <section className="rounded-3xl bg-gradient-to-br from-[#FFF3E6] via-white to-[#FFF8F1] border border-orange-200/80 shadow-sm p-5 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="text-[11px] font-extrabold uppercase tracking-wider text-orange-700">
+              Your Withdrawable Earnings (USD)
+            </div>
+            <div className="text-3xl sm:text-4xl font-black text-slate-900 tabular-nums tracking-tight">
+              {wallet ? formatUSD(totalEarningsCents) : '—'}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Earned from watching ads, referrals &amp; bonuses · 95% of advertiser ad revenue shared with members (Halal).
+            </p>
           </div>
 
-          {lp ? (
-            <div className="flex items-center gap-3 max-w-md">
-              <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-emerald-600 transition-all duration-300"
-                  style={{ width: `${levelPercent}%` }}
-                />
-              </div>
-              <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap tabular-nums">
-                {nextLevelLabel
-                  ? `${formatUSD(levelNeededCents)} qualifying volume to ${nextLevelLabel}`
-                  : 'Top Level Achieved'}
-              </span>
-            </div>
-          ) : (
-            <div className="h-3 w-52 rounded skeleton-shimmer" />
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => loadDashboardData(true)}
-            disabled={refreshing}
-            className="btn-secondary !h-9"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            <span>{refreshing ? 'Refreshing…' : 'Refresh'}</span>
-          </button>
-          <button type="button" onClick={handleCopyInvite} className="btn-secondary !h-9">
-            {copiedInvite ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-emerald-700">Copied</span>
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5 text-slate-500" />
-                <span>Invite Link</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Restrained Emerald -> Navy Balance Hero */}
-      <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 text-white p-5 sm:p-6 shadow-md border border-slate-800 relative overflow-hidden">
-        <div className="absolute -right-12 -top-12 w-52 h-52 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
-        <div className="relative z-10 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-semibold text-emerald-300/90 uppercase tracking-wider">
-              Total Available Balance (USD)
-            </div>
-            {walletLoaded ? (
-              <>
-                <div className="text-3xl sm:text-4xl font-black tracking-tight tabular-nums">
-                  {formatUSD(combinedCents)}
-                </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300 pt-0.5">
-                  <span>
-                    Main: <strong className="text-white tabular-nums">{formatUSD(mainAvailableCents)}</strong>
-                  </span>
-                  <span>
-                    Video:{' '}
-                    <strong className={videoRewardsCents > 0 ? 'text-emerald-300 tabular-nums' : 'text-slate-400 tabular-nums'}>
-                      {formatUSD(videoRewardsCents)}
-                    </strong>
-                  </span>
-                  <span>
-                    Referral:{' '}
-                    <strong className={referralAvailableCents > 0 ? 'text-emerald-300 tabular-nums' : 'text-slate-400 tabular-nums'}>
-                      {formatUSD(referralAvailableCents)}
-                    </strong>
-                  </span>
-                  {mainReservedCents > 0 && (
-                    <span className="text-amber-300">
-                      Hold: <strong className="tabular-nums">{formatUSD(mainReservedCents)}</strong>
-                    </span>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="h-10 w-44 rounded-xl bg-white/10 animate-pulse" />
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => navigate?.('deposit')}
-            className="btn-primary !h-10 !px-5 !bg-emerald-500 hover:!bg-emerald-400 !text-slate-950 shrink-0"
-          >
-            <ArrowDownLeft className="w-4 h-4" />
-            <span>Deposit USD</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Three Compact USD Wallet Cards (~15% more compact per Requirement #6) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* 1. Main Account */}
-        <div className="card-white card-hover p-4 flex flex-col justify-between gap-3.5">
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
-                  <CreditCard className="w-4 h-4" />
-                </div>
-                <h3 className="text-sm font-bold text-slate-900">Main Account</h3>
-              </div>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                Primary
-              </span>
-            </div>
-
-            {walletLoaded ? (
-              <div
-                className={`text-2xl font-extrabold tracking-tight tabular-nums ${
-                  mainAvailableCents > 0 ? 'text-slate-900' : 'text-slate-400'
-                }`}
-              >
-                {formatUSD(mainAvailableCents)}
-              </div>
-            ) : (
-              <div className="h-8 w-28 rounded-lg skeleton-shimmer" />
-            )}
-
-            <div className="flex items-center justify-between text-[11px] pt-2 border-t border-slate-100">
-              <span className="text-slate-500">Pending payout hold</span>
-              <span className={`font-bold tabular-nums ${mainReservedCents > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
-                {formatUSD(mainReservedCents)}
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => navigate?.('deposit')} className="btn-primary !h-9 w-full">
-              <ArrowDownLeft className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => navigate('deposit')}
+              className="btn-primary !h-11 !px-5 !rounded-xl flex-1 sm:flex-initial"
+            >
+              <ArrowDownLeft className="w-4 h-4" />
               <span>Deposit</span>
             </button>
             <button
               type="button"
-              onClick={() => navigate?.('withdrawal')}
-              disabled={mainAvailableCents <= 0}
-              title={mainAvailableCents <= 0 ? 'Deposit USD before withdrawing' : 'Request withdrawal'}
-              className="btn-secondary !h-9 w-full"
+              onClick={() => navigate('withdrawal')}
+              className="btn-secondary !h-11 !px-5 !rounded-xl border-orange-300 text-slate-900 hover:bg-orange-50 flex-1 sm:flex-initial"
             >
-              <ArrowUpRight className="w-3.5 h-3.5" />
+              <ArrowUpRight className="w-4 h-4 text-orange-600" />
               <span>Withdraw</span>
             </button>
           </div>
         </div>
 
-        {/* 2. Video Rewards */}
-        <div className="card-white card-hover p-4 flex flex-col justify-between gap-3.5">
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
-                  <PlaySquare className="w-4 h-4" />
-                </div>
-                <h3 className="text-sm font-bold text-slate-900">Video Rewards</h3>
-              </div>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                Earnings
+        {/* 3 Compact Earnings Sub-Cards (Video Ad Rewards, Referral Earnings, Bonuses) */}
+        <div className="grid grid-cols-3 gap-2.5 sm:gap-3 pt-1">
+          <div className="p-3 rounded-2xl bg-white border border-orange-100 shadow-2xs">
+            <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 truncate">
+              Video Ad Rewards
+            </div>
+            <div
+              className={`text-base sm:text-xl font-black tabular-nums mt-0.5 ${
+                videoCents > 0 ? 'text-emerald-600' : 'text-slate-400'
+              }`}
+            >
+              {formatUSD(videoCents)}
+            </div>
+          </div>
+          <div className="p-3 rounded-2xl bg-white border border-orange-100 shadow-2xs">
+            <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 truncate">
+              Referral Earnings
+            </div>
+            <div
+              className={`text-base sm:text-xl font-black tabular-nums mt-0.5 ${
+                referralCents > 0 ? 'text-emerald-600' : 'text-slate-400'
+              }`}
+            >
+              {formatUSD(referralCents)}
+            </div>
+          </div>
+          <div className="p-3 rounded-2xl bg-white border border-orange-100 shadow-2xs">
+            <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 truncate">
+              Bonuses
+            </div>
+            <div
+              className={`text-base sm:text-xl font-black tabular-nums mt-0.5 ${
+                otherCents > 0 ? 'text-emerald-600' : 'text-slate-400'
+              }`}
+            >
+              {formatUSD(otherCents)}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 2. ONE SMALL COMBINED STRIP: Referrals & Earnings Summaries + 3 Quick Buttons (Totals Only, No Tables!) */}
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="card-white p-3.5 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5 text-orange-500" />
+              <span>Referrals ({referralRank})</span>
+            </div>
+            <div className="text-lg font-black text-slate-900 tabular-nums">
+              {refSummary?.qualifiedReferrals ?? 0} Qualified{' '}
+              <span className="text-xs font-semibold text-slate-400">
+                / {refSummary?.totalReferrals ?? 0} Total
               </span>
             </div>
-
-            {walletLoaded ? (
-              <div
-                className={`text-2xl font-extrabold tracking-tight tabular-nums ${
-                  videoRewardsCents > 0 ? 'text-emerald-700' : 'text-slate-400'
-                }`}
-              >
-                {formatUSD(videoRewardsCents)}
-              </div>
-            ) : (
-              <div className="h-8 w-28 rounded-lg skeleton-shimmer" />
-            )}
-
-            <p className="text-[11px] text-slate-500 pt-2 border-t border-slate-100">
-              {videoRewardsCents > 0
-                ? 'Credited from completed video campaigns.'
-                : 'Complete campaigns below to start earning.'}
-            </p>
           </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => openTransferModal('VIDEO_REWARDS')}
-              disabled={videoRewardsCents <= 0}
-              title={videoRewardsCents <= 0 ? 'Watch a campaign to earn rewards first' : 'Move to Main Account'}
-              className="btn-primary !h-9 w-full"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>To Main</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate?.('withdrawal')}
-              disabled={videoRewardsCents <= 0}
-              title={videoRewardsCents <= 0 ? 'Earn video rewards first' : 'Withdraw video rewards'}
-              className="btn-secondary !h-9 w-full"
-            >
-              <ArrowUpRight className="w-3.5 h-3.5" />
-              <span>Withdraw</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate('referrals')}
+            className="px-3 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 text-[11px] font-bold shrink-0 cursor-pointer"
+          >
+            View My Referrals
+          </button>
         </div>
 
-        {/* 3. Referral Wallet */}
-        <div className="card-white card-hover p-4 flex flex-col justify-between gap-3.5">
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
-                  <Share2 className="w-4 h-4" />
-                </div>
-                <h3 className="text-sm font-bold text-slate-900">Referral Wallet</h3>
-              </div>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                Network
-              </span>
+        <div className="card-white p-3.5 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-orange-500" />
+              <span>Total Commissions</span>
             </div>
-
-            {walletLoaded ? (
-              <div
-                className={`text-2xl font-extrabold tracking-tight tabular-nums ${
-                  referralAvailableCents > 0 ? 'text-emerald-700' : 'text-slate-400'
-                }`}
-              >
-                {formatUSD(referralAvailableCents)}
-              </div>
-            ) : (
-              <div className="h-8 w-28 rounded-lg skeleton-shimmer" />
-            )}
-
-            <p className="text-[11px] text-slate-500 pt-2 border-t border-slate-100">
-              {referralAvailableCents > 0
-                ? 'Commissions & rank milestone payouts.'
-                : 'Invite members to earn 5%–15% commissions.'}
-            </p>
+            <div className="text-lg font-black text-emerald-700 tabular-nums">
+              {formatUSD(refSummary?.totalCommissionCents ?? referralCents)}
+            </div>
           </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => openTransferModal('REFERRAL')}
-              disabled={referralAvailableCents <= 0}
-              title={referralAvailableCents <= 0 ? 'Earn referral commissions first' : 'Move to Main Account'}
-              className="btn-primary !h-9 w-full"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>To Main</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate?.('withdrawal')}
-              disabled={referralAvailableCents <= 0}
-              title={referralAvailableCents <= 0 ? 'Earn referral commissions first' : 'Withdraw referral balance'}
-              className="btn-secondary !h-9 w-full"
-            >
-              <ArrowUpRight className="w-3.5 h-3.5" />
-              <span>Withdraw</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate('referrals')}
+            className="px-3 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 text-[11px] font-bold shrink-0 cursor-pointer"
+          >
+            View My Commissions
+          </button>
         </div>
-      </div>
 
-      {/* Requirement #1: Only a clean "View Recent Activity" button below Referral Wallet (opens separate Transactions history page) */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => navigate?.('transactions')}
-          className="btn-secondary w-full sm:w-auto justify-between sm:justify-center !px-5"
-        >
-          <span className="flex items-center gap-2">
-            <Receipt className="w-4 h-4 text-emerald-600" />
-            <span>View Recent Activity</span>
-          </span>
-          <ArrowRight className="w-4 h-4 text-slate-400" />
-        </button>
-
-        {otherRewardsCents > 0 && (
-          <div className="px-4 py-2 rounded-[10px] bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-3 text-xs">
-            <span className="font-semibold text-emerald-900 flex items-center gap-1.5">
-              <Gift className="w-4 h-4 text-emerald-600" />
-              Bonus Rewards: <strong className="tabular-nums">{formatUSD(otherRewardsCents)}</strong>
-            </span>
-            <button
-              type="button"
-              onClick={() => navigate?.('withdrawal')}
-              className="font-bold text-emerald-700 hover:underline cursor-pointer"
-            >
-              Withdraw →
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Requirement #5: Daily Video Completion Reward Status & Claim (resets daily at configured hour e.g. 8 AM, expires — no carry forward) */}
-      <div className="card-white p-4 sm:p-5">
-        {loadingDaily ? (
-          <div className="h-14 rounded-xl skeleton-shimmer" />
-        ) : dailyStatus ? (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="space-y-1.5 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <Sparkles className="w-4 h-4 text-emerald-600" />
-                <span className="text-sm font-bold text-slate-900">Daily Video Reward</span>
-                {dailyStatus.videosRequired > 0 && (
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 tabular-nums">
-                    {Math.min(dailyStatus.videosCompletedToday, dailyStatus.videosRequired)} / {dailyStatus.videosRequired} completed today
-                  </span>
-                )}
-                {dailyStatus.alreadyClaimedToday && (
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    Claimed Today
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-slate-500">
-                {dailyStatus.videosRequired <= 0 ? (
-                  'Upgrade to Level 1 or higher to unlock daily video rewards.'
-                ) : dailyStatus.alreadyClaimedToday ? (
-                  `You claimed ${formatUSD(dailyStatus.claimedAmountCents)} today. Next cycle starts at ${formatLocalDeadline(dailyStatus.windowEnd)}.`
-                ) : (
-                  <>
-                    Complete all <strong>{dailyStatus.videosRequired}</strong> eligible videos before{' '}
-                    <strong>{formatLocalDeadline(dailyStatus.windowEnd)}</strong> to claim{' '}
-                    <strong className="text-emerald-700 tabular-nums">
-                      {formatUSD(dailyStatus.estimatedRewardCents)}
-                    </strong>{' '}
-                    ({((dailyStatus.dailyBonusRateBps || 0) / 100).toFixed(2)}% daily rate). Unclaimed daily rewards expire at reset and do not carry forward.
-                  </>
-                )}
-              </p>
+        <div className="card-white p-3.5 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1.5">
+              <Gift className="w-3.5 h-3.5 text-orange-500" />
+              <span>Bonuses Earned</span>
             </div>
-
-            <div className="shrink-0">
-              {dailyStatus.videosRequired <= 0 ? (
-                <button type="button" onClick={() => navigate?.('packages')} className="btn-primary w-full sm:w-auto">
-                  Upgrade Plan
-                </button>
-              ) : dailyStatus.alreadyClaimedToday ? (
-                <button type="button" disabled className="btn-secondary w-full sm:w-auto">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Claimed</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleClaimDailyReward}
-                  disabled={!dailyStatus.eligibleToClaim || claimingDaily}
-                  title={
-                    !dailyStatus.eligibleToClaim
-                      ? `Watch ${Math.max(0, dailyStatus.videosRequired - dailyStatus.videosCompletedToday)} more eligible video(s) today to unlock claim`
-                      : 'Claim today’s daily reward'
-                  }
-                  className="btn-primary w-full sm:w-auto"
-                >
-                  <Gift className="w-4 h-4" />
-                  <span>{claimingDaily ? 'Claiming…' : 'Claim Daily Reward'}</span>
-                </button>
-              )}
+            <div className="text-lg font-black text-slate-900 tabular-nums">
+              {formatUSD(otherCents)}
             </div>
           </div>
-        ) : null}
-      </div>
+          <button
+            type="button"
+            onClick={() => navigate('transactions')}
+            className="px-3 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 text-[11px] font-bold shrink-0 cursor-pointer"
+          >
+            View Bonuses
+          </button>
+        </div>
+      </section>
 
-      {/* Requirement #2 & #4 & #6: ALL 10 Videos in Two-Column Mobile-Friendly Grid (no video hidden!) */}
-      <section className="space-y-3.5">
+      {/* 3. "INVEST HERE" COMPACT PACKAGES SECTION */}
+      <section className="card-white p-4 sm:p-5 space-y-3.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 className="text-base font-extrabold text-slate-900">
-              Video Campaigns ({homeVideos.length})
-            </h3>
-            <p className="text-xs text-slate-500">
-              {lp && lp.videoLimit > 0
-                ? `${lp.videoLimit} of ${homeVideos.length} campaigns unlocked on ${currentLevelLabel}. Upgrade to unlock more.`
-                : 'Activate Level 1 or a membership plan to unlock video campaigns and earn USD.'}
+            <h2 className="text-sm sm:text-base font-extrabold text-slate-900 flex items-center gap-2">
+              <Layers className="w-4 h-4 text-orange-600" />
+              <span>Invest Here — Lifetime Packages</span>
+            </h2>
+            <p className="text-[11px] text-slate-500">
+              {activePurchase
+                ? `Active Plan: ${activePurchase.packageName} (Lifetime) · Upgrade anytime by paying only the difference.`
+                : 'Buy a lifetime package once to unlock daily ads and start earning — bigger packages pay more per ad.'}
             </p>
           </div>
           <button
             type="button"
-            onClick={() => navigate?.('videos')}
-            className="btn-secondary !h-9"
+            onClick={() => navigate('packages')}
+            className="text-xs font-bold text-orange-600 hover:underline flex items-center gap-0.5 cursor-pointer"
           >
-            <span>Open Full Library</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            <span>All Packages</span>
+            <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        {loadingVideos ? (
-          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {packages.map((pkg) => {
+            const isCurrent = Boolean(pkg.isCurrentPlan || activePurchase?.packageId === pkg.id);
+            const isOwnedOrLower = Boolean(pkg.isOwnedOrLower);
+            const isUpgrade = Boolean(pkg.isUpgrade);
+            const costCents = isUpgrade ? (pkg.upgradeDiffCents ?? pkg.priceCents) : pkg.priceCents;
+
+            return (
+              <div
+                key={pkg.id}
+                className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-2.5 transition-all ${
+                  isCurrent
+                    ? 'bg-orange-50/70 border-orange-400 ring-2 ring-orange-500/15'
+                    : 'bg-slate-50/70 border-slate-200 hover:border-orange-300'
+                }`}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xs font-extrabold text-slate-900">{pkg.name}</span>
+                    {isCurrent ? (
+                      <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full bg-orange-600 text-white">
+                        Active
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600">
+                        Lifetime
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-lg font-black text-slate-900 tabular-nums">
+                    {formatUSD(pkg.priceCents)}
+                  </div>
+                  <div className="text-[10px] text-slate-600 space-y-0.5">
+                    <div>
+                      <strong className="text-slate-800">{pkg.unlockedAdsCount ?? pkg.videoLimit}</strong> Ads ·{' '}
+                      <strong className="text-emerald-700">{formatUSD(pkg.perVideoRewardCents ?? 50)}</strong>/ad
+                    </div>
+                  </div>
+                </div>
+
+                {isCurrent ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="w-full py-1.5 rounded-xl bg-white border border-orange-200 text-orange-700 text-[11px] font-bold cursor-default"
+                  >
+                    Current Plan
+                  </button>
+                ) : isOwnedOrLower ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="w-full py-1.5 rounded-xl bg-slate-200/70 text-slate-500 text-[11px] font-bold cursor-default"
+                  >
+                    Included
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => navigate('packages', { autoSelectTier: pkg.name })}
+                    className="w-full py-1.5 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-amber-600 text-white text-[11px] font-bold cursor-pointer shadow-xs"
+                  >
+                    {isUpgrade ? `Upgrade (${formatUSD(costCents)})` : `Buy ${pkg.name}`}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 4. TODAY'S ADS (ALL PUBLISHED ADS — LOCKED ONES DARK GREY, 24H 8:00 PM CYCLE, "WATCH ADS" WORDING) */}
+      <section className="space-y-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-extrabold text-slate-900">
+              Today&apos;s Ads ({videos.length})
+            </h2>
+            <p className="text-[11px] text-slate-500">
+              Cycle: <strong>8:00 PM – 7:59:59 PM</strong> (unclaimed rewards expire daily) ·{' '}
+              <strong className="text-orange-700">
+                {claimedTodayCount}/{unlockedCount}
+              </strong>{' '}
+              unlocked ads claimed in this cycle
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('videos')}
+            className="text-xs font-bold text-orange-600 hover:underline flex items-center gap-0.5 cursor-pointer"
+          >
+            <span>Open Ads Page</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3.5">
             {[1, 2, 3, 4, 5, 6].map((n) => (
               <div key={n} className="h-56 rounded-2xl skeleton-shimmer border border-slate-200" />
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:gap-4">
-            {homeVideos.map((video, idx) => {
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
+            {videos.map((video) => {
               const isUnlocked = Boolean(video.hasAccess);
-              return (
-                <div
-                  key={video.id}
-                  onClick={() => {
-                    if (isUnlocked) navigate?.('player', { videoId: video.id });
-                    else setLockedModalVideo(video);
-                  }}
-                  className="group card-white card-hover overflow-hidden flex flex-col justify-between cursor-pointer"
-                >
-                  {/* Video Poster */}
-                  <div className="relative aspect-video bg-slate-900 overflow-hidden">
-                    <img
-                      src={video.thumbnailUrl}
-                      alt={video.title}
-                      loading="lazy"
-                      className={`w-full h-full object-cover transition-transform duration-300 ${
-                        isUnlocked ? 'group-hover:scale-105 opacity-95' : 'opacity-45'
-                      }`}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/15 to-transparent" />
+              const isClaimedThisCycle = Boolean(video.hasClaimedReward);
 
-                    {/* Top badges */}
-                    <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-1">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/95 text-slate-900">
-                        #{idx + 1} · {formatAccountLevelLabel(video.minAccountLevel || 'LEVEL_1')}
-                      </span>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-950/80 text-white flex items-center gap-0.5 tabular-nums">
-                        <Clock className="w-2.5 h-2.5" />
+              if (!isUnlocked) {
+                // Rule 6 & Rule 9: Locked video card is DARK GREY & DIMMED, names unlocking package, clicks DIRECTLY to buy that package!
+                return (
+                  <div
+                    key={video.id}
+                    onClick={() => navigate('packages', { autoSelectTier: video.minPackageTier })}
+                    className="rounded-2xl bg-slate-800 border border-slate-700 overflow-hidden flex flex-col justify-between opacity-85 hover:opacity-100 transition-all cursor-pointer group"
+                  >
+                    <div className="relative aspect-video bg-slate-900 overflow-hidden">
+                      <img
+                        src={video.thumbnailUrl}
+                        alt={video.title}
+                        className="w-full h-full object-cover grayscale opacity-35"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-slate-950/60 flex flex-col items-center justify-center p-2.5 text-center gap-1.5">
+                        <div className="w-9 h-9 rounded-full bg-slate-700/90 border border-slate-500 text-slate-200 flex items-center justify-center">
+                          <Lock className="w-4 h-4" />
+                        </div>
+                        <span className="text-[11px] font-extrabold text-white leading-tight">
+                          Locked · {video.minPackageTier} Plan
+                        </span>
+                        <span className="text-[10px] text-slate-300 font-semibold">
+                          {(video.minAccountLevel || 'LEVEL_1').replace('_', ' ')} Required
+                        </span>
+                      </div>
+                      <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded bg-slate-950/85 text-slate-300 tabular-nums">
                         {formatDurationMMSS(video.durationSeconds)}
                       </span>
                     </div>
 
-                    {/* Center Play or Lock */}
-                    {isUnlocked ? (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-emerald-600/95 group-hover:bg-emerald-500 text-white flex items-center justify-center shadow-lg transition-transform group-hover:scale-105">
-                          <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current ml-0.5" />
-                        </span>
+                    <div className="p-3 space-y-2.5 bg-slate-800 text-slate-200 flex-1 flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-xs font-bold text-slate-100 line-clamp-1">{video.title}</h3>
+                        <p className="text-[10px] text-slate-400 mt-0.5 tabular-nums">
+                          Reward: {formatUSD(video.rewardAmountCents)} / ad
+                        </p>
                       </div>
-                    ) : (
-                      <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px] flex flex-col items-center justify-center p-2 text-center gap-1">
-                        <span className="w-9 h-9 rounded-full bg-white/15 border border-white/30 text-white flex items-center justify-center">
-                          <Lock className="w-4 h-4" />
-                        </span>
-                        <span className="text-[10px] sm:text-[11px] font-bold text-white leading-tight">
-                          Locked
-                        </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate('packages', { autoSelectTier: video.minPackageTier });
+                        }}
+                        className="w-full py-2 rounded-xl bg-slate-700 hover:bg-orange-600 text-slate-100 text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Lock className="w-3 h-3" />
+                        <span>Unlock {video.minPackageTier}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={video.id}
+                  className="card-white card-hover overflow-hidden flex flex-col justify-between"
+                >
+                  <div className="relative aspect-video bg-slate-900 overflow-hidden">
+                    <img
+                      src={video.thumbnailUrl}
+                      alt={video.title}
+                      className={`w-full h-full object-cover ${isClaimedThisCycle ? 'opacity-65 grayscale-[40%]' : ''}`}
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-transparent to-transparent" />
+
+                    <span className="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded bg-white/95 text-slate-900">
+                      {video.minPackageTier}
+                    </span>
+                    <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded bg-slate-950/80 text-white flex items-center gap-1 tabular-nums">
+                      <Clock className="w-2.5 h-2.5" />
+                      {formatDurationMMSS(video.durationSeconds)}
+                    </span>
+
+                    {isClaimedThisCycle && (
+                      <div className="absolute bottom-2 left-2 text-[10px] font-bold text-white bg-emerald-600 px-2 py-0.5 rounded flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Claimed
                       </div>
                     )}
 
-                    {/* Bottom status / reward */}
-                    {video.isWatched && (
-                      <span className="absolute bottom-2 left-2 text-[10px] font-bold text-white bg-emerald-600 px-2 py-0.5 rounded flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        Done
-                      </span>
-                    )}
-                    {video.rewardEligible && (
-                      <span className="absolute bottom-2 right-2 text-[10px] font-bold text-white bg-slate-900/90 border border-white/15 px-2 py-0.5 rounded tabular-nums">
-                        {video.rewardPercentageBps && video.rewardPercentageBps > 0
-                          ? `${(video.rewardPercentageBps / 100).toFixed(2)}%`
-                          : `+${formatUSD(video.rewardAmountCents)}`}
-                      </span>
-                    )}
+                    <div className="absolute bottom-2 right-2 text-[11px] font-extrabold text-white bg-orange-600 px-2 py-0.5 rounded tabular-nums shadow-xs">
+                      +{formatUSD(video.rewardAmountCents)}
+                    </div>
                   </div>
 
-                  {/* Card Body */}
-                  <div className="p-3 sm:p-4 flex-1 flex flex-col justify-between gap-2.5">
-                    <div className="space-y-0.5">
-                      <h4 className="text-xs sm:text-sm font-bold text-slate-900 line-clamp-1">
+                  <div className="p-3 flex-1 flex flex-col justify-between gap-2.5">
+                    <div>
+                      <h3 className="text-xs font-extrabold text-slate-900 line-clamp-1">
                         {video.title}
-                      </h4>
-                      <p className="text-[11px] text-slate-500 line-clamp-1">{video.category}</p>
+                      </h3>
+                      <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">
+                        {video.category}
+                      </p>
                     </div>
 
-                    {isUnlocked ? (
+                    {isClaimedThisCycle ? (
+                      // Rule 8: Once claimed in this 8 PM–7:59:59 PM cycle, button turns GREY and disabled (NO "Watch Again")!
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate?.('player', { videoId: video.id });
-                        }}
-                        className="btn-primary !h-8 sm:!h-9 w-full !text-[11px]"
+                        disabled
+                        className="w-full h-9 rounded-xl bg-slate-200 text-slate-500 text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-not-allowed"
                       >
-                        <Play className="w-3 h-3 fill-current" />
-                        <span>{video.isWatched ? 'Watch Again' : 'Watch'}</span>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Claimed (Next 8 PM)</span>
                       </button>
                     ) : (
+                      // Rule 7: Every watch button reads "Watch Ads"
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setLockedModalVideo(video);
-                        }}
-                        className="btn-secondary !h-8 sm:!h-9 w-full !text-[11px]"
+                        onClick={() => navigate('player', { videoId: video.id })}
+                        className="btn-primary w-full !h-9 !text-[11px]"
                       >
-                        <Lock className="w-3 h-3 text-slate-500" />
-                        <span>Unlock Level</span>
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>Watch Ads</span>
                       </button>
                     )}
                   </div>
@@ -733,200 +480,72 @@ export const WalletPage: React.FC<WalletProps> = ({ navigate, referralRank = 'Ne
         )}
       </section>
 
-      {/* Requirement #4: Locked Video -> "Increase Your Account Level" Modal with Upgrade Button -> Plans Page */}
-      {lockedModalVideo && (
-        <div
-          onClick={() => setLockedModalVideo(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/55 backdrop-blur-xs"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl max-w-sm w-full border border-slate-200 p-6 space-y-5 shadow-2xl relative animate-modal-in text-center"
-          >
-            <button
-              type="button"
-              onClick={() => setLockedModalVideo(null)}
-              className="absolute top-4 right-4 w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer"
-              aria-label="Close dialog"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
-              <Lock className="w-6 h-6" />
-            </div>
-
-            <div className="space-y-1.5">
-              <h3 className="text-lg font-extrabold text-slate-900">
-                Increase Your Account Level
-              </h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                <strong>&ldquo;{lockedModalVideo.title}&rdquo;</strong> is locked on your current tier ({currentLevelLabel} — {lp?.videoLimit ?? 0} videos allowed). Upgrade your account level or select a higher plan to unlock this campaign.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2.5 pt-1">
-              <button
-                type="button"
-                onClick={() => setLockedModalVideo(null)}
-                className="btn-secondary flex-1"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLockedModalVideo(null);
-                  navigate?.('packages');
-                }}
-                className="btn-primary flex-1"
-              >
-                <span>Upgrade Plan</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
+      {/* 5. RECENT ACTIVITY: Last 5 Entries + "View All" Button (Part 2 #5) */}
+      <section className="card-white overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Receipt className="w-4 h-4 text-orange-600" />
+            <h3 className="text-sm font-extrabold text-slate-900">Recent Activity</h3>
           </div>
-        </div>
-      )}
-
-      {/* Zero-Flash Transfer to Main Modal (#9) */}
-      {transferSource && (
-        <div
-          onClick={() => !transferring && setTransferSource(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl max-w-md w-full border border-slate-200 p-6 space-y-5 shadow-2xl relative animate-modal-in"
+          <button
+            type="button"
+            onClick={() => navigate('transactions')}
+            className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-orange-50 hover:text-orange-700 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
           >
-            <button
-              type="button"
-              onClick={() => setTransferSource(null)}
-              disabled={transferring}
-              className="absolute top-4 right-4 w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
-              aria-label="Close dialog"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            View All
+          </button>
+        </div>
 
-            <div className="space-y-1 pr-8">
-              <h3 className="text-lg font-bold text-slate-900">
-                {transferSource === 'VIDEO_REWARDS'
-                  ? 'Move Video Rewards to Main'
-                  : 'Move Referral Balance to Main'}
-              </h3>
-              <p className="text-xs text-slate-500">
-                Transfer funds instantly into your Main Account for plans or combined withdrawals.
-              </p>
-            </div>
-
-            {transferSuccess ? (
-              <div className="space-y-4">
-                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs space-y-1.5">
-                  <div className="flex items-center gap-2 font-bold">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>{transferSuccess.msg}</span>
-                  </div>
-                  <div className="pl-6 text-emerald-800">
-                    Updated Main Account balance:{' '}
-                    <strong className="tabular-nums">{formatUSD(transferSuccess.updatedMainCents)}</strong>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setTransferSource(null)}
-                  className="btn-primary w-full"
-                >
-                  Done
-                </button>
-              </div>
-            ) : transferring ? (
-              <div className="py-8 text-center space-y-3">
-                <div className="w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
-                <div className="text-xs font-semibold text-slate-600">Completing instant transfer…</div>
-              </div>
-            ) : (
-              <form onSubmit={handleExecuteTransfer} noValidate className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-slate-700">
-                      Amount (USD) <span className="text-rose-600">*</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTransferAmountInput((activeSourceCents / 100).toFixed(2));
-                        setTransferError(null);
-                      }}
-                      className="text-xs font-bold text-emerald-700 hover:underline cursor-pointer tabular-nums"
+        {recentFive.length === 0 ? (
+          <div className="p-8 text-center text-xs text-slate-500">
+            No activity yet. Subscribe to a lifetime package and watch ads to start earning!
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {recentFive.map((row) => (
+              <div
+                key={row.id}
+                className="px-5 py-3 flex items-center justify-between gap-3 text-xs hover:bg-slate-50/70"
+              >
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-slate-900">{row.label}</span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getTonePillClass(
+                        row.tone
+                      )}`}
                     >
-                      Use max ({formatUSD(activeSourceCents)})
-                    </button>
+                      {row.walletLabel}
+                    </span>
                   </div>
-                  <div className="relative">
-                    <DollarSign className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      max={(activeSourceCents / 100).toFixed(2)}
-                      placeholder="0.00"
-                      value={transferAmountInput}
-                      onChange={(e) => {
-                        setTransferAmountInput(e.target.value);
-                        setTransferError(null);
-                      }}
-                      className="w-full h-11 bg-slate-50 border border-slate-200 rounded-[10px] pl-9 pr-4 text-sm text-slate-900 font-bold tabular-nums focus:border-emerald-500"
-                    />
-                  </div>
+                  <div className="text-[11px] text-slate-500 truncate">{row.description}</div>
+                  <div className="text-[10px] text-slate-400">{formatDateTime(row.createdAt)}</div>
                 </div>
-
-                {parseFloat(transferAmountInput) > 0 && (
-                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
-                    <div className="flex justify-between text-slate-500">
-                      <span>Remaining in source wallet</span>
-                      <span className="font-bold text-slate-900 tabular-nums">
-                        {formatUSD(Math.max(0, activeSourceCents - Math.round(parseFloat(transferAmountInput) * 100)))}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-slate-500">
-                      <span>New Main Account balance</span>
-                      <span className="font-bold text-emerald-700 tabular-nums">
-                        {formatUSD(mainAvailableCents + Math.round(parseFloat(transferAmountInput) * 100))}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {transferError && (
-                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>{transferError}</span>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-2.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setTransferSource(null)}
-                    className="btn-secondary flex-1"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={!(parseFloat(transferAmountInput) > 0)}
-                    className="btn-primary flex-1"
-                  >
-                    <span>Confirm Transfer</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+                <div
+                  className={`font-extrabold tabular-nums shrink-0 ${
+                    row.tone === 'error'
+                      ? 'text-rose-600'
+                      : row.signedCents > 0
+                      ? 'text-emerald-600'
+                      : 'text-slate-900'
+                  }`}
+                >
+                  {formatUSD(row.signedCents, true)}
                 </div>
-              </form>
-            )}
+              </div>
+            ))}
           </div>
-        </div>
-      )}
+        )}
+      </section>
+
+      {/* Halal Revenue Transparency Footer Strip */}
+      <div className="p-4 rounded-2xl bg-[#FFF6EE] border border-orange-100 flex items-start gap-3 text-xs text-slate-700">
+        <ShieldCheck className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+        <p className="leading-relaxed">
+          <strong className="text-slate-900">100% Transparent Halal Ad-Revenue Share:</strong>{' '}
+          Advertisers pay U-Ads to show their ads, and <strong>95%</strong> is shared with members who watch them. Bigger lifetime packages earn a larger share per ad.
+        </p>
+      </div>
     </div>
   );
 };

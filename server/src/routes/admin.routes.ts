@@ -47,11 +47,43 @@ router.get(
 );
 router.get(
   '/users/ip-groups',
-  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN),
+  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN, UserRole.SUPPORT_AGENT),
   async (req, res, next) => {
     try {
-      const groups = await AdminService.getIpGroups();
+      const search = req.query.search as string | undefined;
+      const groups = await AdminService.getIpGroups(search);
       res.json({ success: true, data: groups });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+router.post(
+  '/users/:id/message',
+  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN, UserRole.SUPPORT_AGENT),
+  async (req, res, next) => {
+    try {
+      const dm = await AdminService.sendDirectMessageToUser(
+        req.user!.userId,
+        req.params.id,
+        req.body
+      );
+      res.status(201).json({ success: true, data: dm, message: 'Message & push notification sent to user.' });
+    } catch (err: any) {
+      res.status(err.statusCode || 400).json({
+        success: false,
+        error: { message: err.message || 'Failed to send direct message.' },
+      });
+    }
+  }
+);
+router.get(
+  '/users/:id/messages',
+  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN, UserRole.SUPPORT_AGENT),
+  async (req, res, next) => {
+    try {
+      const msgs = await AdminService.getDirectMessagesForUser(req.params.id);
+      res.json({ success: true, data: msgs });
     } catch (err) {
       next(err);
     }
@@ -464,6 +496,42 @@ router.post('/bonuses/daily-batch', requireRole(UserRole.SUPER_ADMIN), async (re
   try {
     const result = await AccountLevelService.processDailyLevelBonuses(req.user!.userId);
     res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+// Live Activity Popups Management (Part 2 #6)
+router.get('/live-popups', requireRole(UserRole.SUPER_ADMIN, UserRole.CONTENT_ADMIN), async (req, res, next) => {
+  try {
+    const data = await AdminService.getLivePopups(false);
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
+router.post('/live-popups', requireRole(UserRole.SUPER_ADMIN, UserRole.CONTENT_ADMIN), async (req, res, next) => {
+  try {
+    const item = await AdminService.createLivePopup(req.user!.userId, req.body);
+    res.status(201).json({ success: true, data: item, message: 'Live activity popup added.' });
+  } catch (err) { next(err); }
+});
+
+router.put('/live-popups/:id', requireRole(UserRole.SUPER_ADMIN, UserRole.CONTENT_ADMIN), async (req, res, next) => {
+  try {
+    const item = await AdminService.updateLivePopup(req.user!.userId, req.params.id, req.body);
+    res.json({ success: true, data: item, message: 'Live activity popup updated.' });
+  } catch (err) { next(err); }
+});
+
+router.delete('/live-popups/:id', requireRole(UserRole.SUPER_ADMIN, UserRole.CONTENT_ADMIN), async (req, res, next) => {
+  try {
+    await AdminService.deleteLivePopup(req.user!.userId, req.params.id);
+    res.json({ success: true, message: 'Live activity popup deleted.' });
+  } catch (err) { next(err); }
+});
+
+router.put('/live-popups-settings', requireRole(UserRole.SUPER_ADMIN, UserRole.CONTENT_ADMIN), async (req, res, next) => {
+  try {
+    const settings = await AdminService.updateLivePopupSettings(req.user!.userId, req.body);
+    res.json({ success: true, data: settings, message: 'Live activity popup settings saved.' });
   } catch (err) { next(err); }
 });
 

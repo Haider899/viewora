@@ -4,6 +4,7 @@ import { CompanyDocumentService } from './companyDocument.service.js';
 
 export const DEFAULT_REFERRAL_CONFIG = {
   minQualifyingUSD: 20,
+  maxCommissionReferrals: 0, // 0 = unlimited; Admin can cap e.g. 2 or 3 referrals that earn commission
   commissionRates: {
     pos1: 5,
     pos2: 7,
@@ -30,25 +31,63 @@ export const DEFAULT_BONUS_SETTINGS = {
     enabled: true,
     eligibility: 'Active unlocked accounts at Level 1 or higher',
     rewardPoolUSD: 50000,
-    schedule: 'Daily Batch',
-    creditTimeUTC: '00:00 UTC',
+    schedule: 'Daily Cycle (8:00 PM PKT / 15:00 UTC)',
+    creditTimeUTC: '15:00 UTC (8:00 PM PKT)',
   },
   videoBonus: {
     enabled: true,
     defaultRewardCents: 50,
-    eligibility: '100% verified playback completion (1 reward per video)',
+    globalPercent: 100, // 100% = 1.0x of each video's standard reward
+    levelPercentages: {
+      NEW_USER: 0,
+      LEVEL_1: 100,
+      LEVEL_2: 125,
+      LEVEL_3: 150,
+      LEVEL_4: 200,
+      LEVEL_5: 250,
+    },
+    eligibility: '100% verified playback completion (1 reward per ad per 24h cycle: 8:00 PM – 7:59:59 PM)',
     rewardPoolUSD: 25000,
-    schedule: 'Instant upon Completion',
-    creditTimeUTC: 'Instant',
+    schedule: '24-Hour Cycle (8:00 PM – 7:59:59 PM)',
+    creditTimeUTC: '15:00 UTC (8:00 PM PKT)',
   },
   referralBonus: {
     enabled: true,
-    eligibility: 'Referred user first qualifying transaction only',
+    eligibility: 'Referred user first qualifying package subscription only',
     rewardPoolUSD: 50000,
     schedule: 'Instant upon Qualification',
     creditTimeUTC: 'Instant',
   },
 };
+
+export const DEFAULT_LIVE_POPUP_SETTINGS = {
+  enabled: true,
+  intervalSeconds: 6,
+  durationSeconds: 5,
+};
+
+export const DEFAULT_LIVE_POPUPS = [
+  { eventType: 'Withdrawal Approved', amountText: '$50', timeText: '2 minutes ago' },
+  { eventType: 'Withdrawal Successful', amountText: '$120', timeText: '5 minutes ago' },
+  { eventType: 'Withdrawal Approved', amountText: '$85', timeText: '7 minutes ago' },
+  { eventType: 'Package Upgraded', amountText: '$100', timeText: '9 minutes ago' },
+  { eventType: 'Withdrawal Successful', amountText: '$240', timeText: '12 minutes ago' },
+  { eventType: 'Withdrawal Approved', amountText: '$35', timeText: '15 minutes ago' },
+  { eventType: 'Referral Commission Paid', amountText: '$15', timeText: '18 minutes ago' },
+  { eventType: 'Withdrawal Successful', amountText: '$75', timeText: '21 minutes ago' },
+  { eventType: 'Withdrawal Approved', amountText: '$190', timeText: '24 minutes ago' },
+  { eventType: 'Package Activated', amountText: '$50', timeText: '28 minutes ago' },
+  { eventType: 'Withdrawal Successful', amountText: '$60', timeText: '31 minutes ago' },
+  { eventType: 'Withdrawal Approved', amountText: '$310', timeText: '35 minutes ago' },
+  { eventType: 'Daily Ads Reward Claimed', amountText: '$25', timeText: '38 minutes ago' },
+  { eventType: 'Withdrawal Successful', amountText: '$45', timeText: '42 minutes ago' },
+  { eventType: 'Withdrawal Approved', amountText: '$150', timeText: '46 minutes ago' },
+  { eventType: 'Package Upgraded', amountText: '$450', timeText: '50 minutes ago' },
+  { eventType: 'Withdrawal Successful', amountText: '$95', timeText: '54 minutes ago' },
+  { eventType: 'Withdrawal Approved', amountText: '$210', timeText: '1 hour ago' },
+  { eventType: 'Milestone Bonus Paid', amountText: '$100', timeText: '1 hour ago' },
+  { eventType: 'Withdrawal Successful', amountText: '$130', timeText: '1 hour ago' },
+];
 
 export const DEFAULT_NOTIFICATION_SETTINGS = {
   registration: true,
@@ -361,10 +400,17 @@ export class BootstrapService {
       ];
 
       let idx = 1;
+      const tierToLevel: Record<string, string> = {
+        Starter: 'LEVEL_1',
+        Basic: 'LEVEL_2',
+        Premium: 'LEVEL_3',
+        VIP: 'LEVEL_4',
+      };
       for (const v of initialVideos) {
         await prisma.video.create({
           data: {
             ...v,
+            minAccountLevel: tierToLevel[v.minPackageTier] || 'LEVEL_1',
             orderIndex: idx,
             isPublished: true,
             rewardEligible: true,
@@ -385,6 +431,33 @@ export class BootstrapService {
           data: {
             videoUrl: replacement.url,
             durationSeconds: replacement.dur,
+          },
+        });
+      }
+
+      // Sync minAccountLevel to match minPackageTier for any legacy videos stuck at default LEVEL_1
+      const tierToLevel: Record<string, string> = {
+        Basic: 'LEVEL_2',
+        Premium: 'LEVEL_3',
+        VIP: 'LEVEL_4',
+      };
+      for (const [tier, lvl] of Object.entries(tierToLevel)) {
+        await prisma.video.updateMany({
+          where: { minPackageTier: tier, minAccountLevel: 'LEVEL_1' },
+          data: { minAccountLevel: lvl },
+        });
+      }
+    }
+
+    // 5b. Pre-load 20 Live Activity Popups if empty (Part 2 #6)
+    const popupCount = await prisma.liveActivityPopup.count();
+    if (popupCount === 0) {
+      for (let i = 0; i < DEFAULT_LIVE_POPUPS.length; i++) {
+        await prisma.liveActivityPopup.create({
+          data: {
+            ...DEFAULT_LIVE_POPUPS[i],
+            isActive: true,
+            orderIndex: i + 1,
           },
         });
       }
@@ -428,8 +501,13 @@ export class BootstrapService {
       },
       {
         key: 'DAILY_RESET_HOUR',
-        value: '8',
-        description: 'Daily reward reset hour (0-23, default 8 = 8:00 AM to next 8:00 AM). Unclaimed rewards expire daily.',
+        value: '20',
+        description: 'Daily 24-hour claim cycle reset hour (0-23, default 20 = 8:00 PM to next day 7:59:59 PM). Unclaimed rewards expire at cutoff.',
+      },
+      {
+        key: 'LIVE_POPUP_SETTINGS',
+        value: JSON.stringify(DEFAULT_LIVE_POPUP_SETTINGS),
+        description: 'Master toggle, interval, and display duration for member homepage live activity popups',
       },
       {
         key: 'REFERRAL_CONFIG',

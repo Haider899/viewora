@@ -228,6 +228,21 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </button>
                 )}
               </div>
+
+              {/* Part 5 #4: Referred By Sponsor Name */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-500">Referred By (Sponsor)</div>
+                  <div className="text-sm font-bold text-slate-900 mt-0.5">
+                    {user?.referredBy?.fullName || 'Direct Registration'}
+                  </div>
+                  {user?.referredBy?.referralCode && (
+                    <div className="text-[10px] font-mono text-slate-500">
+                      Code: {user.referredBy.referralCode}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 

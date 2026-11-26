@@ -65,6 +65,7 @@ import {
   AdminReportsAuditTab,
   AdminCmsAndNotificationsPanel,
   AdminSupportAgentsPanel,
+  AdminLivePopupsTab,
 } from '../components/AdminExtraTabs.js';
 
 interface AdminDashboardProps {
@@ -88,12 +89,35 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     | 'videos'
     | 'documents'
     | 'support'
+    | 'popups'
     | 'reports'
     | 'settings'
   >(isSupportAgentOnly ? 'support' : 'kpis');
   const [soundAlertsEnabled, setSoundAlertsEnabled] = useState(true);
   const [chimeIntervalSec, setChimeIntervalSec] = useState<number>(3);
   const [receiptZoomed, setReceiptZoomed] = useState(false);
+
+  // Per-chat mute + 10-second ringing state (Part 6 #3)
+  const [mutedConvoIds, setMutedConvoIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('uads_muted_convos') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [ringingConvoId, setRingingConvoId] = useState<string | null>(null);
+  const lastSeenConvoTimeRef = React.useRef<Record<string, string>>({});
+
+  // Admin Proactive Direct Message Modal (Part 6 #2)
+  const [directMsgModal, setDirectMsgModal] = useState<{ userId: string; fullName: string; email: string } | null>(null);
+  const [directMsgSubject, setDirectMsgSubject] = useState('Important Message from U-Ads Administration');
+  const [directMsgBody, setDirectMsgBody] = useState('');
+  const [directMsgAttachment, setDirectMsgAttachment] = useState<string | null>(null);
+  const [directMsgAttachmentName, setDirectMsgAttachmentName] = useState<string | null>(null);
+  const [sendingDirectMsg, setSendingDirectMsg] = useState(false);
+
+  // Dynamic packages list for Admin Video Form (Part 5 #6)
+  const [adminPackagesDropdown, setAdminPackagesDropdown] = useState<any[]>([]);
 
   // Live Support Desk State
   const [supportConversations, setSupportConversations] = useState<SupportConversation[]>([]);
@@ -377,10 +401,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  const loadIpGroups = async () => {
+  const loadIpGroups = async (searchOverride?: string) => {
     setLoadingIpGroups(true);
     try {
-      const res = await api.getAdminIpGroups();
+      const res = await api.getAdminIpGroups(searchOverride !== undefined ? searchOverride : userSearch);
       if (res.success && Array.isArray(res.data)) {
         setIpGroups(res.data);
       }
@@ -388,6 +412,61 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       console.error(err);
     } finally {
       setLoadingIpGroups(false);
+    }
+  };
+
+  const toggleMuteConvo = (convoId: string) => {
+    setMutedConvoIds((prev) => {
+      const next = prev.includes(convoId) ? prev.filter((id) => id !== convoId) : [...prev, convoId];
+      try {
+        localStorage.setItem('uads_muted_convos', JSON.stringify(next));
+      } catch {}
+      if (next.includes(convoId) && ringingConvoId === convoId) {
+        setRingingConvoId(null);
+      }
+      return next;
+    });
+  };
+
+  const handleDirectMsgFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setActionError('Screenshot must be under 5 MB.');
+      return;
+    }
+    setDirectMsgAttachmentName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => setDirectMsgAttachment(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleSendDirectMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!directMsgModal || !directMsgBody.trim()) return;
+    setSendingDirectMsg(true);
+    setActionSuccess(null);
+    setActionError(null);
+    try {
+      const res = await api.sendDirectMessageToUser(directMsgModal.userId, {
+        subject: directMsgSubject.trim() || 'Message from U-Ads Administration',
+        message: directMsgBody.trim(),
+        attachmentUrl: directMsgAttachment || undefined,
+        attachmentName: directMsgAttachmentName || undefined,
+      });
+      if (res.success) {
+        setActionSuccess(`Direct message & push notification sent to ${directMsgModal.fullName}.`);
+        setDirectMsgModal(null);
+        setDirectMsgBody('');
+        setDirectMsgAttachment(null);
+        setDirectMsgAttachmentName(null);
+      } else {
+        setActionError(res.error?.message || 'Failed to send message.');
+      }
+    } catch {
+      setActionError('Error sending direct message.');
+    } finally {
+      setSendingDirectMsg(false);
     }
   };
 
@@ -881,9 +960,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  // Enforce RBAC for SUPPORT_AGENT (never show finance/admin tabs)
+  // Enforce RBAC for SUPPORT_AGENT (Live Support + Users IP View ONLY — Part 6 #1)
   useEffect(() => {
-    if (isSupportAgentOnly && activeTab !== 'support') {
+    if (isSupportAgentOnly && !['support', 'users'].includes(activeTab)) {
       setActiveTab('support');
     }
   }, [isSupportAgentOnly, activeTab]);
@@ -892,17 +971,48 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   useEffect(() => {
     refreshNotificationBadges();
     if (!isSupportAgentOnly) {
-      loadLevels(); // Preload unified level tiers for Adjust Level modal (F1)
+      loadLevels();
+      api.getPackages().then((r) => {
+        if (r.success && Array.isArray(r.data)) setAdminPackagesDropdown(r.data);
+      }).catch(() => {});
     }
     const badgeInterval = setInterval(refreshNotificationBadges, 4000);
     return () => clearInterval(badgeInterval);
   }, [isSupportAgentOnly]);
 
-  // Configurable 2–5 second repeating Web Audio notification chime when live support chats await an agent (F17)
+  // Detect newly arrived user messages on non-muted chats -> trigger 10-second ringing sound (Part 6 #3)
   useEffect(() => {
-    if (!soundAlertsEnabled || waitingSupportCount <= 0) return;
+    if (!soundAlertsEnabled) return;
+    for (const convo of supportConversations) {
+      if (mutedConvoIds.includes(convo.id)) continue;
+      const prevTs = lastSeenConvoTimeRef.current[convo.id];
+      const latestMsg = convo.messages?.[0];
+      const isNewUserMsg =
+        prevTs &&
+        prevTs !== convo.lastMessageAt &&
+        (!latestMsg || latestMsg.senderType === 'USER') &&
+        selectedConvoId !== convo.id;
+      const isUnopenedWaiting =
+        !prevTs &&
+        convo.status === 'WAITING_FOR_AGENT' &&
+        selectedConvoId !== convo.id;
 
-    const playChime = () => {
+      lastSeenConvoTimeRef.current[convo.id] = convo.lastMessageAt;
+      if (isNewUserMsg || isUnopenedWaiting) {
+        setRingingConvoId(convo.id);
+      }
+    }
+  }, [supportConversations, mutedConvoIds, selectedConvoId, soundAlertsEnabled]);
+
+  // Play 10-second ringing tone until opened or 10 seconds elapse (Part 6 #3)
+  useEffect(() => {
+    if (!soundAlertsEnabled || !ringingConvoId) return;
+    if (mutedConvoIds.includes(ringingConvoId) || selectedConvoId === ringingConvoId) {
+      setRingingConvoId(null);
+      return;
+    }
+
+    const playRingTone = () => {
       try {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
         if (!AudioCtx) return;
@@ -911,34 +1021,39 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         const gain = ctx.createGain();
         osc.type = 'sine';
         osc.frequency.setValueAtTime(880, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(1174.66, ctx.currentTime + 0.14);
-        gain.gain.setValueAtTime(0.08, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+        osc.frequency.setValueAtTime(1046.5, ctx.currentTime + 0.16);
+        gain.gain.setValueAtTime(0.09, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start();
-        osc.stop(ctx.currentTime + 0.36);
-        setTimeout(() => ctx.close().catch(() => {}), 500);
-      } catch {
-        // AudioContext requires user gesture before unlocking
-      }
+        osc.stop(ctx.currentTime + 0.46);
+        setTimeout(() => ctx.close().catch(() => {}), 600);
+      } catch {}
     };
 
-    playChime();
-    const chimeInterval = setInterval(playChime, Math.max(2, Math.min(5, chimeIntervalSec)) * 1000);
-    return () => clearInterval(chimeInterval);
-  }, [waitingSupportCount, soundAlertsEnabled, chimeIntervalSec]);
+    playRingTone();
+    const ringInterval = setInterval(playRingTone, 1200);
+    const stopAfter10Sec = setTimeout(() => {
+      setRingingConvoId(null);
+    }, 10000);
+
+    return () => {
+      clearInterval(ringInterval);
+      clearTimeout(stopAfter10Sec);
+    };
+  }, [ringingConvoId, soundAlertsEnabled, mutedConvoIds, selectedConvoId]);
 
   useEffect(() => {
-    if (isSupportAgentOnly && activeTab !== 'support') {
+    if (isSupportAgentOnly && !['support', 'users'].includes(activeTab)) {
       return;
     }
     if (activeTab === 'kpis') loadKpis();
     else if (activeTab === 'deposits') loadDeposits();
     else if (activeTab === 'withdrawals') loadWithdrawals();
     else if (activeTab === 'users') {
+      loadIpGroups();
       loadUsers();
-      if (usersSubView === 'ip_groups') loadIpGroups();
     } else if (activeTab === 'gateways') loadGateways();
     else if (activeTab === 'settings') loadSettings();
     else if (activeTab === 'support') {
@@ -947,12 +1062,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     } else if (activeTab === 'videos') {
       loadAdminVideos();
       loadDropdownUsers();
+      api.getPackages().then((r) => {
+        if (r.success && Array.isArray(r.data)) setAdminPackagesDropdown(r.data);
+      }).catch(() => {});
     } else if (activeTab === 'documents') {
       loadDocuments();
     } else if (activeTab === 'levels') {
       loadLevels();
     }
-  }, [activeTab, isSupportAgentOnly, usersSubView]);
+  }, [activeTab, isSupportAgentOnly]);
 
   useEffect(() => {
     if (activeTab === 'videos') {
@@ -1455,6 +1573,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       label: 'Operations',
       items: [
         { id: 'support', label: 'Live Support', icon: <MessageSquare className="w-4 h-4" />, badge: waitingSupportCount },
+        { id: 'popups', label: 'Live Popups', icon: <Sparkles className="w-4 h-4" /> },
         { id: 'reports', label: 'Reports & Audit', icon: <FileBarChart className="w-4 h-4" /> },
         { id: 'settings', label: 'Settings & CMS', icon: <Settings className="w-4 h-4" /> },
       ],
@@ -1467,6 +1586,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           label: 'Support Desk',
           items: [
             { id: 'support' as const, label: 'Live Support', icon: <MessageSquare className="w-4 h-4" />, badge: waitingSupportCount },
+            { id: 'users' as const, label: 'Users & IP View', icon: <Users className="w-4 h-4" /> },
           ],
         },
       ]
@@ -2092,78 +2212,49 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           </div>
         )}
 
-        {/* TAB 4: USERS MANAGEMENT (Online-First, Last Seen, IP Address & IP Groups) */}
+        {/* TAB 4: UNIFIED USERS LIST GROUPED BY ACTUAL IP ADDRESS (PART 6 #1 & #2 — ADMIN + SUPPORT) */}
         {activeTab === 'users' && (
           <div className="rounded-3xl bg-white border border-slate-200/90 shadow-xs overflow-hidden space-y-4">
             <div className="p-6 pb-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100">
-              <div className="flex flex-wrap items-center gap-3">
+              <div>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <Users className="w-5 h-5 text-purple-600" />
-                  User Profiles &amp; IP Monitoring
+                  Users &amp; IP Address Monitor (Online First)
                 </h3>
-                <div className="inline-flex rounded-xl bg-slate-100 p-0.5 border border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setUsersSubView('members')}
-                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                      usersSubView === 'members'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Members List ({usersList.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUsersSubView('ip_groups');
-                      loadIpGroups();
-                    }}
-                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                      usersSubView === 'ip_groups'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    IP Address Groups
-                  </button>
-                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Online members appear at the top. Shared IP addresses are grouped together with the actual IP shown.
+                </p>
               </div>
-              <div className="flex items-center gap-2">
-                {usersSubView === 'members' ? (
-                  <>
-                    <input
-                      type="text"
-                      placeholder="Search users..."
-                      value={userSearch}
-                      onChange={(e) => setUserSearch(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && loadUsers()}
-                      className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-purple-500"
-                    />
-                    <button
-                      onClick={loadUsers}
-                      className="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer"
-                    >
-                      <Search className="w-4 h-4" />
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={loadIpGroups}
-                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    Refresh IP Groups
-                  </button>
-                )}
-
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Search name, email, ID, or IP..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && loadIpGroups(userSearch)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-purple-500 w-56"
+                />
+                <button
+                  type="button"
+                  onClick={() => loadIpGroups(userSearch)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  Search
+                </button>
+                <button
+                  type="button"
+                  onClick={() => loadIpGroups(userSearch)}
+                  className="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer"
+                  title="Refresh"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
                 {user?.role === 'SUPER_ADMIN' && (
                   <button
                     type="button"
                     onClick={handleTriggerDailyBonus}
                     className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs shrink-0 cursor-pointer"
-                    title="Process daily level rewards batch for all eligible active users (Section 5.1)"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>Run Daily Bonus Batch</span>
@@ -2172,42 +2263,43 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               </div>
             </div>
 
-            {usersSubView === 'ip_groups' ? (
-              <div className="p-5 pt-1 space-y-4">
-                {loadingIpGroups ? (
-                  <div className="py-12 text-center text-xs text-slate-500">
-                    Loading IP address groups...
-                  </div>
-                ) : ipGroups.length === 0 ? (
-                  <div className="py-12 text-center text-xs text-slate-500">
-                    No recorded IP addresses found yet. IP addresses are logged on registration, login, and active sessions.
-                  </div>
-                ) : (
-                  ipGroups.map((group) => (
+            <div className="p-5 pt-1 space-y-3.5">
+              {loadingIpGroups ? (
+                <div className="py-12 text-center text-xs text-slate-500">
+                  Loading users grouped by IP address…
+                </div>
+              ) : ipGroups.length === 0 ? (
+                <div className="py-12 text-center text-xs text-slate-500">
+                  No users match your search.
+                </div>
+              ) : (
+                ipGroups.map((group, gIdx) => {
+                  const isShared = !group.isUnrecorded && group.accountCount > 1;
+                  return (
                     <div
-                      key={group.ipAddress}
+                      key={`${group.ipAddress || group.ip}-${gIdx}`}
                       className={`rounded-2xl border overflow-hidden ${
-                        group.accountCount > 1
-                          ? 'border-amber-300 bg-amber-50/30'
+                        isShared
+                          ? 'border-amber-300 bg-amber-50/20'
                           : 'border-slate-200 bg-white'
                       }`}
                     >
-                      <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
-                        <div className="flex items-center gap-2.5">
-                          <span className="font-mono font-extrabold text-slate-900">
-                            {group.ipAddress}
+                      {/* Actual IP Address Group Header */}
+                      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            IP Address:
                           </span>
-                          <span
-                            className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                              group.accountCount > 1
-                                ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                                : 'bg-slate-200 text-slate-700'
-                            }`}
-                          >
-                            {group.accountCount} {group.accountCount === 1 ? 'Account' : 'Accounts'}
+                          <span className="font-mono font-extrabold text-slate-900 bg-white px-2.5 py-0.5 rounded-lg border border-slate-200">
+                            {group.ipAddress || group.ip}
                           </span>
+                          {isShared && (
+                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                              Shared IP · {group.accountCount} Accounts
+                            </span>
+                          )}
                           {group.onlineCount > 0 && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
                               ● {group.onlineCount} Online
                             </span>
                           )}
@@ -2218,254 +2310,152 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                           )}
                         </div>
                       </div>
+
+                      {/* Single-Line Rich Member Rows */}
                       <div className="divide-y divide-slate-100">
-                        {group.accounts.map((acc: any) => (
-                          <div
-                            key={acc.id}
-                            className="px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs bg-white"
-                          >
-                            <div className="min-w-0">
-                              <div className="font-bold text-slate-900 flex items-center gap-2">
-                                <span
-                                  className={`w-2 h-2 rounded-full shrink-0 ${
-                                    acc.isOnline ? 'bg-emerald-500' : 'bg-slate-300'
-                                  }`}
-                                  title={acc.isOnline ? 'Online Now' : 'Offline'}
-                                />
-                                <span>{acc.fullName}</span>
-                                {acc.memberCode && (
-                                  <span className="text-[10px] font-mono text-slate-500">
-                                    {acc.memberCode}
+                        {group.accounts.map((u: any) => {
+                          const isLocked = Boolean(u.isLocked);
+                          const isSuspended = u.status === 'SUSPENDED';
+                          const totalUsd = ((u.totalBalanceCents || 0) / 100).toFixed(2);
+                          return (
+                            <div
+                              key={u.id}
+                              className="px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50/70 transition-colors"
+                            >
+                              {/* Identity + Online + Balance + Plan + Status ALL ON ONE LINE */}
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 min-w-[180px]">
+                                  <span
+                                    className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                      u.isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                                    }`}
+                                    title={u.isOnline ? 'Online Now' : 'Offline'}
+                                  />
+                                  <span className="font-extrabold text-slate-900">{u.fullName}</span>
+                                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                                    {u.memberCode}
                                   </span>
-                                )}
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700">
-                                  {acc.accountLevel}
+                                </div>
+
+                                <span className="text-[11px] font-mono font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200 tabular-nums">
+                                  Balance: ${totalUsd}
+                                </span>
+
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  {u.activePackageName ? `${u.activePackageName} · ` : ''}
+                                  {u.accountLevel || 'NEW_USER'}
+                                </span>
+
+                                <span className="text-[10px] text-slate-500 font-medium">
+                                  {u.isOnline ? (
+                                    <strong className="text-emerald-700">Online now</strong>
+                                  ) : u.lastSeenAt ? (
+                                    `Last seen ${new Date(u.lastSeenAt).toLocaleString([], {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}`
+                                  ) : (
+                                    'Never logged in'
+                                  )}
+                                </span>
+
+                                <span
+                                  className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
+                                    isSuspended
+                                      ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                      : isLocked
+                                      ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  }`}
+                                >
+                                  {isSuspended
+                                    ? 'SUSPENDED'
+                                    : isLocked
+                                    ? `LOCKED (${u.restriction || 'Active'})`
+                                    : 'ACTIVE'}
                                 </span>
                               </div>
-                              <div className="text-[11px] text-slate-500">
-                                {acc.email} · Last Seen:{' '}
-                                {acc.lastSeenAt
-                                  ? new Date(acc.lastSeenAt).toLocaleString()
-                                  : 'Never'}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                  acc.isRestricted
-                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                }`}
-                              >
-                                {acc.status === 'SUSPENDED'
-                                  ? 'SUSPENDED'
-                                  : acc.isLocked
-                                  ? 'LOCKED'
-                                  : 'ACTIVE'}
-                              </span>
-                              {acc.isRestricted && user?.role === 'SUPER_ADMIN' && (
+
+                              {/* Actions: Message First, Dossier, & Admin Controls */}
+                              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                                 <button
                                   type="button"
-                                  onClick={async () => {
-                                    if (acc.status === 'SUSPENDED') {
-                                      await handleToggleUserStatus(acc.id, 'SUSPENDED');
-                                    }
-                                    if (acc.isLocked) {
-                                      await api.unlockUserAccount(acc.id, 'IP Group restriction removed by admin');
-                                      setActionSuccess(`Restriction removed for ${acc.fullName}.`);
-                                    }
-                                    loadIpGroups();
-                                    loadUsers();
+                                  onClick={() => {
+                                    setDirectMsgModal({ userId: u.id, fullName: u.fullName, email: u.email });
+                                    setDirectMsgSubject('Message from U-Ads Administration');
+                                    setDirectMsgBody('');
+                                    setDirectMsgAttachment(null);
+                                    setDirectMsgAttachmentName(null);
                                   }}
-                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer"
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 cursor-pointer inline-flex items-center gap-1"
+                                  title="Send direct push message & screenshot to this user"
                                 >
-                                  Remove Restriction
+                                  <Send className="w-3 h-3" />
+                                  Message
                                 </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => openUserDossier(acc.id)}
-                                className="px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[11px] font-bold cursor-pointer"
-                              >
-                                Dossier
-                              </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openUserDossier(u.id)}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 cursor-pointer inline-flex items-center gap-1"
+                                >
+                                  <FileText className="w-3 h-3" />
+                                  Dossier
+                                </button>
+                                {user?.role === 'SUPER_ADMIN' && u.id !== user.id && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenAdjustLevelModal(u)}
+                                      className="px-2 py-1 rounded-lg text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 cursor-pointer"
+                                    >
+                                      Level
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenLockModal(u, isLocked)}
+                                      className={`px-2 py-1 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                                        isLocked
+                                          ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                      }`}
+                                    >
+                                      {isLocked ? 'Unlock' : 'Lock'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenChangeRoleModal(u)}
+                                      className="px-2 py-1 rounded-lg text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 cursor-pointer"
+                                    >
+                                      Role
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        await handleToggleUserStatus(u.id, u.status);
+                                        loadIpGroups(userSearch);
+                                      }}
+                                      className={`px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
+                                        u.status === 'ACTIVE'
+                                          ? 'bg-slate-100 hover:bg-rose-50 text-rose-600 border border-slate-200'
+                                          : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                                      }`}
+                                    >
+                                      {u.status === 'ACTIVE' ? 'Suspend' : 'Unsuspend'}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
-                  ))
-                )}
-              </div>
-            ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200">
-                  <tr>
-                    <th className="py-3 px-6">Full Name / Presence</th>
-                    <th className="py-3 px-4">IP Address / Last Seen</th>
-                    <th className="py-3 px-4">Account Level</th>
-                    <th className="py-3 px-4">Status / Lock</th>
-                    <th className="py-3 px-4">Active Package</th>
-                    <th className="py-3 px-6 text-right">Administrative Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {usersList.map((u) => {
-                    const isLocked = u.accountLockedUntil && new Date(u.accountLockedUntil) > new Date();
-
-                    return (
-                      <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-4 px-6">
-                          <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                            <span
-                              className={`w-2 h-2 rounded-full shrink-0 ${
-                                u.isOnline ? 'bg-emerald-500' : 'bg-slate-300'
-                              }`}
-                              title={u.isOnline ? 'Online Now' : 'Offline'}
-                            />
-                            <span>{u.fullName}</span>
-                            {u.isOnline && (
-                              <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                Online
-                              </span>
-                            )}
-                            {u.memberCode && (
-                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
-                                {u.memberCode}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[10px] text-slate-500 flex items-center gap-1.5">
-                            <span>{u.email}</span>
-                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
-                              {u.role}
-                            </span>
-                          </div>
-                          {u.createdAt && (
-                            <div className="text-[10px] text-slate-400">
-                              Joined: {new Date(u.createdAt).toLocaleDateString()}
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="py-4 px-4">
-                          <div className="font-mono text-[11px] font-semibold text-slate-800">
-                            {u.ipAddress || u.lastLoginIp || u.registrationIp || '—'}
-                          </div>
-                          <div className="text-[10px] text-slate-500">
-                            {u.isOnline
-                              ? 'Active now'
-                              : u.lastSeenAt
-                              ? `Seen ${new Date(u.lastSeenAt).toLocaleString([], {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}`
-                              : 'Offline'}
-                          </div>
-                        </td>
-
-                        <td className="py-4 px-4">
-                          <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                            {u.accountLevel || 'NEW_USER'}
-                          </span>
-                        </td>
-
-                        <td className="py-4 px-4 space-y-1">
-                          <div>
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                                u.status === 'ACTIVE'
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
-                              }`}
-                            >
-                              {u.status}
-                            </span>
-                          </div>
-                          {isLocked && (
-                            <div className="text-[9px] font-mono text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-block">
-                              Locked till {new Date(u.accountLockedUntil!).toLocaleDateString()}
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="py-4 px-4">
-                          {u.packagePurchases && u.packagePurchases.length > 0 ? (
-                            <span className="text-[11px] font-bold text-emerald-700">
-                              {u.packagePurchases[0].packageName}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-slate-400">None</span>
-                          )}
-                        </td>
-
-                        <td className="py-4 px-6 text-right space-x-1.5 whitespace-nowrap">
-                          {/* Financial Dossier & Activity Logs (Audio 2) */}
-                          <button
-                            onClick={() => openUserDossier(u.id)}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 cursor-pointer inline-flex items-center gap-1"
-                            title="View Complete Financial Dossier & Audit Logs"
-                          >
-                            <FileText className="w-3 h-3" />
-                            Dossier
-                          </button>
-                          {user?.role === 'SUPER_ADMIN' && u.id !== user.id && (
-                            <>
-                              {/* Adjust Level */}
-                              <button
-                                onClick={() => handleOpenAdjustLevelModal(u)}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 cursor-pointer"
-                                title="Adjust Account Level (Section 3)"
-                              >
-                                Level
-                              </button>
-
-                              {/* Lock / Unlock */}
-                              <button
-                                onClick={() => handleOpenLockModal(u, isLocked)}
-                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer ${
-                                  isLocked
-                                    ? 'bg-amber-100 text-amber-900 border-amber-300'
-                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                                }`}
-                                title="Account Lock Presets (60/100/360 Days) (Section 11)"
-                              >
-                                {isLocked ? 'Unlock' : 'Lock'}
-                              </button>
-
-                              {/* Change Role with 10 Agents limit */}
-                              <button
-                                onClick={() => handleOpenChangeRoleModal(u)}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 cursor-pointer"
-                                title="Update Staff Role (Max 10 Support Agents)"
-                              >
-                                Role
-                              </button>
-
-                              {/* Suspend / Reactivate */}
-                              <button
-                                onClick={() => handleToggleUserStatus(u.id, u.status)}
-                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
-                                  u.status === 'ACTIVE'
-                                    ? 'bg-slate-100 hover:bg-rose-50 text-rose-600 border border-slate-200'
-                                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                }`}
-                              >
-                                {u.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
-                              </button>
-                            </>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                  );
+                })
+              )}
             </div>
-            )}
           </div>
         )}
 
@@ -2592,6 +2582,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               </div>
             )}
           </div>
+        )}
+
+        {/* TAB: LIVE ACTIVITY POPUPS MANAGER (PART 2 #6) */}
+        {activeTab === 'popups' && (
+          <AdminLivePopupsTab
+            onSuccess={(msg) => setActionSuccess(msg)}
+            onError={(msg) => setActionError(msg)}
+          />
         )}
 
         {/* TAB 6: SYSTEM SETTINGS */}
@@ -2859,6 +2857,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                   ) : (
                     supportConversations.map((convo) => {
                       const isSelected = selectedConvoId === convo.id;
+                      const isMuted = mutedConvoIds.includes(convo.id);
+                      const isRinging = ringingConvoId === convo.id;
                       const displayName = convo.user?.fullName || convo.guestName || 'Customer';
                       const email = convo.user?.email || convo.guestEmail || 'No email provided';
                       const lastMsg = convo.messages?.[0]?.message || 'Conversation initiated';
@@ -2866,42 +2866,65 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                       return (
                         <div
                           key={convo.id}
-                          onClick={() => setSelectedConvoId(convo.id)}
+                          onClick={() => {
+                            setSelectedConvoId(convo.id);
+                            if (ringingConvoId === convo.id) setRingingConvoId(null);
+                          }}
                           className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
-                            isSelected
+                            isRinging
+                              ? 'bg-rose-50 border-rose-400 ring-2 ring-rose-300/60'
+                              : isSelected
                               ? 'bg-purple-50/60 border-purple-400 shadow-2xs'
                               : 'bg-white hover:bg-slate-50 border-slate-200'
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2 mb-1.5">
-                            <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600 text-white font-bold text-[11px] flex items-center justify-center">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600 text-white font-bold text-[11px] flex items-center justify-center shrink-0">
                                 {displayName.charAt(0).toUpperCase()}
                               </div>
-                              <div className="flex flex-col">
-                                <span className="text-xs font-bold text-slate-900 truncate max-w-[130px]">
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-xs font-bold text-slate-900 truncate max-w-[120px]">
                                   {displayName}
                                 </span>
-                                <span className="text-[10px] text-slate-400 truncate max-w-[130px]">
+                                <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
                                   {email}
                                 </span>
                               </div>
                             </div>
 
-                            {/* Status badge */}
-                            <span
-                              className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 ${
-                                convo.status === 'WAITING_FOR_AGENT'
-                                  ? 'bg-rose-100 text-rose-800 border border-rose-300 font-black animate-pulse'
-                                  : convo.status === 'AGENT_ACTIVE'
-                                  ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
-                                  : convo.status === 'RESOLVED'
-                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                  : 'bg-slate-100 text-slate-600 border border-slate-200'
-                              }`}
-                            >
-                              {convo.status === 'WAITING_FOR_AGENT' ? 'Needs Agent' : convo.status}
-                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {/* Per-Chat Individual Mute Toggle (Part 6 #3) */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleMuteConvo(convo.id);
+                                }}
+                                title={isMuted ? 'Unmute this chat' : 'Mute this chat'}
+                                className={`p-1 rounded-lg border transition-colors cursor-pointer ${
+                                  isMuted
+                                    ? 'bg-slate-100 text-rose-500 border-slate-200'
+                                    : 'bg-white text-slate-400 hover:text-slate-700 border-slate-200'
+                                }`}
+                              >
+                                {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                              </button>
+                              {/* Status badge */}
+                              <span
+                                className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 ${
+                                  convo.status === 'WAITING_FOR_AGENT'
+                                    ? 'bg-rose-100 text-rose-800 border border-rose-300 font-black animate-pulse'
+                                    : convo.status === 'AGENT_ACTIVE'
+                                    ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                    : convo.status === 'RESOLVED'
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                    : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                }`}
+                              >
+                                {convo.status === 'WAITING_FOR_AGENT' ? 'Needs Agent' : convo.status}
+                              </span>
+                            </div>
                           </div>
 
                           <p className="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
@@ -3959,17 +3982,46 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       {dossierUserId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="w-full max-w-4xl max-h-[90vh] rounded-3xl bg-white border border-slate-200 shadow-2xl flex flex-col overflow-hidden">
-            {/* Modal Header */}
-            <div className="p-5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+            {/* Modal Header — Live Status, Online Presence, Plan, Joined Date, Message & Inline Restriction Removal (Part 6 #4 & #5) */}
+            <div className="p-5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 border-b border-slate-800">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-bold text-white shadow-md">
+                <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center font-bold text-white shadow-md shrink-0">
                   <FileText className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                        dossierData?.user?.isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                      }`}
+                    />
                     <h3 className="text-base font-bold text-white">
                       {dossierData?.user?.fullName || 'User Financial Audit Dossier'}
                     </h3>
+                    {dossierData?.user?.status && (
+                      <span
+                        className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                          dossierData.user.status === 'SUSPENDED'
+                            ? 'bg-rose-500/30 text-rose-200 border-rose-400/50'
+                            : dossierData.user.isLocked
+                            ? 'bg-amber-500/30 text-amber-200 border-amber-400/50'
+                            : 'bg-emerald-500/30 text-emerald-200 border-emerald-400/50'
+                        }`}
+                      >
+                        {dossierData.user.status === 'SUSPENDED'
+                          ? 'SUSPENDED'
+                          : dossierData.user.isLocked
+                          ? 'LOCKED'
+                          : dossierData.user.isOnline
+                          ? 'ACTIVE · ONLINE'
+                          : 'ACTIVE'}
+                      </span>
+                    )}
+                    {dossierData?.user?.activePackageName && (
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-orange-500/30 text-orange-200 border border-orange-400/40">
+                        {dossierData.user.activePackageName} Plan
+                      </span>
+                    )}
                     {dossierData?.user?.accountLevel && (
                       <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 border border-purple-400/40">
                         {dossierData.user.accountLevel}
@@ -3981,17 +4033,63 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-slate-400">
-                    {dossierData?.user?.email} • {dossierData?.user?.phone || 'No phone'} • Ref Code: {dossierData?.user?.referralCode}
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {dossierData?.user?.email} • ID: {dossierData?.user?.memberCode || '—'} • IP:{' '}
+                    <span className="font-mono text-slate-200">{dossierData?.user?.ipAddress || 'Not recorded'}</span> • Joined:{' '}
+                    {dossierData?.user?.createdAt ? new Date(dossierData.user.createdAt).toLocaleDateString() : '—'}
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setDossierUserId(null)}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                {dossierData?.user && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDirectMsgModal({
+                        userId: dossierData.user.id,
+                        fullName: dossierData.user.fullName,
+                        email: dossierData.user.email,
+                      });
+                      setDirectMsgSubject('Message from U-Ads Administration');
+                      setDirectMsgBody('');
+                      setDirectMsgAttachment(null);
+                      setDirectMsgAttachmentName(null);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    Message User
+                  </button>
+                )}
+                {user?.role === 'SUPER_ADMIN' &&
+                  dossierData?.user &&
+                  (dossierData.user.status === 'SUSPENDED' || dossierData.user.isLocked) && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const uid = dossierData.user.id;
+                        if (dossierData.user.status === 'SUSPENDED') {
+                          await handleToggleUserStatus(uid, 'SUSPENDED');
+                        }
+                        if (dossierData.user.isLocked) {
+                          await api.unlockUserAccount(uid, 'Restriction removed directly from Member Dossier');
+                          setActionSuccess(`Restriction removed for ${dossierData.user.fullName}.`);
+                        }
+                        openUserDossier(uid);
+                        loadIpGroups(userSearch);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
+                    >
+                      Remove Restriction
+                    </button>
+                  )}
+                <button
+                  onClick={() => setDossierUserId(null)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {loadingDossier ? (
@@ -4941,6 +5039,114 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
+      {/* ADMIN PROACTIVE DIRECT MESSAGE TO USER MODAL (PART 6 #2) */}
+      {directMsgModal && (
+        <div
+          onClick={() => !sendingDirectMsg && setDirectMsgModal(null)}
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+        >
+          <form
+            onSubmit={handleSendDirectMessage}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-3xl bg-white border border-slate-200 p-6 sm:p-7 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-orange-600">
+                  Proactive System Message &amp; Push Notification
+                </div>
+                <h3 className="text-base font-extrabold text-slate-900 mt-0.5">
+                  Message {directMsgModal.fullName}
+                </h3>
+                <p className="text-[11px] text-slate-500">{directMsgModal.email}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDirectMsgModal(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-xs font-bold text-slate-700">Subject</label>
+              <input
+                type="text"
+                value={directMsgSubject}
+                onChange={(e) => setDirectMsgSubject(e.target.value)}
+                className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-300 text-xs font-semibold text-slate-900"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-xs font-bold text-slate-700">
+                Message <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                rows={4}
+                required
+                placeholder="Write your message to this member — delivered immediately as a push notification & in-system message..."
+                value={directMsgBody}
+                onChange={(e) => setDirectMsgBody(e.target.value)}
+                className="w-full p-3 rounded-xl bg-slate-50 border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-orange-500"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700">
+                Attach Screenshot (Optional)
+              </label>
+              <label className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-dashed border-slate-300 hover:border-orange-500 cursor-pointer text-xs text-slate-600">
+                <span className="truncate font-semibold">
+                  {directMsgAttachmentName || 'Upload screenshot image (PNG/JPG, max 5 MB)'}
+                </span>
+                <Upload className="w-4 h-4 text-slate-400 shrink-0" />
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleDirectMsgFileSelect}
+                  className="hidden"
+                />
+              </label>
+              {directMsgAttachment && (
+                <div className="flex items-center justify-between text-[11px] text-emerald-700 font-semibold">
+                  <span>Screenshot attached</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDirectMsgAttachment(null);
+                      setDirectMsgAttachmentName(null);
+                    }}
+                    className="text-rose-600 hover:underline cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDirectMsgModal(null)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={sendingDirectMsg || !directMsgBody.trim()}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>{sendingDirectMsg ? 'Sending…' : 'Send Message'}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* ADD / EDIT VIDEO MODAL */}
       {videoModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
@@ -5130,30 +5336,59 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         </label>
                         <select
                           value={formVideoTier}
-                          onChange={(e) => setFormVideoTier(e.target.value)}
+                          onChange={(e) => {
+                            const nextTier = e.target.value;
+                            setFormVideoTier(nextTier);
+                            const map: Record<string, string> = {
+                              Starter: 'LEVEL_1',
+                              Basic: 'LEVEL_2',
+                              Premium: 'LEVEL_3',
+                              VIP: 'LEVEL_4',
+                            };
+                            if (map[nextTier]) setFormVideoMinLevel(map[nextTier]);
+                          }}
                           className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-purple-500"
                         >
-                          <option value="Starter">Starter ($20 - 2 videos)</option>
-                          <option value="Basic">Basic ($50 - 6 videos)</option>
-                          <option value="Premium">Premium ($100 - 15 videos)</option>
-                          <option value="VIP">VIP ($500 - 60 videos)</option>
+                          {(adminPackagesDropdown.length > 0
+                            ? adminPackagesDropdown
+                            : [
+                                { name: 'Starter', priceCents: 2000, videoLimit: 2 },
+                                { name: 'Basic', priceCents: 5000, videoLimit: 6 },
+                                { name: 'Premium', priceCents: 10000, videoLimit: 15 },
+                                { name: 'VIP', priceCents: 50000, videoLimit: 60 },
+                              ]
+                          ).map((p: any) => (
+                            <option key={p.name} value={p.name}>
+                              {p.name} (${(p.priceCents / 100).toFixed(0)} — {p.unlockedAdsCount ?? p.videoLimit} ads)
+                            </option>
+                          ))}
                         </select>
                       </div>
                       <div>
                         <label className="block text-[11px] font-bold text-slate-800 mb-1">
-                          Minimum Account Level Eligibility:
+                          Assigned Account Level (Enforces Access):
                         </label>
                         <select
                           value={formVideoMinLevel}
-                          onChange={(e) => setFormVideoMinLevel(e.target.value)}
+                          onChange={(e) => {
+                            const nextLvl = e.target.value;
+                            setFormVideoMinLevel(nextLvl);
+                            const lvlMap: Record<string, string> = {
+                              LEVEL_1: 'Starter',
+                              LEVEL_2: 'Basic',
+                              LEVEL_3: 'Premium',
+                              LEVEL_4: 'VIP',
+                              LEVEL_5: 'VIP',
+                            };
+                            if (lvlMap[nextLvl]) setFormVideoTier(lvlMap[nextLvl]);
+                          }}
                           className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-purple-500"
                         >
-                          <option value="NEW_USER">New User (All Levels)</option>
-                          <option value="LEVEL_1">Level 1 ($20+)</option>
-                          <option value="LEVEL_2">Level 2 ($100+)</option>
-                          <option value="LEVEL_3">Level 3 ($500+)</option>
-                          <option value="LEVEL_4">Level 4 ($2,000+)</option>
-                          <option value="LEVEL_5">Level 5 ($5,000+)</option>
+                          <option value="LEVEL_1">Level 1 (Starter)</option>
+                          <option value="LEVEL_2">Level 2 (Basic)</option>
+                          <option value="LEVEL_3">Level 3 (Premium)</option>
+                          <option value="LEVEL_4">Level 4 (VIP)</option>
+                          <option value="LEVEL_5">Level 5 (VIP+)</option>
                         </select>
                       </div>
                     </div>
@@ -5179,18 +5414,18 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 )}
               </div>
 
-              {/* Individual Per-Video Reward Percentage (Optional — leaves Account Level % intact) */}
+              {/* Individual Per-Video Reward Percentage (Applied to Video's Standard Reward — Part 3 #1) */}
               <div className="p-3.5 rounded-2xl bg-emerald-50/50 border border-emerald-200 space-y-1.5">
                 <label className="block text-[11px] font-bold text-emerald-900">
-                  Individual Video Reward % (Optional Override)
+                  Individual Ad Reward % of Standard Reward (Optional Override)
                 </label>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
-                    step="0.01"
+                    step="1"
                     min="0"
-                    max="100"
-                    placeholder="Leave blank to use default reward / Account Level %"
+                    max="1000"
+                    placeholder="Leave blank for Global × Level % (e.g. 50 = 50% of standard reward, 150 = 150%)"
                     value={formVideoRewardPct}
                     onChange={(e) => setFormVideoRewardPct(e.target.value)}
                     className="flex-1 bg-white border border-emerald-300 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
@@ -5198,11 +5433,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                   <span className="text-xs font-extrabold text-emerald-800 px-2">%</span>
                 </div>
                 <p className="text-[10px] text-emerald-800/80">
-                  Set an individual percentage (e.g. 0.50 for 0.50%) for this specific video regardless of account level, or leave empty to keep standard reward &amp; level percentage logic unchanged.
+                  Applies strictly to this ad&apos;s standard reward (never member deposits). Example: 50% on a $0.50 ad pays exactly $0.25 and displays +$0.25 on the card &amp; player.
                 </p>
               </div>
 
-              {/* Category & Duration */}
+              {/* Category & Real Video Duration Auto-Probe (Part 4 #3) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div className="space-y-1">
                   <label className="block font-bold text-slate-800">Category</label>
@@ -5222,12 +5457,23 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block font-bold text-slate-800">Video Duration</label>
-                  <div className="w-full bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-2.5 text-xs text-emerald-800 font-semibold">
-                    Auto-Detected ({formVideoDuration > 0 ? `${Math.floor(formVideoDuration / 60)}m ${formVideoDuration % 60}s` : 'From Media Metadata'})
+                  <label className="block font-bold text-slate-800">Video Duration (Seconds)</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="5"
+                      max="7200"
+                      value={formVideoDuration}
+                      onChange={(e) => setFormVideoDuration(parseInt(e.target.value, 10) || 15)}
+                      className="w-24 bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900"
+                    />
+                    <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-xs text-emerald-800 font-semibold tabular-nums">
+                      {Math.floor(formVideoDuration / 60)}m {formVideoDuration % 60}s (Auto-Detected)
+                    </div>
                   </div>
                   {formVideoUrl && !extractYouTubeId(formVideoUrl) && (
                     <video
+                      key={formVideoUrl}
                       src={formVideoUrl}
                       preload="metadata"
                       className="hidden"
@@ -5240,7 +5486,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                     />
                   )}
                   <span className="text-[10px] text-slate-400">
-                    Duration is automatically detected from the video metadata during upload &amp; playback.
+                    Automatically re-reads duration whenever the video URL changes; you can also enter exact seconds manually.
                   </span>
                 </div>
               </div>

@@ -185,19 +185,23 @@ export class LedgerService {
 
     const summary = {
       USD: {
-        availableCents: 0,
+        availableCents: 0, // Paid-in subscription credit ONLY (never withdrawable)
+        subscriptionCreditCents: 0,
         videoRewardsCents: 0,
         otherRewardsCents: 0,
         reservedCents: 0,
         referralCents: 0,
+        earningsTotalCents: 0, // Visible member earnings balance (Video Rewards + Referral + Bonuses)
         totalCents: 0,
       },
       PKR: {
         availableCents: 0,
+        subscriptionCreditCents: 0,
         videoRewardsCents: 0,
         otherRewardsCents: 0,
         reservedCents: 0,
         referralCents: 0,
+        earningsTotalCents: 0,
         totalCents: 0,
       },
     };
@@ -207,6 +211,7 @@ export class LedgerService {
       if (cur === Currency.USD || cur === Currency.PKR) {
         if (acc.accountType === AccountType.USER_AVAILABLE) {
           summary[cur].availableCents = acc.balanceCents;
+          summary[cur].subscriptionCreditCents = acc.balanceCents;
         } else if (acc.accountType === AccountType.USER_VIDEO_REWARDS) {
           summary[cur].videoRewardsCents = acc.balanceCents;
         } else if (acc.accountType === AccountType.USER_OTHER_REWARDS) {
@@ -219,18 +224,18 @@ export class LedgerService {
       }
     }
 
-    summary.USD.totalCents =
-      summary.USD.availableCents +
+    summary.USD.earningsTotalCents =
       summary.USD.videoRewardsCents +
       summary.USD.otherRewardsCents +
-      summary.USD.reservedCents +
       summary.USD.referralCents;
-    summary.PKR.totalCents =
-      summary.PKR.availableCents +
+    summary.USD.totalCents =
+      summary.USD.earningsTotalCents + summary.USD.reservedCents;
+    summary.PKR.earningsTotalCents =
       summary.PKR.videoRewardsCents +
       summary.PKR.otherRewardsCents +
-      summary.PKR.reservedCents +
       summary.PKR.referralCents;
+    summary.PKR.totalCents =
+      summary.PKR.earningsTotalCents + summary.PKR.reservedCents;
 
     return summary;
   }

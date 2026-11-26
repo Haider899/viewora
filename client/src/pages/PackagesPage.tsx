@@ -3,6 +3,7 @@ import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { Package, PackagePurchase } from '../types/index.js';
 import { useToast } from '../components/ToastProvider.js';
+import { HALAL_AD_SHARE_STATEMENT } from '../components/CompanyInfoModal.js';
 import { formatUSD } from '../utils/formatters.js';
 import {
   Check,
@@ -11,14 +12,22 @@ import {
   CheckCircle2,
   Lock,
   X,
+  ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 
 interface PackagesProps {
   navigate?: (route: string) => void;
+  autoSelectTier?: string | null;
+  onAutoSelectHandled?: () => void;
 }
 
-export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
-  const { user, wallet, refreshWallet } = useAuth();
+export const PackagesPage: React.FC<PackagesProps> = ({
+  navigate,
+  autoSelectTier,
+  onAutoSelectHandled,
+}) => {
+  const { user, wallet, refreshWallet, refreshUser } = useAuth();
   const { showToast } = useToast();
 
   const [packages, setPackages] = useState<Package[]>([]);
@@ -50,6 +59,18 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
     fetchPackagesData();
   }, [user]);
 
+  // Rule 9: When arriving directly from clicking a locked ad, open THAT exact package's checkout modal immediately!
+  useEffect(() => {
+    if (!autoSelectTier || loading || packages.length === 0) return;
+    const matched = packages.find(
+      (p) => p.name.toLowerCase() === autoSelectTier.toLowerCase()
+    );
+    if (matched && !matched.isCurrentPlan && !matched.isOwnedOrLower) {
+      handleOpenPurchase(matched);
+    }
+    onAutoSelectHandled?.();
+  }, [autoSelectTier, loading, packages]);
+
   const handleOpenPurchase = (pkg: Package) => {
     if (!user) {
       navigate?.('login');
@@ -63,20 +84,30 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
 
   const handleConfirmPurchase = async () => {
     if (!selectedPackage || purchasing) return;
+    const costCents = selectedPackage.isUpgrade
+      ? (selectedPackage.upgradeDiffCents ?? selectedPackage.priceCents)
+      : selectedPackage.priceCents;
     const availBefore = wallet?.USD?.availableCents ?? 0;
-    const expectedRemaining = Math.max(0, availBefore - selectedPackage.priceCents);
+    const expectedRemaining = Math.max(0, availBefore - costCents);
+
     setPurchasing(true);
     setErrorMsg(null);
     try {
       const res = await api.purchasePackage(selectedPackage.id, 'USD');
       if (res.success && res.data) {
-        // Set success state BEFORE refreshWallet() so "insufficient balance" NEVER flashes (#9)
         setSuccessInfo({
-          msg: `${selectedPackage.name} plan is now active on your account.`,
+          msg: selectedPackage.isUpgrade
+            ? `Upgraded to ${selectedPackage.name} Lifetime Plan! Higher-level ads are now unlocked.`
+            : `${selectedPackage.name} Lifetime Plan is now active on your account.`,
           remainingCents: expectedRemaining,
         });
-        showToast(`${selectedPackage.name} plan activated!`, 'success');
-        await Promise.all([refreshWallet(), fetchPackagesData()]);
+        showToast(
+          selectedPackage.isUpgrade
+            ? `Upgraded to ${selectedPackage.name} plan!`
+            : `${selectedPackage.name} plan activated!`,
+          'success'
+        );
+        await Promise.all([refreshWallet(), refreshUser(), fetchPackagesData()]);
       } else {
         setErrorMsg(res.error?.message || 'Unable to activate plan.');
       }
@@ -88,26 +119,37 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
-          <h2 className="text-xl font-extrabold text-slate-900">Membership Plans (USD)</h2>
+          <h2 className="text-xl font-extrabold text-slate-900">Lifetime Packages (USD)</h2>
           <p className="text-xs text-slate-500">
-            Unlock more video campaigns and higher earning limits. Paid directly from your Main Account balance.
+            Pay once and stay a member for life. Upgrading charges only the price difference between your current plan and the new tier.
           </p>
         </div>
         {activePurchase && (
-          <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold shrink-0">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-orange-50 border border-orange-200 text-orange-800 text-xs font-bold shrink-0">
+            <CheckCircle2 className="w-4 h-4 text-orange-600" />
             <span>
-              Active: {activePurchase.packageName} ({activePurchase.videoLimitGranted} videos)
+              Active Lifetime Plan: {activePurchase.packageName}
             </span>
           </div>
         )}
       </div>
 
-      {/* Package Cards — ONE Recommended plan, clean hierarchy, zero competing badges */}
+      {/* Halal 95% Advertiser Revenue Share Banner (Part 1 Rule 2) */}
+      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-[#FFF3E6] to-amber-50/40 border border-orange-200/80 space-y-2">
+        <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-orange-700">
+          <ShieldCheck className="w-4 h-4 text-orange-600" />
+          <span>How Your Earnings Work (Halal 95% Ad-Revenue Share)</span>
+        </div>
+        <p className="text-xs text-slate-700 leading-relaxed font-medium">
+          {HALAL_AD_SHARE_STATEMENT}
+        </p>
+      </div>
+
+      {/* Package Cards — 100% Dynamic Figures from Admin Package Settings (Part 5 #6 & #7) */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
           {[1, 2, 3, 4].map((n) => (
@@ -117,82 +159,124 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
           {packages.map((pkg) => {
-            const isCurrent = activePurchase?.packageName === pkg.name;
+            const isCurrent = Boolean(pkg.isCurrentPlan || activePurchase?.packageId === pkg.id);
+            const isOwnedOrLower = Boolean(pkg.isOwnedOrLower);
+            const isUpgrade = Boolean(pkg.isUpgrade);
+            const upgradeDiffCents = pkg.upgradeDiffCents ?? pkg.priceCents;
             const isRecommended = pkg.name === 'Premium';
-            let features: string[] = [];
-            try {
-              features = JSON.parse(pkg.features);
-            } catch {}
+            const adsCount = pkg.unlockedAdsCount ?? pkg.videoLimit;
+            const perAdCents = pkg.perVideoRewardCents ?? 50;
 
             return (
               <div
                 key={pkg.id}
-                className={`rounded-2xl p-6 flex flex-col justify-between transition-all duration-200 relative bg-white ${
-                  isRecommended
-                    ? 'border-2 border-emerald-500 shadow-md ring-4 ring-emerald-500/10'
+                className={`rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 relative bg-white ${
+                  isCurrent
+                    ? 'border-2 border-orange-500 shadow-md ring-4 ring-orange-500/10'
+                    : isRecommended
+                    ? 'border-2 border-orange-400 shadow-md'
                     : 'border border-slate-200 shadow-2xs card-hover'
                 }`}
               >
-                {isRecommended && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider shadow-xs whitespace-nowrap">
+                {isRecommended && !isCurrent && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-orange-600 text-white text-[10px] font-bold uppercase tracking-wider shadow-xs whitespace-nowrap">
                     Recommended
                   </div>
                 )}
 
-                <div className="space-y-5">
+                <div className="space-y-4">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <h3 className="text-lg font-extrabold text-slate-900">{pkg.name}</h3>
-                      <p className="text-xs text-slate-500 mt-1 min-h-[34px] leading-relaxed">
-                        {pkg.description}
-                      </p>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-orange-600">
+                        {(pkg.levelKey || 'LEVEL_1').replace('_', ' ')} · Lifetime
+                      </span>
                     </div>
                     {isCurrent && (
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold shrink-0">
+                      <span className="px-2 py-0.5 rounded-full bg-orange-50 border border-orange-200 text-orange-700 text-[10px] font-bold shrink-0">
                         Active
                       </span>
                     )}
                   </div>
 
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-3xl font-black text-slate-900 tabular-nums">
-                      ${(pkg.priceCents / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                    </span>
-                    <span className="text-xs font-semibold text-slate-400">USD</span>
+                  <div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-3xl font-black text-slate-900 tabular-nums">
+                        {formatUSD(pkg.priceCents)}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-400">one-time</span>
+                    </div>
+                    {isUpgrade && (
+                      <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-bold tabular-nums">
+                        <Sparkles className="w-3 h-3" />
+                        Upgrade cost: {formatUSD(upgradeDiffCents)} (difference only)
+                      </div>
+                    )}
                   </div>
 
-                  <div className="px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
-                    <span className="text-slate-500">Video access</span>
-                    <span className="font-bold text-slate-900">{pkg.videoLimit} campaigns</span>
+                  {/* Complete Dynamic Package Benefits Table (Part 5 #6 & #7) */}
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Validity</span>
+                      <span className="font-extrabold text-emerald-700">Lifetime</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Daily Ads Access</span>
+                      <span className="font-extrabold text-slate-900 tabular-nums">{adsCount} ads</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Reward per Ad</span>
+                      <span className="font-extrabold text-orange-600 tabular-nums">
+                        {formatUSD(perAdCents)} / ad
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Referral Commission</span>
+                      <span className="font-extrabold text-slate-900">
+                        {pkg.referralRateRange || '5%–15%'}
+                      </span>
+                    </div>
                   </div>
 
-                  <ul className="space-y-2 pt-1">
-                    {features.map((feat, i) => (
-                      <li key={i} className="flex items-start gap-2 text-xs text-slate-600 leading-snug">
-                        <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <ul className="space-y-1.5 pt-0.5">
+                    {[
+                      `Unlocks ${adsCount} ads (${(pkg.levelKey || 'LEVEL_1').replace('_', ' ')} & below)`,
+                      `Earn ${formatUSD(perAdCents)} per verified ad watch (8 PM – 7:59 PM cycle)`,
+                      `Lifetime membership — watch ads and keep earning`,
+                      `95% halal advertiser revenue share`,
+                    ].map((feat, i) => (
+                      <li key={i} className="flex items-start gap-2 text-[11px] text-slate-600 leading-snug">
+                        <Check className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-0.5" />
                         <span>{feat}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
 
-                <div className="pt-6">
+                <div className="pt-5">
                   {isCurrent ? (
                     <button
                       type="button"
                       disabled
-                      title="This plan is currently active on your account"
-                      className="btn-secondary w-full"
+                      className="btn-secondary w-full border-orange-200 text-orange-700"
                     >
-                      Active Plan
+                      Current Lifetime Plan
+                    </button>
+                  ) : isOwnedOrLower ? (
+                    <button type="button" disabled className="btn-secondary w-full">
+                      Included in Your Tier
                     </button>
                   ) : (
                     <button
                       type="button"
                       onClick={() => handleOpenPurchase(pkg)}
-                      className={isRecommended ? 'btn-primary w-full' : 'btn-secondary w-full'}
+                      className="btn-primary w-full"
                     >
-                      <span>Select {pkg.name}</span>
+                      <span>
+                        {isUpgrade
+                          ? `Upgrade for ${formatUSD(upgradeDiffCents)}`
+                          : `Subscribe (${formatUSD(pkg.priceCents)})`}
+                      </span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -203,7 +287,7 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
         </div>
       )}
 
-      {/* Purchase Dialog — X + Cancel always present, processing state, NEVER flashes negative/insufficient balance (#9) */}
+      {/* Subscribe / Upgrade Checkout Dialog (Charges Difference Only on Upgrade!) */}
       {modalOpen && selectedPackage && (
         <div
           onClick={() => !purchasing && setModalOpen(false)}
@@ -224,12 +308,12 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
             </button>
 
             <div className="space-y-1 pr-8">
-              <div className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">
-                Plan Activation
+              <div className="text-[11px] font-bold text-orange-600 uppercase tracking-wider">
+                {selectedPackage.isUpgrade ? 'Package Upgrade (Pay Difference Only)' : 'Lifetime Plan Activation'}
               </div>
               <h3 className="text-xl font-extrabold text-slate-900">{selectedPackage.name} Plan</h3>
               <p className="text-xs text-slate-500">
-                Unlocks access to up to {selectedPackage.videoLimit} curated video campaigns.
+                Lifetime subscription · Unlocks {selectedPackage.unlockedAdsCount ?? selectedPackage.videoLimit} ads ({formatUSD(selectedPackage.perVideoRewardCents ?? 50)}/ad).
               </p>
             </div>
 
@@ -242,18 +326,19 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                         <span>{successInfo.msg}</span>
                       </div>
-                      <div className="pl-6 text-emerald-800">
-                        Remaining Main Account balance:{' '}
-                        <strong className="tabular-nums">{formatUSD(successInfo.remainingCents)}</strong>
-                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setModalOpen(false)}
-                      className="btn-primary w-full"
-                    >
-                      Done
-                    </button>
+                    <div className="flex gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModalOpen(false);
+                          navigate?.('videos');
+                        }}
+                        className="btn-primary flex-1"
+                      >
+                        Watch Ads Now
+                      </button>
+                    </div>
                   </div>
                 );
               }
@@ -261,49 +346,46 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
               if (purchasing) {
                 return (
                   <div className="py-8 text-center space-y-3">
-                    <div className="w-9 h-9 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                    <div className="w-9 h-9 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto" />
                     <div className="text-xs font-bold text-slate-800">
-                      Activating your {selectedPackage.name} plan…
+                      {selectedPackage.isUpgrade ? 'Upgrading' : 'Activating'} your {selectedPackage.name} plan…
                     </div>
-                    <p className="text-[11px] text-slate-500">
-                      Recording transaction on your USD ledger. Please wait.
-                    </p>
                   </div>
                 );
               }
 
-              const reqCents = selectedPackage.priceCents;
+              const isUpgrade = Boolean(selectedPackage.isUpgrade);
+              const reqCents = isUpgrade
+                ? (selectedPackage.upgradeDiffCents ?? selectedPackage.priceCents)
+                : selectedPackage.priceCents;
+              const creditCents = selectedPackage.currentPlanPriceCents ?? 0;
               const availCents = wallet?.USD?.availableCents ?? 0;
               const hasEnough = availCents >= reqCents;
               const shortfallCents = Math.max(0, reqCents - availCents);
 
               return (
                 <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
                     <div className="flex justify-between items-center text-slate-600">
-                      <span>Plan price</span>
-                      <span className="font-bold text-slate-900 tabular-nums">{formatUSD(reqCents)}</span>
+                      <span>{selectedPackage.name} full price</span>
+                      <span className="font-bold text-slate-900 tabular-nums">
+                        {formatUSD(selectedPackage.priceCents)}
+                      </span>
                     </div>
-                    <div className="flex justify-between items-center text-slate-600">
-                      <span>Main Account balance</span>
-                      <span className="font-bold text-slate-900 tabular-nums">{formatUSD(availCents)}</span>
-                    </div>
-                    <div className="h-px bg-slate-200" />
-                    {hasEnough ? (
-                      <div className="flex justify-between items-center font-bold">
-                        <span className="text-slate-700">Balance after activation</span>
-                        <span className="text-emerald-700 tabular-nums">
-                          {formatUSD(availCents - reqCents)}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="flex justify-between items-center font-bold">
-                        <span className="text-slate-700">Additional USD needed</span>
-                        <span className="text-amber-700 tabular-nums">
-                          {formatUSD(shortfallCents)}
-                        </span>
+                    {isUpgrade && creditCents > 0 && (
+                      <div className="flex justify-between items-center text-emerald-700 font-semibold">
+                        <span>Credit for {selectedPackage.currentPlanName || 'current plan'}</span>
+                        <span className="tabular-nums">-{formatUSD(creditCents)}</span>
                       </div>
                     )}
+                    <div className="flex justify-between items-center font-extrabold text-slate-900 pt-1 border-t border-slate-200">
+                      <span>{isUpgrade ? 'Upgrade difference due' : 'Subscription payment due'}</span>
+                      <span className="text-orange-600 tabular-nums">{formatUSD(reqCents)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-600">
+                      <span>Available deposit credit</span>
+                      <span className="font-bold text-slate-900 tabular-nums">{formatUSD(availCents)}</span>
+                    </div>
                   </div>
 
                   {!hasEnough ? (
@@ -311,7 +393,7 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
                       <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
                         <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
                         <span>
-                          You need <strong className="tabular-nums">{formatUSD(shortfallCents)}</strong> more in your Main Account to activate this plan.
+                          Deposit <strong className="tabular-nums">{formatUSD(shortfallCents)}</strong> to complete your {isUpgrade ? 'upgrade' : 'subscription'}. Note: package payments are one-time lifetime subscriptions and are non-withdrawable.
                         </span>
                       </div>
                       <div className="flex items-center gap-2.5">
@@ -322,27 +404,16 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
                         >
                           Cancel
                         </button>
-                        {navigate ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setModalOpen(false);
-                              navigate('deposit');
-                            }}
-                            className="btn-primary flex-1"
-                          >
-                            Deposit USD
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled
-                            title="Add USD to your Main Account first"
-                            className="btn-primary flex-1"
-                          >
-                            Insufficient Funds
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setModalOpen(false);
+                            navigate?.('deposit');
+                          }}
+                          className="btn-primary flex-1"
+                        >
+                          Deposit {formatUSD(shortfallCents)}
+                        </button>
                       </div>
                     </div>
                   ) : (
@@ -369,7 +440,7 @@ export const PackagesPage: React.FC<PackagesProps> = ({ navigate }) => {
                           className="btn-primary flex-1"
                         >
                           <Lock className="w-3.5 h-3.5" />
-                          <span>{purchasing ? 'Activating…' : 'Confirm & Pay'}</span>
+                          <span>{isUpgrade ? `Upgrade (${formatUSD(reqCents)})` : 'Confirm & Activate'}</span>
                         </button>
                       </div>
                     </div>

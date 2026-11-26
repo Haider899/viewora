@@ -27,6 +27,15 @@ export interface User {
   referralCode: string;
   memberCode?: string;
   referredById?: string;
+  referredBy?: {
+    id: string;
+    fullName: string;
+    memberCode?: string | null;
+    referralCode?: string;
+  } | null;
+  savedPayoutMethod?: string | null;
+  savedAccountTitle?: string | null;
+  savedAccountNumber?: string | null;
   accountLevel?: string;
   accountLockedUntil?: string | null;
   agentAvailability?: 'ONLINE' | 'BUSY' | 'OFFLINE';
@@ -71,6 +80,18 @@ export interface Package {
   badge?: string;
   features: string; // JSON array string
   isActive: boolean;
+  levelKey?: string;
+  isLifetime?: boolean;
+  perVideoRewardCents?: number;
+  unlockedAdsCount?: number;
+  referralRateRange?: string;
+  isCurrentPlan?: boolean;
+  isOwnedOrLower?: boolean;
+  isUpgrade?: boolean;
+  currentPlanName?: string | null;
+  currentPlanPriceCents?: number;
+  upgradeDiffCents?: number;
+  effectiveCostCents?: number;
 }
 
 export interface PackagePurchase {
@@ -100,8 +121,12 @@ export interface Video {
   isLocked?: boolean;
   rewardEligible: boolean;
   rewardAmountCents: number;
+  baseRewardAmountCents?: number;
+  effectiveRewardCents?: number;
   rewardPercentageBps?: number | null;
   userVideoLimit?: number;
+  cycleKey?: string;
+  cycleEndsAt?: string;
   assignedUserId?: string | null;
   assignedUser?: {
     id: string;
@@ -125,12 +150,36 @@ export interface Video {
 export interface WalletSummary {
   USD: {
     availableCents: number;
+    subscriptionCreditCents?: number;
     reservedCents: number;
     referralCents: number;
     videoRewardsCents: number;
     otherRewardsCents: number;
+    earningsTotalCents?: number;
     totalCents: number;
   };
+}
+
+export interface LiveActivityPopupItem {
+  id: string;
+  eventType: string;
+  amountText: string;
+  timeText: string;
+  isActive: boolean;
+  orderIndex: number;
+}
+
+export interface AdminDirectMessageItem {
+  id: string;
+  senderId: string;
+  recipientId: string;
+  subject: string;
+  message: string;
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+  isRead: boolean;
+  createdAt: string;
+  sender?: { id: string; fullName: string; role: string };
 }
 
 export interface NotificationItem {

@@ -82,6 +82,8 @@ export function formatPayoutMethod(code?: string | null): string {
   switch ((code || '').toUpperCase()) {
     case 'CRYPTO_USDT':
       return 'Crypto — USDT TRC-20';
+    case 'BINANCE':
+      return 'Binance Pay / UID';
     case 'USD_BANK_WIRE':
       return 'USD Bank Wire';
     case 'CRYPTO_BTC':
@@ -118,11 +120,11 @@ export function getInitials(name?: string | null): string {
 export function humanizeWalletName(accountType?: string | null): string {
   switch (accountType) {
     case 'USER_AVAILABLE':
-      return 'Main Account';
+      return 'Subscription Credit';
     case 'USER_VIDEO_REWARDS':
-      return 'Video Rewards';
+      return 'Video Ad Rewards';
     case 'USER_REFERRAL':
-      return 'Referral Wallet';
+      return 'Referral Earnings';
     case 'USER_RESERVED':
       return 'Withdrawal Hold';
     case 'USER_OTHER_REWARDS':
@@ -162,7 +164,7 @@ export function getTxMeta(type: string): TxMeta {
     case 'WITHDRAWAL_SETTLE':
       return { label: 'Withdrawal Completed', tone: 'success', category: 'withdrawal' };
     case 'WITHDRAWAL_RELEASE':
-      return { label: 'Withdrawal Returned', tone: 'neutral', category: 'withdrawal' };
+      return { label: 'Withdrawal Rejected', tone: 'error', category: 'withdrawal' };
     case 'ADMIN_ADJUSTMENT':
       return { label: 'Account Adjustment', tone: 'neutral', category: 'adjustment' };
     default:
@@ -274,11 +276,12 @@ export function groupLedgerEntries(entries: LedgerEntryItem[]): HumanActivityRow
     // Clean any raw account codes from descriptions
     const rawDesc = primary.transaction?.description || meta.label;
     const cleanDesc = rawDesc
-      .replace(/USER_AVAILABLE/g, 'Main Account')
-      .replace(/USER_VIDEO_REWARDS/g, 'Video Rewards')
-      .replace(/USER_REFERRAL/g, 'Referral Wallet')
+      .replace(/USER_AVAILABLE/g, 'Subscription Credit')
+      .replace(/USER_VIDEO_REWARDS/g, 'Video Ad Rewards')
+      .replace(/USER_REFERRAL/g, 'Referral Earnings')
       .replace(/USER_RESERVED/g, 'Withdrawal Hold')
       .replace(/CRYPTO_USDT/g, 'USDT TRC-20')
+      .replace(/BINANCE/g, 'Binance Pay')
       .replace(/USD_BANK_WIRE/g, 'USD Bank Wire')
       .replace(/VistaraX/gi, 'U-Ads');
 

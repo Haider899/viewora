@@ -388,21 +388,41 @@ export const AdminReferralsConfigTab: React.FC<ExtraTabProps> = ({ onSuccess, on
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Position Rates */}
+        {/* Position Rates & Total Referral Limit (Part 3 #5) */}
         <div className="lg:col-span-5 p-6 rounded-2xl bg-white border border-slate-200 space-y-4">
           <h3 className="text-sm font-bold text-slate-900">Commission Rates (First Transaction Only)</h3>
-          <div>
-            <label className="block text-[11px] font-bold text-slate-600 mb-1">
-              Minimum Qualifying Transaction (USD)
-            </label>
-            <input
-              type="number"
-              min="1"
-              value={config.minQualifyingUSD ?? 20}
-              onChange={(e) => setConfig({ ...config, minQualifyingUSD: parseFloat(e.target.value) || 20 })}
-              className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                Minimum Qualifying Transaction (USD)
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={config.minQualifyingUSD ?? 20}
+                onChange={(e) => setConfig({ ...config, minQualifyingUSD: parseFloat(e.target.value) || 20 })}
+                className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                Total Referral Limit (0 = Unlimited)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={config.maxCommissionReferrals ?? 0}
+                onChange={(e) =>
+                  setConfig({ ...config, maxCommissionReferrals: Math.max(0, parseInt(e.target.value, 10) || 0) })
+                }
+                placeholder="e.g. 2 or 3 (0 = unlimited)"
+                className="w-full px-3 py-2 rounded-xl bg-amber-50 border border-amber-300 text-xs font-mono font-bold text-amber-900"
+              />
+            </div>
           </div>
+          <p className="text-[10px] text-slate-500">
+            Set Total Referral Limit to cap how many referrals earn commission per member (e.g., 2 or 3). Leave 0 for unlimited.
+          </p>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {[
@@ -688,9 +708,9 @@ export const AdminBonusesConfigTab: React.FC<ExtraTabProps> = ({ onSuccess, onEr
           </button>
         </div>
 
-        {/* Category 2: Video Completion Rewards & Pool */}
+        {/* Category 2: Unified Ad Reward Percentage Structure (Part 3 #2) */}
         <div className="p-5 rounded-2xl bg-white border border-slate-200 space-y-3.5 text-xs">
-          <h3 className="text-sm font-bold text-slate-900">2. Video Completion Rewards</h3>
+          <h3 className="text-sm font-bold text-slate-900">2. Unified Ad Reward % Structure</h3>
           <label className="flex items-center gap-2 font-semibold text-slate-700">
             <input
               type="checkbox"
@@ -702,11 +722,11 @@ export const AdminBonusesConfigTab: React.FC<ExtraTabProps> = ({ onSuccess, onEr
                 })
               }
             />
-            Auto-Credit on 100% Playback
+            Auto-Credit on 100% Playback (8:00 PM Cycle)
           </label>
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block font-bold text-slate-600 mb-1">Default Reward ($)</label>
+              <label className="block font-bold text-slate-600 mb-1">Base Ad Reward ($)</label>
               <input
                 type="number"
                 step="0.01"
@@ -724,42 +744,61 @@ export const AdminBonusesConfigTab: React.FC<ExtraTabProps> = ({ onSuccess, onEr
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-600 mb-1">Video Pool ($ USD)</label>
+              <label className="block font-bold text-slate-600 mb-1">All-Videos Global (%)</label>
               <input
                 type="number"
-                value={settings.videoBonus?.rewardPoolUSD ?? 25000}
+                min="1"
+                max="1000"
+                value={settings.videoBonus?.globalPercent ?? 100}
                 onChange={(e) =>
                   setSettings({
                     ...settings,
-                    videoBonus: { ...settings.videoBonus, rewardPoolUSD: parseFloat(e.target.value) || 0 },
+                    videoBonus: { ...settings.videoBonus, globalPercent: parseFloat(e.target.value) || 100 },
                   })
                 }
-                className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-mono font-bold"
+                className="w-full px-3 py-2 rounded-xl bg-orange-50 border border-orange-200 font-mono font-bold text-orange-900"
               />
             </div>
           </div>
           <div>
-            <label className="block font-bold text-slate-600 mb-1">Level Distribution Weights (%)</label>
+            <label className="block font-bold text-slate-600 mb-1">Per-Level Ad Reward Percentage (%)</label>
             <div className="grid grid-cols-5 gap-1.5">
-              {(['levelWeightL1', 'levelWeightL2', 'levelWeightL3', 'levelWeightL4', 'levelWeightL5'] as const).map(
-                (wk, i) => (
-                  <div key={wk} className="text-center">
-                    <span className="text-[9px] font-bold text-slate-400">L{i + 1}</span>
+              {(['LEVEL_1', 'LEVEL_2', 'LEVEL_3', 'LEVEL_4', 'LEVEL_5'] as const).map(
+                (lk, i) => (
+                  <div key={lk} className="text-center">
+                    <span className="text-[9px] font-bold text-slate-500">L{i + 1}</span>
                     <input
                       type="number"
-                      value={settings.videoBonus?.[wk] ?? 100}
+                      min="1"
+                      max="1000"
+                      value={settings.videoBonus?.levelPercentages?.[lk] ?? [100, 125, 150, 200, 250][i]}
                       onChange={(e) =>
                         setSettings({
                           ...settings,
-                          videoBonus: { ...settings.videoBonus, [wk]: parseInt(e.target.value, 10) || 100 },
+                          videoBonus: {
+                            ...settings.videoBonus,
+                            levelPercentages: {
+                              ...(settings.videoBonus?.levelPercentages || {
+                                LEVEL_1: 100,
+                                LEVEL_2: 125,
+                                LEVEL_3: 150,
+                                LEVEL_4: 200,
+                                LEVEL_5: 250,
+                              }),
+                              [lk]: parseFloat(e.target.value) || 100,
+                            },
+                          },
                         })
                       }
-                      className="w-full px-1.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-center font-mono text-[11px]"
+                      className="w-full px-1.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-center font-mono text-[11px] font-bold"
                     />
                   </div>
                 )
               )}
             </div>
+            <p className="text-[10px] text-slate-400 mt-1.5 leading-snug">
+              Applied to each ad&apos;s standard reward (Base × Global% × Level%). Individual video % in Videos tab overrides for that single ad.
+            </p>
           </div>
         </div>
 
@@ -1942,6 +1981,254 @@ export const AdminSupportAgentsPanel: React.FC<ExtraTabProps> = ({ onSuccess, on
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+};
+
+/* =========================================================================
+   8. LIVE ACTIVITY POPUPS MANAGER (PART 2 #6 — 20 PRE-LOADED + FULL CRUD)
+   ========================================================================= */
+export const AdminLivePopupsTab: React.FC<ExtraTabProps> = ({ onSuccess, onError }) => {
+  const [items, setItems] = useState<any[]>([]);
+  const [settings, setSettings] = useState({ enabled: true, intervalSeconds: 6, durationSeconds: 5 });
+  const [loading, setLoading] = useState(true);
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  const [eventType, setEventType] = useState('Withdrawal Approved');
+  const [amountText, setAmountText] = useState('$50');
+  const [timeText, setTimeText] = useState('2 minutes ago');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [savingItem, setSavingItem] = useState(false);
+
+  const loadPopups = async () => {
+    setLoading(true);
+    try {
+      const res = await api.getAdminLivePopups();
+      if (res.success && res.data) {
+        setItems(res.data.items || []);
+        if (res.data.settings) setSettings(res.data.settings);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPopups();
+  }, []);
+
+  const handleSaveSettings = async () => {
+    setSavingSettings(true);
+    try {
+      const res = await api.updateLivePopupSettings(settings);
+      if (res.success) onSuccess('Live popup master settings saved!');
+      else onError(res.error?.message || 'Failed to save popup settings.');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleSaveItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!eventType.trim() || !amountText.trim() || !timeText.trim()) return;
+    setSavingItem(true);
+    try {
+      const res = editingId
+        ? await api.updateLivePopup(editingId, { eventType, amountText, timeText })
+        : await api.createLivePopup({ eventType, amountText, timeText, isActive: true });
+      if (res.success) {
+        onSuccess(editingId ? 'Popup entry updated.' : 'Popup entry added.');
+        setEditingId(null);
+        setEventType('Withdrawal Approved');
+        setAmountText('$50');
+        setTimeText('2 minutes ago');
+        loadPopups();
+      } else {
+        onError(res.error?.message || 'Failed to save popup entry.');
+      }
+    } finally {
+      setSavingItem(false);
+    }
+  };
+
+  const handleToggleItem = async (item: any) => {
+    const res = await api.updateLivePopup(item.id, { isActive: !item.isActive });
+    if (res.success) {
+      loadPopups();
+    }
+  };
+
+  const handleDeleteItem = async (id: string) => {
+    const res = await api.deleteLivePopup(id);
+    if (res.success) {
+      onSuccess('Popup entry deleted.');
+      loadPopups();
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Master Controls */}
+      <div className="p-6 rounded-2xl bg-white border border-slate-200 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-extrabold text-slate-900">
+              Live Activity Popups Manager ({items.length} entries)
+            </h2>
+            <p className="text-xs text-slate-500">
+              Controls the smooth bottom-left rising popups shown on the member dashboard. Entries rotate randomly in a loop.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveSettings}
+            disabled={savingSettings}
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+          >
+            <Save className="w-4 h-4" />
+            {savingSettings ? 'Saving…' : 'Save Master Settings'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+          <label className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between cursor-pointer">
+            <span className="font-bold text-slate-800">Master On / Off Switch</span>
+            <input
+              type="checkbox"
+              checked={settings.enabled}
+              onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })}
+              className="w-4 h-4"
+            />
+          </label>
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+            <span className="font-bold text-slate-700">Interval (seconds)</span>
+            <input
+              type="number"
+              min="2"
+              max="60"
+              value={settings.intervalSeconds}
+              onChange={(e) => setSettings({ ...settings, intervalSeconds: parseInt(e.target.value, 10) || 6 })}
+              className="w-20 px-2 py-1 rounded-lg bg-white border border-slate-300 font-mono font-bold text-center"
+            />
+          </div>
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+            <span className="font-bold text-slate-700">Display Duration (sec)</span>
+            <input
+              type="number"
+              min="2"
+              max="20"
+              value={settings.durationSeconds}
+              onChange={(e) => setSettings({ ...settings, durationSeconds: parseInt(e.target.value, 10) || 5 })}
+              className="w-20 px-2 py-1 rounded-lg bg-white border border-slate-300 font-mono font-bold text-center"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Add / Edit Entry Form */}
+      <form onSubmit={handleSaveItem} className="p-5 rounded-2xl bg-white border border-slate-200 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+        <input
+          value={eventType}
+          onChange={(e) => setEventType(e.target.value)}
+          placeholder="Type (e.g. Withdrawal Approved)"
+          required
+          className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-semibold"
+        />
+        <input
+          value={amountText}
+          onChange={(e) => setAmountText(e.target.value)}
+          placeholder="Amount (e.g. $50)"
+          required
+          className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-mono font-bold"
+        />
+        <input
+          value={timeText}
+          onChange={(e) => setTimeText(e.target.value)}
+          placeholder="Time text (e.g. 2 minutes ago)"
+          required
+          className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200"
+        />
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={savingItem}
+            className="flex-1 px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold cursor-pointer"
+          >
+            {savingItem ? 'Saving…' : editingId ? 'Update Entry' : '+ Add Entry'}
+          </button>
+          {editingId && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingId(null);
+                setEventType('Withdrawal Approved');
+                setAmountText('$50');
+                setTimeText('2 minutes ago');
+              }}
+              className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 font-bold cursor-pointer"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      </form>
+
+      {/* Entries List */}
+      <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
+        {loading ? (
+          <div className="p-10 text-center text-xs text-slate-400">Loading live activity popups…</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {items.map((item) => (
+              <div key={item.id} className="px-5 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                      item.isActive
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-slate-100 text-slate-500 border-slate-200'
+                    }`}
+                  >
+                    {item.isActive ? 'Enabled' : 'Disabled'}
+                  </span>
+                  <span className="font-bold text-slate-900">
+                    {item.eventType} — <span className="text-orange-600">{item.amountText}</span> —{' '}
+                    <span className="text-slate-500 font-normal">{item.timeText}</span>
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleItem(item)}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] cursor-pointer"
+                  >
+                    {item.isActive ? 'Disable' : 'Enable'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingId(item.id);
+                      setEventType(item.eventType);
+                      setAmountText(item.amountText);
+                      setTimeText(item.timeText);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] cursor-pointer"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteItem(item.id)}
+                    className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[11px] cursor-pointer"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -19,7 +19,9 @@ import { ProfilePage } from './ProfilePage.js';
 import { SettingsPage } from './SettingsPage.js';
 import { SupportPage } from './SupportPage.js';
 import { SupportChatWidget } from '../components/SupportChatWidget.js';
+import { LiveActivityPopups } from '../components/LiveActivityPopups.js';
 import { useToast } from '../components/ToastProvider.js';
+import { AdminDirectMessageItem } from '../types/index.js';
 import {
   formatUSD,
   formatAccountLevelLabel,
@@ -65,18 +67,18 @@ type UserTab =
   | 'notifications';
 
 const PAGE_TITLES: Record<UserTab, { title: string; subtitle: string }> = {
-  overview: { title: 'Dashboard', subtitle: 'Your USD wallets and recent activity' },
-  videos: { title: 'Videos', subtitle: 'Watch verified campaigns to earn automatic USD rewards' },
-  player: { title: 'Campaign Player', subtitle: 'Full-duration verified playback' },
-  packages: { title: 'Packages', subtitle: 'Unlock expanded campaign access in USD' },
-  deposit: { title: 'Deposit', subtitle: 'Add USD funds to your Main Account' },
-  withdrawal: { title: 'Withdraw', subtitle: 'Request a payout to Crypto or Bank Wire' },
+  overview: { title: 'Dashboard', subtitle: 'Your earnings, packages, and daily ads' },
+  videos: { title: 'Ads', subtitle: 'Watch verified ads to earn your 95% ad-revenue share' },
+  player: { title: 'Ad Player', subtitle: 'Full-duration verified playback' },
+  packages: { title: 'Packages', subtitle: 'Lifetime subscriptions — bigger packages earn more per ad' },
+  deposit: { title: 'Deposit', subtitle: 'Add USD subscription credit to activate or upgrade a package' },
+  withdrawal: { title: 'Withdraw', subtitle: 'Withdraw your earned rewards to USDT, Binance, or Bank Wire' },
   transactions: { title: 'Transactions', subtitle: 'Complete USD activity and double-entry records' },
   referrals: { title: 'Referrals', subtitle: 'Commissions, ranks, and invitation network' },
   support: { title: 'Support', subtitle: '24/7 account help and live specialists' },
   profile: { title: 'Profile', subtitle: 'Personal details, Member ID, and account standing' },
   settings: { title: 'Settings', subtitle: 'Password, notifications, and active session' },
-  notifications: { title: 'Notifications', subtitle: 'All updates across your U-Ads account' },
+  notifications: { title: 'Notifications', subtitle: 'Alerts and direct messages from U-Ads Administration' },
 };
 
 export const UserDashboardPage: React.FC = () => {
@@ -85,13 +87,16 @@ export const UserDashboardPage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<UserTab>('overview');
   const [activePlayerVideoId, setActivePlayerVideoId] = useState<string | null>(null);
+  const [packagesAutoSelectTier, setPackagesAutoSelectTier] = useState<string | null>(null);
 
   // Live Referral Rank summary (for sidebar card, avatar menu, and dashboard)
   const [referralRank, setReferralRank] = useState<string>('New');
   const [qualifiedReferrals, setQualifiedReferrals] = useState<number>(0);
 
-  // Notifications
+  // Notifications + Admin Direct Messages (Part 6 #2)
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [directMessages, setDirectMessages] = useState<AdminDirectMessageItem[]>([]);
+  const [viewingDirectMsg, setViewingDirectMsg] = useState<AdminDirectMessageItem | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Top bar dropdowns (only one open at a time)
@@ -124,16 +129,25 @@ export const UserDashboardPage: React.FC = () => {
 
   const loadNotifications = async () => {
     try {
-      const res = await api.getNotifications(1, 50);
+      const [res, dmRes] = await Promise.all([
+        api.getNotifications(1, 50),
+        api.getMyDirectMessages().catch(() => ({ success: false, data: [] })),
+      ]);
+      let notifUnread = 0;
       if (res.success && res.data) {
         const list = res.data.notifications || res.data.items || (Array.isArray(res.data) ? res.data : []);
         setNotifications(list);
-        const trueUnread =
+        notifUnread =
           typeof res.data.unreadCount === 'number'
             ? res.data.unreadCount
             : list.filter((n: NotificationItem) => !n.isRead).length;
-        setUnreadCount(trueUnread);
       }
+      let dmUnread = 0;
+      if (dmRes.success && Array.isArray(dmRes.data)) {
+        setDirectMessages(dmRes.data);
+        dmUnread = dmRes.data.filter((m: AdminDirectMessageItem) => !m.isRead).length;
+      }
+      setUnreadCount(notifUnread + dmUnread);
     } catch {
       // silent
     }
@@ -178,11 +192,13 @@ export const UserDashboardPage: React.FC = () => {
     if (target === 'player' && state?.videoId) {
       setActivePlayerVideoId(state.videoId);
       setActiveTab('player');
+    } else if (target === 'packages') {
+      setPackagesAutoSelectTier(state?.autoSelectTier || null);
+      setActiveTab('packages');
     } else if (
       [
         'overview',
         'videos',
-        'packages',
         'deposit',
         'withdrawal',
         'transactions',
@@ -193,9 +209,11 @@ export const UserDashboardPage: React.FC = () => {
         'notifications',
       ].includes(target)
     ) {
+      setPackagesAutoSelectTier(null);
       setActiveTab(target as UserTab);
       if (target === 'overview') refreshUser();
     } else if (target === 'wallet') {
+      setPackagesAutoSelectTier(null);
       setActiveTab('overview');
       refreshUser();
     }
@@ -219,12 +237,11 @@ export const UserDashboardPage: React.FC = () => {
     setTimeout(() => setCopiedId(false), 1800);
   };
 
-  const mainCents = wallet?.USD?.availableCents ?? 0;
+  // Part 1 Rule 3: ONLY show earned balances (Video Ad Rewards + Referral + Bonuses) — NEVER paid-in deposit money!
   const videoCents = wallet?.USD?.videoRewardsCents ?? 0;
   const referralCents = wallet?.USD?.referralCents ?? 0;
   const otherCents = wallet?.USD?.otherRewardsCents ?? 0;
-  const totalCombinedCents = mainCents + videoCents + referralCents + otherCents;
-  // Issue #6: Use authoritative backend qualifying-volume levelProgress (identical across Sidebar, Dashboard & Profile!)
+  const totalEarningsCents = videoCents + referralCents + otherCents;
   const levelProgress = user?.levelProgress
     ? {
         currentLabel: user.levelProgress.currentLevelName,
@@ -245,7 +262,7 @@ export const UserDashboardPage: React.FC = () => {
     {
       label: 'Earn',
       items: [
-        { id: 'videos', label: 'Videos', icon: <PlaySquare className="w-4 h-4" /> },
+        { id: 'videos', label: 'Ads', icon: <PlaySquare className="w-4 h-4" /> },
         { id: 'packages', label: 'Packages', icon: <Layers className="w-4 h-4" /> },
       ],
     },
@@ -288,11 +305,11 @@ export const UserDashboardPage: React.FC = () => {
           onClick={() => navigateInternal('overview')}
           className="h-[60px] px-4 xl:px-5 border-b border-slate-100 flex items-center justify-center xl:justify-start gap-2.5 cursor-pointer group shrink-0"
         >
-          <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center shadow-xs group-hover:bg-emerald-700 transition-colors shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shadow-xs group-hover:from-orange-600 group-hover:to-amber-600 transition-colors shrink-0">
             <PlaySquare className="w-5 h-5 text-white stroke-[2.3]" />
           </div>
           <span className="hidden xl:inline text-lg font-extrabold tracking-tight text-slate-900">
-            U-<span className="text-emerald-600">Ads</span>
+            U-<span className="text-orange-600">ADS</span>
           </span>
         </button>
 
@@ -314,14 +331,14 @@ export const UserDashboardPage: React.FC = () => {
                     title={item.label}
                     className={`w-full relative flex items-center justify-center xl:justify-start gap-3 px-2.5 xl:px-3 h-10 rounded-[10px] text-xs font-bold transition-all duration-150 cursor-pointer ${
                       isActive
-                        ? 'bg-emerald-50 text-emerald-700'
+                        ? 'bg-orange-50 text-orange-700'
                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                     }`}
                   >
                     {isActive && (
-                      <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-emerald-600" />
+                      <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-orange-500" />
                     )}
-                    <span className={isActive ? 'text-emerald-600' : 'text-slate-400'}>
+                    <span className={isActive ? 'text-orange-600' : 'text-slate-400'}>
                       {item.icon}
                     </span>
                     <span className="hidden xl:inline truncate">{item.label}</span>
@@ -332,29 +349,29 @@ export const UserDashboardPage: React.FC = () => {
           ))}
         </nav>
 
-        {/* Pinned Bottom Level Progress Card (Motivation on every page without cluttering header) */}
+        {/* Pinned Bottom Level Progress Card */}
         <div className="p-3 border-t border-slate-100 shrink-0">
           <button
             type="button"
             onClick={() => navigateInternal('profile')}
             title={`${formatAccountLevelLabel(user?.accountLevel)} · ${referralRank} Rank`}
-            className="w-full p-2.5 xl:p-3.5 rounded-xl bg-slate-50 hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-200 text-left transition-all cursor-pointer space-y-2"
+            className="w-full p-2.5 xl:p-3.5 rounded-xl bg-orange-50/50 hover:bg-orange-50 border border-orange-200/70 text-left transition-all cursor-pointer space-y-2"
           >
             <div className="flex items-center justify-center xl:justify-between gap-2">
               <div className="flex items-center gap-1.5 min-w-0">
-                <Award className="w-4 h-4 text-emerald-600 shrink-0" />
+                <Award className="w-4 h-4 text-orange-600 shrink-0" />
                 <span className="hidden xl:inline text-xs font-extrabold text-slate-900 truncate">
                   {formatAccountLevelLabel(user?.accountLevel)}
                 </span>
               </div>
-              <span className="hidden xl:inline text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 shrink-0">
+              <span className="hidden xl:inline text-[10px] font-bold text-orange-700 bg-white px-1.5 py-0.5 rounded border border-orange-200 shrink-0">
                 {referralRank}
               </span>
             </div>
             <div className="hidden xl:block space-y-1">
-              <div className="w-full h-1.5 rounded-full bg-slate-200 overflow-hidden">
+              <div className="w-full h-1.5 rounded-full bg-orange-100 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-emerald-600 transition-all duration-300"
+                  className="h-full rounded-full bg-orange-500 transition-all duration-300"
                   style={{ width: `${levelProgress.percent}%` }}
                 />
               </div>
@@ -396,18 +413,18 @@ export const UserDashboardPage: React.FC = () => {
 
           {/* Right: Combined Balance Dropdown · Bell · Avatar Menu */}
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-            {/* 1. Combined Total Balance Dropdown (All 3 Wallets inside) */}
+            {/* 1. Earnings-Only Balance Dropdown (Rule 3: NEVER includes paid-in deposit money!) */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setOpenMenu(openMenu === 'balance' ? 'none' : 'balance')}
                 className={`h-9 px-3 rounded-[10px] border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                   openMenu === 'balance'
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                    ? 'bg-orange-50 border-orange-300 text-orange-800'
                     : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-900'
                 }`}
               >
-                <span className="tabular-nums font-extrabold">{formatUSD(totalCombinedCents)}</span>
+                <span className="tabular-nums font-extrabold">{formatUSD(totalEarningsCents)}</span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${
                     openMenu === 'balance' ? 'rotate-180' : ''
@@ -417,31 +434,25 @@ export const UserDashboardPage: React.FC = () => {
 
               {openMenu === 'balance' && (
                 <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl border border-slate-200 shadow-xl z-50 overflow-hidden animate-dropdown-in">
-                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
-                    <div className="text-[11px] font-semibold text-slate-500">Total USD Balance</div>
+                  <div className="px-4 py-3 bg-orange-50/60 border-b border-orange-100">
+                    <div className="text-[11px] font-semibold text-orange-800">Total Withdrawable Earnings</div>
                     <div className="text-lg font-extrabold text-slate-900 tabular-nums">
-                      {formatUSD(totalCombinedCents)}
+                      {formatUSD(totalEarningsCents)}
                     </div>
                   </div>
                   <div className="p-3 space-y-2 text-xs">
                     <div className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50">
-                      <span className="text-slate-600 font-medium">Main Account</span>
-                      <span className="font-bold text-slate-900 tabular-nums">{formatUSD(mainCents)}</span>
-                    </div>
-                    <div className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50">
-                      <span className="text-slate-600 font-medium">Video Rewards</span>
+                      <span className="text-slate-600 font-medium">Video Ad Rewards</span>
                       <span className="font-bold text-emerald-700 tabular-nums">{formatUSD(videoCents)}</span>
                     </div>
                     <div className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50">
-                      <span className="text-slate-600 font-medium">Referral Wallet</span>
+                      <span className="text-slate-600 font-medium">Referral Earnings</span>
                       <span className="font-bold text-emerald-700 tabular-nums">{formatUSD(referralCents)}</span>
                     </div>
-                    {otherCents > 0 && (
-                      <div className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50">
-                        <span className="text-slate-600 font-medium">Bonus Rewards</span>
-                        <span className="font-bold text-emerald-700 tabular-nums">{formatUSD(otherCents)}</span>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50">
+                      <span className="text-slate-600 font-medium">Bonuses</span>
+                      <span className="font-bold text-emerald-700 tabular-nums">{formatUSD(otherCents)}</span>
+                    </div>
                   </div>
                   <div className="p-3 pt-0 grid grid-cols-2 gap-2">
                     <button
@@ -507,7 +518,46 @@ export const UserDashboardPage: React.FC = () => {
                   </div>
 
                   <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
-                    {notifications.length === 0 ? (
+                    {/* Admin Direct Messages (Part 6 #2) */}
+                    {directMessages.length > 0 && (
+                      <div className="bg-orange-50/40">
+                        <div className="px-4 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-orange-700 border-b border-orange-100">
+                          Messages from U-Ads Administration
+                        </div>
+                        {directMessages.slice(0, 4).map((dm) => (
+                          <button
+                            key={dm.id}
+                            type="button"
+                            onClick={async () => {
+                              setOpenMenu('none');
+                              setViewingDirectMsg(dm);
+                              if (!dm.isRead) {
+                                await api.markDirectMessageRead(dm.id).catch(() => {});
+                                loadNotifications();
+                              }
+                            }}
+                            className={`w-full text-left px-4 py-3 flex items-start gap-3 transition-colors cursor-pointer ${
+                              dm.isRead ? 'bg-white hover:bg-slate-50' : 'bg-orange-50/70 hover:bg-orange-100/60'
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0 space-y-0.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-extrabold text-slate-900 truncate">
+                                  📩 {dm.subject}
+                                </span>
+                                {!dm.isRead && <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0" />}
+                              </div>
+                              <p className="text-[11px] text-slate-600 line-clamp-2">{dm.message}</p>
+                              <div className="text-[10px] text-slate-400">
+                                {dm.attachmentUrl ? '📎 Screenshot attached · ' : ''}
+                                {formatRelativeTime(dm.createdAt)}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {notifications.length === 0 && directMessages.length === 0 ? (
                       <div className="p-8 text-center text-xs text-slate-400">
                         No notifications yet.
                       </div>
@@ -677,7 +727,11 @@ export const UserDashboardPage: React.FC = () => {
           )}
           {activeTab === 'packages' && (
             <div className="animate-page-in">
-              <PackagesPage navigate={navigateInternal} />
+              <PackagesPage
+                navigate={navigateInternal}
+                autoSelectTier={packagesAutoSelectTier}
+                onAutoSelectHandled={() => setPackagesAutoSelectTier(null)}
+              />
             </div>
           )}
           {activeTab === 'deposit' && (
@@ -733,11 +787,11 @@ export const UserDashboardPage: React.FC = () => {
         </footer>
       </div>
 
-      {/* MOBILE FIXED BOTTOM NAVIGATION BAR (5 items, Deposit center emphasized, ≥44px touch targets) */}
+      {/* MOBILE FIXED BOTTOM NAVIGATION BAR (5 items: Home, Ads, Deposit, Referrals, Profile) */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 h-16 grid grid-cols-5 items-center">
         {[
           { id: 'overview' as UserTab, label: 'Home', icon: <LayoutDashboard className="w-5 h-5" /> },
-          { id: 'videos' as UserTab, label: 'Videos', icon: <PlaySquare className="w-5 h-5" /> },
+          { id: 'videos' as UserTab, label: 'Ads', icon: <PlaySquare className="w-5 h-5" /> },
           { id: 'deposit' as UserTab, label: 'Deposit', icon: <ArrowDownLeft className="w-5 h-5" />, center: true },
           { id: 'referrals' as UserTab, label: 'Referrals', icon: <Users className="w-5 h-5" /> },
           { id: 'profile' as UserTab, label: 'Profile', icon: <UserIcon className="w-5 h-5" /> },
@@ -752,10 +806,10 @@ export const UserDashboardPage: React.FC = () => {
                 onClick={() => navigateInternal(item.id)}
                 className="flex flex-col items-center justify-center -mt-4 cursor-pointer"
               >
-                <span className="w-12 h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/30 flex items-center justify-center transition-transform active:scale-95">
+                <span className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-amber-600 text-white shadow-md shadow-orange-500/30 flex items-center justify-center transition-transform active:scale-95">
                   {item.icon}
                 </span>
-                <span className="text-[10px] font-bold text-emerald-700 mt-0.5">{item.label}</span>
+                <span className="text-[10px] font-bold text-orange-600 mt-0.5">{item.label}</span>
               </button>
             );
           }
@@ -765,7 +819,7 @@ export const UserDashboardPage: React.FC = () => {
               type="button"
               onClick={() => navigateInternal(item.id)}
               className={`min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold transition-colors cursor-pointer ${
-                isActive ? 'text-emerald-600' : 'text-slate-500'
+                isActive ? 'text-orange-600' : 'text-slate-500'
               }`}
             >
               {item.icon}
@@ -774,6 +828,64 @@ export const UserDashboardPage: React.FC = () => {
           );
         })}
       </nav>
+
+      {/* Live Activity Popups — Smooth bottom-left rising & fading continuous loop (Part 2 #6) */}
+      <LiveActivityPopups />
+
+      {/* Admin Direct Message Viewer Modal with Screenshot Lightbox (Part 6 #2) */}
+      {viewingDirectMsg && (
+        <div
+          onClick={() => setViewingDirectMsg(null)}
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-md w-full border border-orange-200 p-6 space-y-4 shadow-2xl animate-modal-in"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-orange-600">
+                  Direct Message from U-Ads Admin
+                </div>
+                <h3 className="text-base font-extrabold text-slate-900 mt-0.5">
+                  {viewingDirectMsg.subject}
+                </h3>
+                <div className="text-[11px] text-slate-500">
+                  {viewingDirectMsg.sender?.fullName || 'Administration'} ·{' '}
+                  {formatRelativeTime(viewingDirectMsg.createdAt)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingDirectMsg(null)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 whitespace-pre-line leading-relaxed">
+              {viewingDirectMsg.message}
+            </div>
+            {viewingDirectMsg.attachmentUrl && (
+              <div className="space-y-1.5">
+                <div className="text-[11px] font-bold text-slate-600">Attached Screenshot:</div>
+                <img
+                  src={viewingDirectMsg.attachmentUrl}
+                  alt={viewingDirectMsg.attachmentName || 'Admin Attachment'}
+                  className="w-full max-h-64 object-contain rounded-xl border border-slate-200 bg-slate-50"
+                />
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setViewingDirectMsg(null)}
+              className="btn-primary w-full"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Confirmed Sign Out Modal (onMouseDown stopPropagation ensures first-click always fires cleanly #17f) */}
       {signOutConfirmOpen && (

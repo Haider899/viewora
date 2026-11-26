@@ -11,6 +11,7 @@ import supportRoutes from './support.routes.js';
 import notificationRoutes from './notification.routes.js';
 import { CompanyDocumentService } from '../services/companyDocument.service.js';
 import { AdminService } from '../services/admin.service.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -40,6 +41,35 @@ router.get('/landing-content', async (req, res, next) => {
   try {
     const content = await AdminService.getLandingContent();
     res.json({ success: true, data: content });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Active Live Activity Popups (Member Homepage Left-Edge Loop)
+router.get('/live-popups', async (req, res, next) => {
+  try {
+    const data = await AdminService.getLivePopups(true);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Member Direct Messages from Admin (Proactive Admin Push + Screenshot)
+router.get('/messages', authenticate, async (req, res, next) => {
+  try {
+    const msgs = await AdminService.getDirectMessagesForUser(req.user!.userId);
+    res.json({ success: true, data: msgs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/messages/:id/read', authenticate, async (req, res, next) => {
+  try {
+    await AdminService.markDirectMessageRead(req.user!.userId, req.params.id);
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

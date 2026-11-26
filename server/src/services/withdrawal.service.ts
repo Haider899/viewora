@@ -5,8 +5,10 @@ import { AccountType, Currency, EntryType, LedgerTransactionType, WithdrawalStat
 
 export class WithdrawalService {
   /**
-   * User creates USD withdrawal request from Main Account, Video Rewards, or Referral Wallet.
-   * Atomically locks funds by transferring from selected wallet to USER_RESERVED via ledger hold.
+   * User creates USD withdrawal request STRICTLY from earned wallets
+   * (USER_VIDEO_REWARDS, USER_REFERRAL, USER_OTHER_REWARDS).
+   * Paid-in deposits / subscription funds (USER_AVAILABLE) are NEVER withdrawable (Part 1 Rule 3 & Part 3 #3).
+   * Atomically locks funds in USER_RESERVED and saves member's payout details for future withdrawals (Part 3 #8).
    */
   static async requestWithdrawal(userId: string, data: {
     amountCents: number;
@@ -28,11 +30,21 @@ export class WithdrawalService {
       };
     }
 
-    const validSources = ['USER_AVAILABLE', 'USER_VIDEO_REWARDS', 'USER_REFERRAL', 'USER_OTHER_REWARDS'];
+    // Rule 3 & Part 3 #3: Deposited / subscription money (USER_AVAILABLE) is NEVER withdrawable!
+    if (data.sourceWallet === 'USER_AVAILABLE') {
+      throw {
+        statusCode: 400,
+        code: 'DEPOSIT_NOT_WITHDRAWABLE',
+        message:
+          'Subscription deposits cannot be withdrawn. Only earned money (Video Ad Rewards, Referral Commissions, and Bonuses) can be withdrawn.',
+      };
+    }
+
+    const validEarnedSources = ['USER_VIDEO_REWARDS', 'USER_REFERRAL', 'USER_OTHER_REWARDS'];
     const sourceAccountType = (
-      data.sourceWallet && validSources.includes(data.sourceWallet)
+      data.sourceWallet && validEarnedSources.includes(data.sourceWallet)
         ? data.sourceWallet
-        : AccountType.USER_AVAILABLE
+        : AccountType.USER_VIDEO_REWARDS
     ) as AccountType;
 
     const created = await prisma.$transaction(async (tx) => {
@@ -47,7 +59,7 @@ export class WithdrawalService {
         throw {
           statusCode: 400,
           code: 'INSUFFICIENT_FUNDS',
-          message: `Insufficient funds in selected wallet. Required: $${(data.amountCents / 100).toFixed(2)} USD, Available: $${(sourceAccount.balanceCents / 100).toFixed(2)} USD.`,
+          message: `Insufficient earned funds in selected wallet. Required: $${(data.amountCents / 100).toFixed(2)} USD, Available: $${(sourceAccount.balanceCents / 100).toFixed(2)} USD.`,
         };
       }
 
@@ -81,14 +93,25 @@ export class WithdrawalService {
         tx
       );
 
+      // Save member's payout details so they never have to retype on future withdrawals (Part 3 #8)
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          savedPayoutMethod: data.payoutMethod,
+          savedAccountTitle: data.accountTitle.trim(),
+          savedAccountNumber: data.accountNumber.trim(),
+        },
+      });
+
       return await tx.withdrawalRequest.create({
         data: {
           userId,
           amountCents: data.amountCents,
           currency: cur,
           payoutMethod: data.payoutMethod,
-          accountTitle: data.accountTitle,
-          accountNumber: data.accountNumber,
+          sourceWallet: sourceAccountType,
+          accountTitle: data.accountTitle.trim(),
+          accountNumber: data.accountNumber.trim(),
           status: WithdrawalStatus.PENDING,
           holdLedgerTxId: holdLedgerTx.id,
         },
@@ -176,7 +199,13 @@ export class WithdrawalService {
       const targetStatus = action === 'FAILED' ? WithdrawalStatus.FAILED : WithdrawalStatus.REJECTED;
 
       const updated = await prisma.$transaction(async (tx) => {
-        const availableAccount = await LedgerService.getOrCreateAccount(tx, AccountType.USER_AVAILABLE, cur, withdrawal.userId);
+        // Release reserved funds back to the ORIGINAL earned source wallet (never trap earnings in non-withdrawable deposit account!)
+        const returnWalletType = (
+          ['USER_VIDEO_REWARDS', 'USER_REFERRAL', 'USER_OTHER_REWARDS'].includes((withdrawal as any).sourceWallet)
+            ? (withdrawal as any).sourceWallet
+            : AccountType.USER_VIDEO_REWARDS
+        ) as AccountType;
+        const returnAccount = await LedgerService.getOrCreateAccount(tx, returnWalletType, cur, withdrawal.userId);
         const reservedAccount = await LedgerService.getOrCreateAccount(tx, AccountType.USER_RESERVED, cur, withdrawal.userId);
 
         const releaseRef = `WDR-REL-${withdrawal.id.slice(0, 8)}-${Date.now()}`;
@@ -194,7 +223,7 @@ export class WithdrawalService {
                 amountCents: withdrawal.amountCents,
               },
               {
-                accountId: availableAccount.id,
+                accountId: returnAccount.id,
                 entryType: EntryType.CREDIT,
                 amountCents: withdrawal.amountCents,
               },

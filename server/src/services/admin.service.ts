@@ -5,6 +5,7 @@ import { NotificationService } from './notification.service.js';
 import {
   DEFAULT_BONUS_SETTINGS,
   DEFAULT_LANDING_CONTENT,
+  DEFAULT_LIVE_POPUP_SETTINGS,
 } from './bootstrap.service.js';
 import {
   AccountType,
@@ -180,10 +181,27 @@ export class AdminService {
   }
 
   /**
-   * Issues #18 & #19: Group accounts by IP address showing online/status/restriction details
+   * Part 6 #1: Unified Users View Grouped by Actual IP Address
+   * - Online users ALWAYS appear at the top.
+   * - Users sharing a real IP address are grouped together with the ACTUAL IP shown.
+   * - Users without a recorded IP are NOT lumped into one giant fake group; each stands individually.
+   * - Every user line includes name, memberCode, totalBalanceCents, activePackageName, accountLevel, isOnline, lastSeenAt, status & restriction.
    */
-  static async getIpGroups() {
+  static async getIpGroups(search?: string) {
+    const where: any = {};
+    if (search && search.trim()) {
+      const q = search.trim();
+      where.OR = [
+        { fullName: { contains: q } },
+        { email: { contains: q } },
+        { memberCode: { contains: q } },
+        { lastLoginIp: { contains: q } },
+        { registrationIp: { contains: q } },
+      ];
+    }
+
     const users = await prisma.user.findMany({
+      where,
       select: {
         id: true,
         memberCode: true,
@@ -197,6 +215,16 @@ export class AdminService {
         lastLoginIp: true,
         lastSeenAt: true,
         createdAt: true,
+        packagePurchases: {
+          where: { status: 'ACTIVE' },
+          orderBy: { purchasedAt: 'desc' },
+          take: 1,
+          select: { packageName: true, priceCentsPaid: true },
+        },
+        walletAccounts: {
+          where: { currency: 'USD' },
+          select: { accountType: true, balanceCents: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -204,13 +232,15 @@ export class AdminService {
     const nowMs = Date.now();
     const ONLINE_WINDOW_MS = 5 * 60 * 1000;
     const byIp = new Map<string, any[]>();
+    const unrecordedGroups: any[] = [];
 
     for (const u of users) {
-      const ip = u.lastLoginIp || u.registrationIp || 'Not Recorded';
+      const rawIp = (u.lastLoginIp || u.registrationIp || '').trim();
       const lastSeenMs = u.lastSeenAt ? u.lastSeenAt.getTime() : 0;
       const isOnline = lastSeenMs > 0 && nowMs - lastSeenMs <= ONLINE_WINDOW_MS;
       const isLocked = Boolean(u.accountLockedUntil && u.accountLockedUntil.getTime() > nowMs);
       const isSuspended = u.status === 'SUSPENDED';
+      const isRestricted = isSuspended || isLocked;
 
       const restriction = isSuspended
         ? 'Suspended'
@@ -218,44 +248,92 @@ export class AdminService {
         ? `Locked until ${u.accountLockedUntil!.toISOString().slice(0, 10)}`
         : null;
 
-      if (!byIp.has(ip)) byIp.set(ip, []);
-      byIp.get(ip)!.push({
+      let earningsCents = 0;
+      let totalBalanceCents = 0;
+      for (const acc of u.walletAccounts) {
+        if (['USER_VIDEO_REWARDS', 'USER_REFERRAL', 'USER_OTHER_REWARDS'].includes(acc.accountType)) {
+          earningsCents += acc.balanceCents;
+        }
+        if (
+          ['USER_AVAILABLE', 'USER_VIDEO_REWARDS', 'USER_REFERRAL', 'USER_OTHER_REWARDS', 'USER_RESERVED'].includes(
+            acc.accountType
+          )
+        ) {
+          totalBalanceCents += acc.balanceCents;
+        }
+      }
+
+      const accountObj = {
         id: u.id,
-        memberCode: u.memberCode,
+        memberCode: u.memberCode || `UID-${u.id.replace(/-/g, '').slice(0, 6).toUpperCase()}`,
         fullName: u.fullName,
         email: u.email,
         role: u.role,
         status: u.status,
         accountLevel: u.accountLevel,
+        activePackageName: u.packagePurchases[0]?.packageName || null,
+        earningsBalanceCents: earningsCents,
+        totalBalanceCents,
+        ipAddress: rawIp || null,
         isOnline,
         isLocked,
         isSuspended,
+        isRestricted,
         restriction,
         accountLockedUntil: u.accountLockedUntil,
         lastSeenAt: u.lastSeenAt,
         createdAt: u.createdAt,
-      });
+      };
+
+      if (rawIp) {
+        if (!byIp.has(rawIp)) byIp.set(rawIp, []);
+        byIp.get(rawIp)!.push(accountObj);
+      } else {
+        // Never lump unrecorded-IP users into one misleading group of 23!
+        unrecordedGroups.push({
+          ipAddress: 'No IP Recorded Yet',
+          ip: 'No IP Recorded Yet',
+          isUnrecorded: true,
+          accountCount: 1,
+          onlineCount: isOnline ? 1 : 0,
+          restrictedCount: isRestricted ? 1 : 0,
+          latestSeenMs: lastSeenMs,
+          accounts: [accountObj],
+        });
+      }
     }
 
-    const groups = Array.from(byIp.entries()).map(([ip, accounts]) => {
-      accounts.sort((a, b) => (a.isOnline === b.isOnline ? 0 : a.isOnline ? -1 : 1));
+    const recordedGroups = Array.from(byIp.entries()).map(([ip, accounts]) => {
+      accounts.sort((a, b) => {
+        if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+        const aSeen = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0;
+        const bSeen = b.lastSeenAt ? new Date(b.lastSeenAt).getTime() : 0;
+        return bSeen - aSeen;
+      });
+      const latestSeenMs = Math.max(0, ...accounts.map((a) => (a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0)));
       return {
+        ipAddress: ip,
         ip,
+        isUnrecorded: false,
         accountCount: accounts.length,
         onlineCount: accounts.filter((a) => a.isOnline).length,
-        restrictedCount: accounts.filter((a) => a.isSuspended || a.isLocked).length,
+        restrictedCount: accounts.filter((a) => a.isRestricted).length,
+        latestSeenMs,
         accounts,
       };
     });
 
-    groups.sort((a, b) => {
-      if (a.ip === 'Not Recorded' && b.ip !== 'Not Recorded') return 1;
-      if (b.ip === 'Not Recorded' && a.ip !== 'Not Recorded') return -1;
-      if (b.accountCount !== a.accountCount) return b.accountCount - a.accountCount;
-      return b.onlineCount - a.onlineCount;
+    const allGroups = [...recordedGroups, ...unrecordedGroups];
+    // Online users ALWAYS at the top, then shared-IP groups, then most recently active
+    allGroups.sort((a, b) => {
+      if ((a.onlineCount > 0) !== (b.onlineCount > 0)) return a.onlineCount > 0 ? -1 : 1;
+      if (a.onlineCount !== b.onlineCount) return b.onlineCount - a.onlineCount;
+      if (a.isUnrecorded !== b.isUnrecorded) return a.isUnrecorded ? 1 : -1;
+      if (a.accountCount !== b.accountCount) return b.accountCount - a.accountCount;
+      return b.latestSeenMs - a.latestSeenMs;
     });
 
-    return groups;
+    return allGroups;
   }
 
   static async updateUserStatus(adminId: string, userId: string, status: string, reason: string) {
@@ -966,9 +1044,18 @@ export class AdminService {
         accountLevel: true,
         accountLockedUntil: true,
         referralCode: true,
+        registrationIp: true,
+        lastLoginIp: true,
+        lastSeenAt: true,
         createdAt: true,
         referredBy: {
           select: { id: true, fullName: true, email: true, referralCode: true },
+        },
+        packagePurchases: {
+          where: { status: 'ACTIVE' },
+          orderBy: { purchasedAt: 'desc' },
+          take: 1,
+          include: { package: true },
         },
       },
     });
@@ -1138,11 +1225,21 @@ export class AdminService {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 60);
 
+    const nowMs = Date.now();
+    const isOnline = Boolean(user.lastSeenAt && nowMs - user.lastSeenAt.getTime() <= 5 * 60 * 1000);
+    const isLocked = Boolean(user.accountLockedUntil && user.accountLockedUntil.getTime() > nowMs);
+    const activePurchase = user.packagePurchases[0] || null;
+
     return {
       user: {
         ...user,
         memberCode: user.memberCode || `UID-${user.id.replace(/-/g, '').slice(0, 6).toUpperCase()}`,
         referralRank,
+        isOnline,
+        isLocked,
+        ipAddress: user.lastLoginIp || user.registrationIp || null,
+        activePackageName: activePurchase?.packageName || null,
+        activePackagePriceUSD: activePurchase ? (activePurchase.priceCentsPaid / 100) : null,
       },
       balances: {
         availableUSD: usdSummary.availableCents / 100,
@@ -1196,6 +1293,8 @@ export class AdminService {
         accountNumber: w.accountNumber,
         status: w.status,
         payoutRef: w.payoutRef,
+        payoutProofUrl: (w as any).payoutProofUrl || null,
+        sourceWallet: (w as any).sourceWallet || 'USER_VIDEO_REWARDS',
         rejectionReason: w.rejectionReason,
         createdAt: w.createdAt,
         completedAt: w.completedAt,
@@ -1238,5 +1337,213 @@ export class AdminService {
         description: e.transaction?.description || 'Double-entry ledger transfer',
       })),
     };
+  }
+
+  // -------------------------------------------------------------
+  // LIVE ACTIVITY POPUPS (PART 2 #6)
+  // -------------------------------------------------------------
+  static async getLivePopups(onlyActive = false) {
+    const [settingsRow, items] = await Promise.all([
+      prisma.systemSetting.findUnique({ where: { key: 'LIVE_POPUP_SETTINGS' } }),
+      prisma.liveActivityPopup.findMany({
+        where: onlyActive ? { isActive: true } : {},
+        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'desc' }],
+      }),
+    ]);
+
+    let settings = DEFAULT_LIVE_POPUP_SETTINGS;
+    if (settingsRow) {
+      try {
+        settings = { ...DEFAULT_LIVE_POPUP_SETTINGS, ...JSON.parse(settingsRow.value) };
+      } catch {}
+    }
+
+    return { settings, items };
+  }
+
+  static async createLivePopup(
+    adminId: string,
+    data: { eventType: string; amountText: string; timeText: string; isActive?: boolean }
+  ) {
+    const count = await prisma.liveActivityPopup.count();
+    const created = await prisma.liveActivityPopup.create({
+      data: {
+        eventType: data.eventType.trim(),
+        amountText: data.amountText.trim(),
+        timeText: data.timeText.trim(),
+        isActive: data.isActive !== undefined ? Boolean(data.isActive) : true,
+        orderIndex: count + 1,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'CREATE_LIVE_POPUP',
+        resourceType: 'LiveActivityPopup',
+        resourceId: created.id,
+        details: JSON.stringify(created),
+      },
+    }).catch(() => {});
+    return created;
+  }
+
+  static async updateLivePopup(
+    adminId: string,
+    id: string,
+    data: Partial<{ eventType: string; amountText: string; timeText: string; isActive: boolean; orderIndex: number }>
+  ) {
+    const updated = await prisma.liveActivityPopup.update({
+      where: { id },
+      data: {
+        ...(data.eventType !== undefined ? { eventType: data.eventType.trim() } : {}),
+        ...(data.amountText !== undefined ? { amountText: data.amountText.trim() } : {}),
+        ...(data.timeText !== undefined ? { timeText: data.timeText.trim() } : {}),
+        ...(data.isActive !== undefined ? { isActive: Boolean(data.isActive) } : {}),
+        ...(data.orderIndex !== undefined ? { orderIndex: Number(data.orderIndex) } : {}),
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'UPDATE_LIVE_POPUP',
+        resourceType: 'LiveActivityPopup',
+        resourceId: id,
+        details: JSON.stringify(data),
+      },
+    }).catch(() => {});
+    return updated;
+  }
+
+  static async deleteLivePopup(adminId: string, id: string) {
+    const deleted = await prisma.liveActivityPopup.delete({ where: { id } });
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'DELETE_LIVE_POPUP',
+        resourceType: 'LiveActivityPopup',
+        resourceId: id,
+        details: JSON.stringify({ eventType: deleted.eventType, amountText: deleted.amountText }),
+      },
+    }).catch(() => {});
+    return deleted;
+  }
+
+  static async updateLivePopupSettings(
+    adminId: string,
+    data: Partial<{ enabled: boolean; intervalSeconds: number; durationSeconds: number }>
+  ) {
+    const current = (await this.getLivePopups(false)).settings;
+    const merged = {
+      enabled: data.enabled !== undefined ? Boolean(data.enabled) : current.enabled,
+      intervalSeconds: Math.max(2, Math.min(60, Number(data.intervalSeconds ?? current.intervalSeconds) || 6)),
+      durationSeconds: Math.max(2, Math.min(20, Number(data.durationSeconds ?? current.durationSeconds) || 5)),
+    };
+    await prisma.systemSetting.upsert({
+      where: { key: 'LIVE_POPUP_SETTINGS' },
+      update: { value: JSON.stringify(merged), updatedAt: new Date() },
+      create: {
+        key: 'LIVE_POPUP_SETTINGS',
+        value: JSON.stringify(merged),
+        description: 'Master toggle, interval, and display duration for member homepage live activity popups',
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'UPDATE_LIVE_POPUP_SETTINGS',
+        resourceType: 'SystemSetting',
+        resourceId: 'LIVE_POPUP_SETTINGS',
+        details: JSON.stringify(merged),
+      },
+    }).catch(() => {});
+    return merged;
+  }
+
+  // -------------------------------------------------------------
+  // ADMIN PROACTIVE DIRECT MESSAGING TO ANY USER (PART 6 #2)
+  // -------------------------------------------------------------
+  static async sendDirectMessageToUser(
+    senderId: string,
+    recipientId: string,
+    data: { subject?: string; message: string; attachmentUrl?: string; attachmentName?: string }
+  ) {
+    if (!data.message || !data.message.trim()) {
+      throw { statusCode: 400, code: 'MESSAGE_REQUIRED', message: 'Message text is required.' };
+    }
+    const [sender, recipient] = await Promise.all([
+      prisma.user.findUnique({ where: { id: senderId }, select: { id: true, fullName: true, role: true } }),
+      prisma.user.findUnique({ where: { id: recipientId }, select: { id: true, fullName: true, email: true } }),
+    ]);
+    if (!recipient) {
+      throw { statusCode: 404, code: 'USER_NOT_FOUND', message: 'Recipient user not found.' };
+    }
+
+    const subject = data.subject?.trim() || 'Message from U-Ads Administration';
+    const cleanMessage = data.message.trim();
+
+    const created = await prisma.$transaction(async (tx) => {
+      const dm = await tx.adminDirectMessage.create({
+        data: {
+          senderId,
+          recipientId,
+          subject,
+          message: cleanMessage,
+          attachmentUrl: data.attachmentUrl || null,
+          attachmentName: data.attachmentName || null,
+          isRead: false,
+        },
+        include: {
+          sender: { select: { id: true, fullName: true, role: true } },
+        },
+      });
+
+      // Push notification alert into the user's notification bell immediately
+      await tx.notification.create({
+        data: {
+          userId: recipientId,
+          title: `📩 ${subject}`,
+          message: data.attachmentUrl ? `${cleanMessage} (Screenshot attached — open Messages to view)` : cleanMessage,
+          type: 'INFO',
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: senderId,
+          action: 'ADMIN_DIRECT_MESSAGE_SENT',
+          resourceType: 'AdminDirectMessage',
+          resourceId: dm.id,
+          details: JSON.stringify({
+            recipientId,
+            recipientEmail: recipient.email,
+            subject,
+            hasAttachment: Boolean(data.attachmentUrl),
+            senderName: sender?.fullName || 'Admin',
+          }),
+        },
+      });
+
+      return dm;
+    });
+
+    return created;
+  }
+
+  static async getDirectMessagesForUser(userId: string) {
+    return await prisma.adminDirectMessage.findMany({
+      where: { recipientId: userId },
+      include: {
+        sender: { select: { id: true, fullName: true, role: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  static async markDirectMessageRead(userId: string, messageId: string) {
+    return await prisma.adminDirectMessage.updateMany({
+      where: { id: messageId, recipientId: userId },
+      data: { isRead: true },
+    });
   }
 }

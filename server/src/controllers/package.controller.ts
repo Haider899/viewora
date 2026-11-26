@@ -10,7 +10,7 @@ export const purchaseSchema = z.object({
 export class PackageController {
   static async getPackages(req: Request, res: Response, next: NextFunction) {
     try {
-      const packages = await PackageService.getAllPackages(true);
+      const packages = await PackageService.getAllPackages(true, req.user?.userId);
       res.json({
         success: true,
         data: packages,

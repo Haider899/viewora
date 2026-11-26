@@ -7,13 +7,13 @@
     @apply bg-slate-50 text-slate-900 antialiased font-sans;
   }
 
-  /* Consistent emerald focus ring across all forms (§2.4 / §3) */
+  /* Consistent U-ADS warm orange focus ring across all forms */
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible,
   button:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.24);
   }
 }
 
@@ -48,12 +48,12 @@
   scrollbar-width: none;
 }
 
-/* Unified Button System (§3: 10px radius, 40px/44px heights, calm 150-200ms motion) */
+/* Unified Button System — U-ADS Vibrant Orange Primary CTA */
 .btn-primary {
-  @apply inline-flex items-center justify-center gap-2 h-10 px-4 rounded-[10px] text-xs font-bold bg-emerald-600 text-white shadow-sm transition-all duration-200 ease-out cursor-pointer;
+  @apply inline-flex items-center justify-center gap-2 h-10 px-4 rounded-[12px] text-xs font-bold bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-sm transition-all duration-200 ease-out cursor-pointer;
 }
 .btn-primary:hover:not(:disabled) {
-  @apply bg-emerald-700 shadow-md;
+  @apply from-orange-600 to-amber-600 shadow-md;
 }
 .btn-primary:active:not(:disabled) {
   transform: scale(0.99);
@@ -188,4 +188,30 @@
   background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite linear;
+}
+
+/* Smooth bottom-left rising & fading live activity popup loop (Part 2 #6) */
+@keyframes livePopupRiseFade {
+  0% {
+    opacity: 0;
+    transform: translateY(24px) scale(0.97);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0px) scale(1);
+  }
+  72% {
+    opacity: 1;
+    transform: translateY(-48px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-96px) scale(0.97);
+  }
+}
+
+.animate-live-popup {
+  animation-name: livePopupRiseFade;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: forwards;
 }

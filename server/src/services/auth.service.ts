@@ -116,6 +116,11 @@ export class AuthService {
   static async login(input: { email: string; password: string; ipAddress?: string }) {
     const user = await prisma.user.findUnique({
       where: { email: input.email.toLowerCase() },
+      include: {
+        referredBy: {
+          select: { id: true, fullName: true, memberCode: true, referralCode: true },
+        },
+      },
     });
 
     if (!user) {
@@ -160,6 +165,11 @@ export class AuthService {
         accountLockedUntil: user.accountLockedUntil,
         agentAvailability: user.agentAvailability,
         referralCode: user.referralCode,
+        referredById: user.referredById,
+        referredBy: (user as any).referredBy || null,
+        savedPayoutMethod: user.savedPayoutMethod,
+        savedAccountTitle: user.savedAccountTitle,
+        savedAccountNumber: user.savedAccountNumber,
         createdAt: user.createdAt,
         levelProgress,
       },
@@ -184,6 +194,12 @@ export class AuthService {
         agentAvailability: true,
         referralCode: true,
         referredById: true,
+        referredBy: {
+          select: { id: true, fullName: true, memberCode: true, referralCode: true },
+        },
+        savedPayoutMethod: true,
+        savedAccountTitle: true,
+        savedAccountNumber: true,
         lastSeenAt: true,
         createdAt: true,
       },

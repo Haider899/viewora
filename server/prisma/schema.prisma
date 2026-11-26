@@ -34,6 +34,9 @@ model User {
   registrationIp        String?
   lastLoginIp           String?
   lastSeenAt            DateTime?
+  savedPayoutMethod     String?
+  savedAccountTitle     String?
+  savedAccountNumber    String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -56,6 +59,8 @@ model User {
   supportConversations  SupportConversation[]
   assignedSupportTickets SupportConversation[] @relation("AssignedSupportAgent")
   assignedVideos        Video[]               @relation("AssignedVideos")
+  sentDirectMessages    AdminDirectMessage[]  @relation("AdminSentDirectMessages")
+  receivedDirectMessages AdminDirectMessage[] @relation("UserReceivedDirectMessages")
 
   @@index([role])
   @@index([status])
@@ -179,14 +184,16 @@ model RewardClaim {
   video           Video           @relation(fields: [videoId], references: [id], onDelete: Cascade)
   videoSessionId  String
   videoSession    VideoSession    @relation(fields: [videoSessionId], references: [id], onDelete: Cascade)
+  cycleKey        String          @default("LEGACY") // 24-hour cycle key anchored at 8:00 PM
   amountCents     Int
   currency        String          @default("USD")
   status          String          @default("CLAIMED") // CLAIMED, REVERSED
   claimedAt       DateTime        @default(now())
 
-  @@unique([userId, videoId]) // Strict anti-fraud: exactly 1 claim per user per video
+  @@unique([userId, videoId, cycleKey]) // Strict anti-fraud: exactly 1 claim per user per video per 24-hour cycle
   @@index([userId])
   @@index([videoId])
+  @@index([cycleKey])
 }
 
 // -------------------------------------------------------------
@@ -290,7 +297,8 @@ model WithdrawalRequest {
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   amountCents     Int
   currency        String          // USD or PKR
-  payoutMethod    String          // EASYPAISA, JAZZCASH, CRYPTO_USDT, BANK_TRANSFER
+  payoutMethod    String          // CRYPTO_USDT, BINANCE, USD_BANK_WIRE
+  sourceWallet    String          @default("USER_VIDEO_REWARDS") // USER_VIDEO_REWARDS, USER_REFERRAL, USER_OTHER_REWARDS
   accountTitle    String
   accountNumber   String
   status          String          @default("PENDING") // PENDING, UNDER_REVIEW, APPROVED, PROCESSING, COMPLETED, REJECTED, CANCELLED
@@ -533,7 +541,7 @@ model DailyRewardClaim {
   id              String    @id @default(uuid())
   userId          String
   user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  cycleKey        String    // e.g. "2026-11-25" anchored at configured reset hour (default 8 AM)
+  cycleKey        String    // e.g. "2026-11-25-H20" anchored at 8:00 PM
   amountCents     Int
   videosCompleted Int
   videosRequired  Int
@@ -542,5 +550,41 @@ model DailyRewardClaim {
 
   @@unique([userId, cycleKey])
   @@index([userId])
+}
+
+// -------------------------------------------------------------
+// LIVE ACTIVITY POPUPS (MEMBER HOMEPAGE LEFT-EDGE LOOP)
+// -------------------------------------------------------------
+model LiveActivityPopup {
+  id          String   @id @default(uuid())
+  eventType   String   // e.g. "Withdrawal Approved", "Withdrawal Successful", "Package Upgraded"
+  amountText  String   // e.g. "$50", "$120"
+  timeText    String   // e.g. "2 minutes ago", "5 minutes ago"
+  isActive    Boolean  @default(true)
+  orderIndex  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+// -------------------------------------------------------------
+// ADMIN DIRECT MESSAGES TO USERS (PROACTIVE PUSH + SCREENSHOT)
+// -------------------------------------------------------------
+model AdminDirectMessage {
+  id             String   @id @default(uuid())
+  senderId       String
+  sender         User     @relation("AdminSentDirectMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId    String
+  recipient      User     @relation("UserReceivedDirectMessages", fields: [recipientId], references: [id], onDelete: Cascade)
+  subject        String   @default("Message from U-Ads Administration")
+  message        String
+  attachmentUrl  String?
+  attachmentName String?
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([recipientId, createdAt])
+  @@index([senderId])
 }
 

@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { useToast } from '../components/ToastProvider.js';
+import { CompanyInfoModal } from '../components/CompanyInfoModal.js';
 import {
   User as UserIcon,
   ShieldCheck,
   Lock,
-  Mail,
   ArrowRight,
   AlertCircle,
   Eye,
@@ -14,6 +14,9 @@ import {
   KeyRound,
   CheckCircle2,
   X,
+  Info,
+  TrendingUp,
+  Globe,
 } from 'lucide-react';
 
 interface LoginProps {
@@ -35,6 +38,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const [companyInfoOpen, setCompanyInfoOpen] = useState(false);
 
   // Forgot / Reset Password flow
   const [resetMode, setResetMode] = useState<'none' | 'request' | 'confirm'>('none');
@@ -151,134 +155,273 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
     }
   };
 
-  return (
-    <div className="max-w-md mx-auto px-4 py-14 space-y-6 animate-page-in">
-      <div className="text-center space-y-2">
-        <div
-          className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto shadow-md ${
-            isAdminPortal ? 'bg-slate-900' : 'bg-emerald-600'
-          }`}
-        >
-          {isAdminPortal ? (
-            <ShieldCheck className="w-6 h-6 text-white" />
-          ) : (
-            <UserIcon className="w-6 h-6 text-white" />
-          )}
+  if (isAdminPortal) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-14 space-y-6 animate-page-in">
+        <div className="text-center space-y-2">
+          <div className="w-12 h-12 rounded-2xl bg-slate-900 flex items-center justify-center mx-auto shadow-md">
+            <ShieldCheck className="w-6 h-6 text-orange-400" />
+          </div>
+          <h1 className="text-2xl font-extrabold text-slate-900">Administrator Sign In</h1>
+          <p className="text-xs text-slate-500">Authorized staff and operations access.</p>
         </div>
-        <h1 className="text-2xl font-extrabold text-slate-900">
-          {isAdminPortal ? 'Administrator Sign In' : 'Sign in to U-Ads'}
-        </h1>
-        <p className="text-xs text-slate-500">
-          {isAdminPortal
-            ? 'Authorized staff and operations access.'
-            : 'Manage your USD wallets, watch verified campaigns, and track referrals.'}
-        </p>
-      </div>
 
-      <form onSubmit={handleSubmit} noValidate className="card-white p-6 sm:p-7 space-y-5">
-        <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1.5">
-            Email Address <span className="text-rose-600">*</span>
-          </label>
-          <div className="relative">
-            <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+        <form onSubmit={handleSubmit} noValidate className="card-white p-6 sm:p-7 space-y-5">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Staff Email <span className="text-rose-600">*</span>
+            </label>
             <input
               type="email"
-              placeholder="name@example.com"
+              placeholder="admin@u-ads.com"
               value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                setFieldErrors((f) => ({ ...f, email: undefined }));
-              }}
-              className={`w-full h-11 bg-slate-50 border rounded-[10px] pl-10 pr-4 text-xs text-slate-900 placeholder-slate-400 ${
-                fieldErrors.email ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-emerald-500'
-              }`}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full h-11 bg-slate-50 border border-slate-200 rounded-[10px] px-3.5 text-xs text-slate-900 focus:border-orange-500"
             />
           </div>
-          {fieldErrors.email && (
-            <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              {fieldErrors.email}
-            </p>
-          )}
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-bold text-slate-700">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
               Password <span className="text-rose-600">*</span>
             </label>
-            {!isAdminPortal && (
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full h-11 bg-slate-50 border border-slate-200 rounded-[10px] pl-3.5 pr-10 text-xs text-slate-900 focus:border-orange-500"
+              />
               <button
                 type="button"
-                onClick={() => {
-                  setResetEmail(email);
-                  setResetErr(null);
-                  setResetMsg(null);
-                  setResetMode('request');
-                }}
-                className="text-xs font-semibold text-emerald-700 hover:underline cursor-pointer"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
               >
-                Forgot password?
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
-            )}
+            </div>
           </div>
-          <div className="relative">
-            <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setFieldErrors((f) => ({ ...f, password: undefined }));
-              }}
-              className={`w-full h-11 bg-slate-50 border rounded-[10px] pl-10 pr-10 text-xs text-slate-900 placeholder-slate-400 ${
-                fieldErrors.password ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-emerald-500'
-              }`}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-          {fieldErrors.password && (
-            <p className="mt-1.5 text-xs text-rose-600 flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              {fieldErrors.password}
-            </p>
+          {errorMsg && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
+            </div>
           )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full h-11 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span>{loading ? 'Signing in…' : 'Sign In to Admin Portal'}</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-[calc(100vh-4rem)] bg-gradient-to-b from-[#FFF3E6] via-[#FFF9F3] to-white pb-12 animate-page-in">
+      <div className="max-w-md mx-auto px-4 pt-5 space-y-5">
+        {/* Top Brand Row matching U-ADS visual design */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-sm">
+              <TrendingUp className="w-5 h-5 stroke-[2.5]" />
+            </div>
+            <span className="text-xl font-black tracking-tight text-slate-900">U-ADS</span>
+          </div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-bold text-slate-700 shadow-xs">
+            <Globe className="w-3.5 h-3.5 text-slate-600" />
+            <span>EN</span>
+          </div>
         </div>
 
-        {errorMsg && (
-          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{errorMsg}</span>
+        {/* Warm Peach Hero Strip */}
+        <div className="relative rounded-3xl bg-gradient-to-br from-[#FFE8D1] via-[#FFF3E6] to-[#FFEAD6] p-5 border border-orange-200/60 overflow-hidden">
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1.5 z-10">
+              <h1 className="text-2xl sm:text-[26px] font-black text-slate-900 leading-tight">
+                Grow Your
+                <br />
+                Earnings with
+                <br />
+                <span className="text-orange-600">U-ADS</span>
+              </h1>
+              <p className="text-[11px] text-slate-600 font-medium leading-snug max-w-[180px]">
+                Watch Ads, Earn Real USD &amp; Grow with Our Trusted Platform
+              </p>
+              <div className="w-10 h-1 rounded-full bg-orange-500 mt-1" />
+            </div>
+
+            {/* Stylized Phone & Growth Chart Graphic */}
+            <div className="relative shrink-0 w-32 h-32 flex items-center justify-center">
+              <div className="w-24 h-28 rounded-2xl bg-white border-[3px] border-slate-900 shadow-lg flex flex-col items-center justify-between p-2.5 rotate-2">
+                <div className="flex items-center gap-1">
+                  <TrendingUp className="w-3.5 h-3.5 text-orange-500" />
+                  <span className="text-[10px] font-black text-slate-900">U-ADS</span>
+                </div>
+                <div className="flex items-end gap-1.5 h-12 w-full justify-center pb-1">
+                  <span className="w-2.5 h-4 rounded-t bg-orange-300" />
+                  <span className="w-2.5 h-6 rounded-t bg-orange-400" />
+                  <span className="w-2.5 h-9 rounded-t bg-orange-500" />
+                  <span className="w-2.5 h-12 rounded-t bg-gradient-to-t from-orange-500 to-amber-400" />
+                </div>
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-gradient-to-br from-amber-300 to-orange-500 border-2 border-amber-100 shadow-md flex items-center justify-center text-white font-black text-base">
+                $
+              </div>
+            </div>
           </div>
-        )}
+        </div>
 
-        <button type="submit" disabled={loading} className="btn-primary w-full !h-11">
-          <span>{loading ? 'Signing in…' : isAdminPortal ? 'Sign In to Admin Portal' : 'Sign In'}</span>
-          <ArrowRight className="w-4 h-4" />
-        </button>
+        {/* Floating White Login Card */}
+        <form
+          onSubmit={handleSubmit}
+          noValidate
+          className="bg-white rounded-3xl border border-orange-100 shadow-xl shadow-orange-950/5 p-6 space-y-4 -mt-3 relative z-10"
+        >
+          <div className="text-center space-y-1.5">
+            <div className="w-11 h-11 rounded-2xl bg-orange-50 border border-orange-200/80 text-orange-600 flex items-center justify-center mx-auto">
+              <Lock className="w-5 h-5" />
+            </div>
+            <h2 className="text-xl font-extrabold text-slate-900">Welcome Back!</h2>
+            <p className="text-xs text-slate-500">Login to your account to continue</p>
+          </div>
 
-        {!isAdminPortal && (
-          <div className="text-center text-xs text-slate-500 pt-1">
-            New to U-Ads?{' '}
+          <div className="space-y-3 pt-1">
+            <div>
+              <div className="relative">
+                <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  placeholder="Email Address"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setFieldErrors((f) => ({ ...f, email: undefined }));
+                  }}
+                  className={`w-full h-11 bg-slate-50/70 border rounded-xl pl-10 pr-4 text-xs text-slate-900 placeholder-slate-400 ${
+                    fieldErrors.email ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-orange-500'
+                  }`}
+                />
+              </div>
+              {fieldErrors.email && (
+                <p className="mt-1 text-xs text-rose-600 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {fieldErrors.email}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setFieldErrors((f) => ({ ...f, password: undefined }));
+                  }}
+                  className={`w-full h-11 bg-slate-50/70 border rounded-xl pl-10 pr-10 text-xs text-slate-900 placeholder-slate-400 ${
+                    fieldErrors.password ? 'border-rose-400 bg-rose-50/30' : 'border-slate-200 focus:border-orange-500'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              {fieldErrors.password && (
+                <p className="mt-1 text-xs text-rose-600 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {fieldErrors.password}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {errorMsg && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary w-full !h-12 !rounded-full !text-sm shadow-lg shadow-orange-500/25"
+          >
+            <span>{loading ? 'Logging in…' : 'Log In'}</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => navigate('register')}
-              className="text-emerald-700 font-bold hover:underline cursor-pointer"
+              onClick={() => {
+                setResetEmail(email);
+                setResetErr(null);
+                setResetMsg(null);
+                setResetMode('request');
+              }}
+              className="text-slate-600 hover:text-orange-600 font-semibold cursor-pointer"
             >
-              Create an account
+              Forgot Password?
             </button>
+            <div className="text-slate-500">
+              New User?{' '}
+              <button
+                type="button"
+                onClick={() => navigate('register')}
+                className="text-orange-600 font-extrabold hover:underline cursor-pointer"
+              >
+                Sign Up
+              </button>
+            </div>
           </div>
-        )}
-      </form>
+        </form>
+
+        {/* "or" Divider + View Company Information & Licenses Button */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 px-2">
+            <div className="h-px flex-1 bg-slate-200" />
+            <span className="text-xs font-bold text-slate-400">or</span>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setCompanyInfoOpen(true)}
+            className="w-full h-11 rounded-full bg-white hover:bg-orange-50 border-2 border-orange-300 text-slate-900 text-xs font-extrabold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
+          >
+            <Info className="w-4 h-4 text-slate-900" />
+            <span>View Company Information &amp; Licenses</span>
+          </button>
+        </div>
+
+        {/* Bottom Soft Peach Trust Card */}
+        <div className="rounded-2xl bg-[#FFF6EE] border border-orange-100 p-4 flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-white border border-orange-200/80 text-orange-500 flex items-center justify-center shrink-0 shadow-2xs">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
+          <div className="border-l border-orange-200 pl-3.5 space-y-0.5">
+            <div className="text-sm font-black text-slate-900">U-ADS</div>
+            <p className="text-[11px] text-slate-600 leading-snug">
+              A secure and reliable platform for your financial growth and success.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Company Information & Public Licenses Modal */}
+      <CompanyInfoModal open={companyInfoOpen} onClose={() => setCompanyInfoOpen(false)} />
 
       {/* Password Recovery Modal */}
       {resetMode !== 'none' && (
@@ -294,14 +437,14 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
             </button>
 
             <div className="flex items-center gap-2 pr-8">
-              <KeyRound className="w-5 h-5 text-emerald-600" />
+              <KeyRound className="w-5 h-5 text-orange-600" />
               <h3 className="text-base font-bold text-slate-900">Reset Your Password</h3>
             </div>
 
             {resetMode === 'request' ? (
               <form onSubmit={handleRequestReset} noValidate className="space-y-4">
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Enter your registered email address to generate a 6-digit recovery code.
+                  Enter your registered email address to receive a 6-digit recovery code.
                 </p>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -312,7 +455,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
                     value={resetEmail}
                     onChange={(e) => setResetEmail(e.target.value)}
                     placeholder="name@example.com"
-                    className="w-full h-10 px-3.5 rounded-[10px] bg-slate-50 border border-slate-200 text-xs focus:border-emerald-500"
+                    className="w-full h-10 px-3.5 rounded-[10px] bg-slate-50 border border-slate-200 text-xs focus:border-orange-500"
                   />
                 </div>
                 {resetErr && (
@@ -329,7 +472,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
               </form>
             ) : (
               <form onSubmit={handleConfirmReset} noValidate className="space-y-4">
-                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs">
+                <div className="p-3 rounded-xl bg-orange-50 border border-orange-200 text-orange-900 text-xs">
                   Check your email inbox for the 6-digit recovery code (valid for 15 minutes).
                 </div>
                 <div>
@@ -341,7 +484,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
                     value={resetCode}
                     onChange={(e) => setResetCode(e.target.value)}
                     placeholder="Enter 6-digit code"
-                    className="w-full h-10 px-3.5 rounded-[10px] bg-slate-50 border border-slate-200 text-xs font-mono font-bold focus:border-emerald-500"
+                    className="w-full h-10 px-3.5 rounded-[10px] bg-slate-50 border border-slate-200 text-xs font-mono font-bold focus:border-orange-500"
                   />
                 </div>
                 <div>
@@ -354,7 +497,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="Minimum 8 characters"
-                      className="w-full h-10 pl-3.5 pr-10 rounded-[10px] bg-slate-50 border border-slate-200 text-xs focus:border-emerald-500"
+                      className="w-full h-10 pl-3.5 pr-10 rounded-[10px] bg-slate-50 border border-slate-200 text-xs focus:border-orange-500"
                     />
                     <button
                       type="button"

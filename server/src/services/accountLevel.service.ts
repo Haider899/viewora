@@ -107,39 +107,53 @@ export class AccountLevelService {
   }
 
   /**
-   * Evaluates and updates user account level based on qualifying activity
+   * Rule 4: Levels follow the member's active package subscription.
+   * Paying money in (deposit) alone does NOT raise a member's level or open earning.
    */
+  static mapPackageToLevel(packageName: string, sortedPackages?: Array<{ name: string; priceCents: number }>): string {
+    const clean = (packageName || '').trim().toLowerCase();
+    if (clean === 'starter') return 'LEVEL_1';
+    if (clean === 'basic') return 'LEVEL_2';
+    if (clean === 'premium') return 'LEVEL_3';
+    if (clean === 'vip') return 'LEVEL_4';
+    if (sortedPackages && sortedPackages.length > 0) {
+      const idx = sortedPackages.findIndex((p) => p.name.toLowerCase() === clean);
+      if (idx >= 0) {
+        return `LEVEL_${Math.min(5, idx + 1)}`;
+      }
+    }
+    return 'LEVEL_1';
+  }
+
   static async calculateAndUpdateUserLevel(userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        packagePurchases: { where: { status: 'ACTIVE' } },
-        depositRequests: { where: { status: 'APPROVED' } },
-      },
-    });
+    const [user, allPackages] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          packagePurchases: {
+            where: { status: 'ACTIVE' },
+            orderBy: { priceCentsPaid: 'desc' },
+            include: { package: true },
+          },
+        },
+      }),
+      prisma.package.findMany({ orderBy: { priceCents: 'asc' } }),
+    ]);
 
     if (!user) return null;
 
-    // Calculate qualifying volume: verified deposits + active package purchases
-    let qualifyingCents = 0;
-    for (const dep of user.depositRequests) {
-      if (dep.currency === 'USD') qualifyingCents += dep.amountCents;
-    }
-    for (const pkg of user.packagePurchases) {
-      if (pkg.currency === 'USD') qualifyingCents += pkg.priceCentsPaid;
+    const activePkg = user.packagePurchases[0];
+    if (!activePkg) {
+      // Do not auto-upgrade on deposit alone (Rule 3 & Rule 4)
+      return user.accountLevel;
     }
 
-    const levels = await this.getAllLevels();
-    let eligibleLevel = 'NEW_USER';
+    const eligibleLevel = this.mapPackageToLevel(activePkg.packageName, allPackages);
+    const levelOrder = ['NEW_USER', 'LEVEL_1', 'LEVEL_2', 'LEVEL_3', 'LEVEL_4', 'LEVEL_5'];
+    const currentIdx = Math.max(0, levelOrder.indexOf(user.accountLevel));
+    const targetIdx = Math.max(0, levelOrder.indexOf(eligibleLevel));
 
-    for (const lvl of levels) {
-      if (!lvl.isActive) continue;
-      if (qualifyingCents >= lvl.minQualificationUSD) {
-        eligibleLevel = lvl.levelKey;
-      }
-    }
-
-    if (user.accountLevel !== eligibleLevel) {
+    if (targetIdx > currentIdx) {
       const oldLevel = user.accountLevel;
       await prisma.$transaction([
         prisma.user.update({
@@ -151,22 +165,23 @@ export class AccountLevelService {
             userId,
             oldLevel,
             newLevel: eligibleLevel,
-            reason: `Automatic qualification update ($${(qualifyingCents / 100).toFixed(2)} qualifying activity)`,
+            reason: `Package subscription activated (${activePkg.packageName})`,
             adjustedById: 'SYSTEM',
           },
         }),
         prisma.notification.create({
           data: {
             userId,
-            title: '⭐ Account Level Upgraded!',
-            message: `Congratulations! Your account level has been updated to ${eligibleLevel}.`,
+            title: 'Account Level Upgraded!',
+            message: `Your ${activePkg.packageName} lifetime package is active and your account level is now ${eligibleLevel.replace('_', ' ')}.`,
             type: 'SUCCESS',
           },
         }),
       ]);
+      return eligibleLevel;
     }
 
-    return eligibleLevel;
+    return user.accountLevel;
   }
 
   /**
@@ -581,7 +596,7 @@ export class AccountLevelService {
   }
 
   /**
-   * Configurable daily reward cycle window (default 8:00 AM -> next 8:00 AM).
+   * Configurable daily reward cycle window (default 20 = 8:00 PM -> next day 7:59:59 PM).
    * Unclaimed rewards expire strictly at windowEnd with ZERO carry forward.
    */
   static async getDailyResetHour(): Promise<number> {
@@ -590,7 +605,7 @@ export class AccountLevelService {
       const h = parseInt(setting.value, 10);
       if (h >= 0 && h <= 23) return h;
     }
-    return 8; // Default 8:00 AM -> next 8:00 AM
+    return 20; // Default 8:00 PM -> next day 7:59:59 PM
   }
 
   static getDailyWindow(resetHour: number, now = new Date()) {

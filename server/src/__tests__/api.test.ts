@@ -281,4 +281,82 @@ describe('U-Ads API & RBAC Integration Tests', () => {
     expect(earlyClaim.status).toBe(400);
     expect(earlyClaim.body.error.code).toBe('INCOMPLETE_DAILY_VIDEOS');
   });
+
+  it('strictly blocks withdrawing deposited/subscription funds (Part 1 Rule 3 & Part 3 #3)', async () => {
+    const withdrawRes = await request(app)
+      .post('/api/v1/withdrawals/request')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        amountCents: 1000,
+        currency: 'USD',
+        payoutMethod: 'BINANCE',
+        accountTitle: 'Test Isolation User',
+        accountNumber: 'BINANCE-UID-123456',
+        sourceWallet: 'USER_AVAILABLE',
+      });
+    expect(withdrawRes.status).toBe(400);
+    expect(withdrawRes.body.error.code).toBe('DEPOSIT_NOT_WITHDRAWABLE');
+  });
+
+  it('charges ONLY the price difference when upgrading from Starter ($20) to Basic ($50)', async () => {
+    // Credit $30.00 subscription deposit credit (user currently has $5.00 left from earlier -> total $35.00)
+    const acct = await prisma.walletAccount.findFirst({
+      where: { userId, accountType: 'USER_AVAILABLE', currency: 'USD' },
+    });
+    expect(acct).toBeDefined();
+    await prisma.walletAccount.update({
+      where: { id: acct!.id },
+      data: { balanceCents: 3500 },
+    });
+
+    const pkgRes = await request(app)
+      .get('/api/v1/packages')
+      .set('Authorization', `Bearer ${userToken}`);
+    const basicPkg = pkgRes.body.data.find((p: any) => p.name === 'Basic');
+    expect(basicPkg).toBeDefined();
+    expect(basicPkg.isUpgrade).toBe(true);
+    expect(basicPkg.upgradeDiffCents).toBe(3000); // $50 - $20 = $30
+
+    const upgRes = await request(app)
+      .post('/api/v1/packages/purchase')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ packageId: basicPkg.id });
+    expect(upgRes.status).toBe(200);
+    expect(upgRes.body.data.isUpgrade).toBe(true);
+    expect(upgRes.body.data.amountChargedCents).toBe(3000);
+
+    // Verify remaining USER_AVAILABLE is $5.00 (3500 - 3000 = 500), NOT negative or $0!
+    const walletAfter = await request(app)
+      .get('/api/v1/wallet/summary')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(walletAfter.body.data.USD.availableCents).toBe(500);
+  });
+
+  it('returns 20 pre-loaded Live Activity Popups, allows Support Agent IP view, and delivers Admin direct messages', async () => {
+    const popupRes = await request(app).get('/api/v1/live-popups');
+    expect(popupRes.status).toBe(200);
+    expect(popupRes.body.data.items.length).toBeGreaterThanOrEqual(20);
+
+    const ipRes = await request(app)
+      .get('/api/v1/admin/users/ip-groups')
+      .set('Authorization', `Bearer ${supportToken}`);
+    expect(ipRes.status).toBe(200);
+    expect(Array.isArray(ipRes.body.data)).toBe(true);
+
+    const dmSend = await request(app)
+      .post(`/api/v1/admin/users/${userId}/message`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        subject: 'Welcome Verification Notice',
+        message: 'Hello from U-Ads Admin!',
+      });
+    expect(dmSend.status).toBe(201);
+
+    const dmInbox = await request(app)
+      .get('/api/v1/messages')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(dmInbox.status).toBe(200);
+    expect(dmInbox.body.data.length).toBeGreaterThanOrEqual(1);
+    expect(dmInbox.body.data[0].message).toBe('Hello from U-Ads Admin!');
+  });
 });
