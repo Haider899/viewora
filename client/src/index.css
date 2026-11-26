@@ -190,28 +190,29 @@
   animation: shimmer 1.4s infinite linear;
 }
 
-/* Smooth bottom-left rising & fading live activity popup loop (Part 2 #6) */
+/* Smooth bottom-to-middle rising & fading live withdrawal bubble animation */
 @keyframes livePopupRiseFade {
   0% {
     opacity: 0;
-    transform: translateY(24px) scale(0.97);
+    transform: translate3d(0, 28px, 0) scale(0.95);
   }
-  12% {
+  10% {
     opacity: 1;
-    transform: translateY(0px) scale(1);
+    transform: translate3d(0, 0px, 0) scale(1);
   }
   72% {
-    opacity: 1;
-    transform: translateY(-48px) scale(1);
+    opacity: 0.96;
+    transform: translate3d(0, -32vh, 0) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translateY(-96px) scale(0.97);
+    transform: translate3d(0, -44vh, 0) scale(0.96);
   }
 }
 
 .animate-live-popup {
   animation-name: livePopupRiseFade;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
   animation-fill-mode: forwards;
+  will-change: transform, opacity;
 }

@@ -853,8 +853,8 @@ export const UserDashboardPage: React.FC = () => {
         })}
       </nav>
 
-      {/* Live Activity Popups — Smooth bottom-left rising & fading continuous loop (Part 2 #6) */}
-      <LiveActivityPopups />
+      {/* Live Activity Popups — Smooth bottom-to-middle rising & fading continuous loop on Home & member pages */}
+      {activeTab !== 'player' && <LiveActivityPopups hasBottomNav />}
 
       {/* Admin Direct Message Viewer Modal with Screenshot Lightbox (Part 6 #2) */}
       {viewingDirectMsg && (

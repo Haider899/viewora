@@ -4,6 +4,7 @@ import { ToastProvider } from './components/ToastProvider.js';
 import { Navbar } from './components/Navbar.js';
 import { Footer } from './components/Footer.js';
 import { SupportChatWidget } from './components/SupportChatWidget.js';
+import { LiveActivityPopups } from './components/LiveActivityPopups.js';
 import { HomePage } from './pages/HomePage.js';
 import { HowItWorksPage } from './pages/HowItWorksPage.js';
 import { VideoCatalogPage } from './pages/VideoCatalogPage.js';
@@ -102,6 +103,7 @@ function AppContent() {
       <main className="flex-1 animate-page-in" key={currentRoute}>{renderPublicPage()}</main>
       <Footer navigate={navigate} />
       <SupportChatWidget navigate={navigate} />
+      <LiveActivityPopups />
     </div>
   );
 }
