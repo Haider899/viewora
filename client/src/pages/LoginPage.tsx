@@ -16,7 +16,6 @@ import {
   X,
   Info,
   TrendingUp,
-  Globe,
 } from 'lucide-react';
 
 interface LoginProps {
@@ -157,64 +156,74 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
 
   if (isAdminPortal) {
     return (
-      <div className="max-w-md mx-auto px-4 py-14 space-y-6 animate-page-in">
-        <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-slate-900 flex items-center justify-center mx-auto shadow-md">
-            <ShieldCheck className="w-6 h-6 text-orange-400" />
+      <div className="min-h-[88vh] flex items-center justify-center px-4 py-12 animate-page-in">
+        <div className="w-full max-w-lg space-y-7">
+          <div className="text-center space-y-3">
+            <div className="w-16 h-16 rounded-2xl bg-slate-900 flex items-center justify-center mx-auto shadow-lg shadow-slate-900/20">
+              <ShieldCheck className="w-8 h-8 text-orange-400" />
+            </div>
+            <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+              Administrator Sign In
+            </h1>
+            <p className="text-sm text-slate-500">
+              Authorized staff and operations access.
+            </p>
           </div>
-          <h1 className="text-2xl font-extrabold text-slate-900">Administrator Sign In</h1>
-          <p className="text-xs text-slate-500">Authorized staff and operations access.</p>
-        </div>
 
-        <form onSubmit={handleSubmit} noValidate className="card-white p-6 sm:p-7 space-y-5">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              Staff Email <span className="text-rose-600">*</span>
-            </label>
-            <input
-              type="email"
-              placeholder="admin@u-ads.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full h-11 bg-slate-50 border border-slate-200 rounded-[10px] px-3.5 text-xs text-slate-900 focus:border-orange-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              Password <span className="text-rose-600">*</span>
-            </label>
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full h-11 bg-slate-50 border border-slate-200 rounded-[10px] pl-3.5 pr-10 text-xs text-slate-900 focus:border-orange-500"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
-          {errorMsg && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full h-11 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
+          <form
+            onSubmit={handleSubmit}
+            noValidate
+            className="bg-white rounded-3xl border border-slate-200 shadow-xl shadow-slate-900/5 p-8 sm:p-10 space-y-6"
           >
-            <span>{loading ? 'Signing in…' : 'Sign In to Admin Portal'}</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </form>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">
+                Staff Email <span className="text-rose-600">*</span>
+              </label>
+              <input
+                type="email"
+                placeholder="admin@u-ads.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-sm text-slate-900 placeholder-slate-400 focus:border-orange-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">
+                Password <span className="text-rose-600">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full h-12 bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-11 text-sm text-slate-900 placeholder-slate-400 focus:border-orange-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+            {errorMsg && (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full h-12 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-md transition-colors cursor-pointer"
+            >
+              <span>{loading ? 'Signing in…' : 'Sign In to Admin Portal'}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </form>
+        </div>
       </div>
     );
   }
@@ -222,17 +231,13 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-gradient-to-b from-[#FFF3E6] via-[#FFF9F3] to-white pb-12 animate-page-in">
       <div className="max-w-md mx-auto px-4 pt-5 space-y-5">
-        {/* Top Brand Row matching U-ADS visual design */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-sm">
+        {/* Top Brand Row */}
+        <div className="flex items-center justify-center">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-sm">
               <TrendingUp className="w-5 h-5 stroke-[2.5]" />
             </div>
-            <span className="text-xl font-black tracking-tight text-slate-900">U-ADS</span>
-          </div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-bold text-slate-700 shadow-xs">
-            <Globe className="w-3.5 h-3.5 text-slate-600" />
-            <span>EN</span>
+            <span className="text-2xl font-black tracking-tight text-slate-900">U-ADS</span>
           </div>
         </div>
 

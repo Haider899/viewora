@@ -12,7 +12,6 @@ import {
   Eye,
   EyeOff,
   TrendingUp,
-  Globe,
   Info,
   ShieldCheck,
 } from 'lucide-react';
@@ -102,16 +101,12 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
     <div className="min-h-[calc(100vh-4rem)] bg-gradient-to-b from-[#FFF3E6] via-[#FFF9F3] to-white pb-12 animate-page-in">
       <div className="max-w-md mx-auto px-4 pt-5 space-y-5">
         {/* Top Brand Row */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-sm">
+        <div className="flex items-center justify-center">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-sm">
               <TrendingUp className="w-5 h-5 stroke-[2.5]" />
             </div>
-            <span className="text-xl font-black tracking-tight text-slate-900">U-ADS</span>
-          </div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-bold text-slate-700 shadow-xs">
-            <Globe className="w-3.5 h-3.5 text-slate-600" />
-            <span>EN</span>
+            <span className="text-2xl font-black tracking-tight text-slate-900">U-ADS</span>
           </div>
         </div>
 
