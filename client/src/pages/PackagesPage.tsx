@@ -62,8 +62,11 @@ export const PackagesPage: React.FC<PackagesProps> = ({
   // Rule 9: When arriving directly from clicking a locked ad, open THAT exact package's checkout modal immediately!
   useEffect(() => {
     if (!autoSelectTier || loading || packages.length === 0) return;
+    const needle = autoSelectTier.toLowerCase().trim();
     const matched = packages.find(
-      (p) => p.name.toLowerCase() === autoSelectTier.toLowerCase()
+      (p) =>
+        p.name.toLowerCase() === needle ||
+        (p.levelKey && p.levelKey.toLowerCase() === needle)
     );
     if (matched && !matched.isCurrentPlan && !matched.isOwnedOrLower) {
       handleOpenPurchase(matched);

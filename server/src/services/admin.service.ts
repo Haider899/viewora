@@ -750,14 +750,54 @@ export class AdminService {
     const row = await prisma.systemSetting.findUnique({ where: { key: 'BONUS_SETTINGS' } });
     if (!row) return DEFAULT_BONUS_SETTINGS;
     try {
-      return { ...DEFAULT_BONUS_SETTINGS, ...JSON.parse(row.value) };
+      const parsed = JSON.parse(row.value);
+      return {
+        ...DEFAULT_BONUS_SETTINGS,
+        ...parsed,
+        accountLevelBonus: {
+          ...DEFAULT_BONUS_SETTINGS.accountLevelBonus,
+          ...(parsed.accountLevelBonus || {}),
+        },
+        videoBonus: {
+          ...DEFAULT_BONUS_SETTINGS.videoBonus,
+          ...(parsed.videoBonus || {}),
+          levelPercentages: {
+            ...DEFAULT_BONUS_SETTINGS.videoBonus.levelPercentages,
+            ...(parsed.videoBonus?.levelPercentages || {}),
+          },
+        },
+        referralBonus: {
+          ...DEFAULT_BONUS_SETTINGS.referralBonus,
+          ...(parsed.referralBonus || {}),
+        },
+      };
     } catch {
       return DEFAULT_BONUS_SETTINGS;
     }
   }
 
   static async updateBonusSettings(adminId: string, settings: any) {
-    const merged = { ...(await this.getBonusSettings()), ...settings };
+    const current = await this.getBonusSettings();
+    const merged = {
+      ...current,
+      ...settings,
+      accountLevelBonus: {
+        ...current.accountLevelBonus,
+        ...(settings.accountLevelBonus || {}),
+      },
+      videoBonus: {
+        ...current.videoBonus,
+        ...(settings.videoBonus || {}),
+        levelPercentages: {
+          ...current.videoBonus.levelPercentages,
+          ...(settings.videoBonus?.levelPercentages || {}),
+        },
+      },
+      referralBonus: {
+        ...current.referralBonus,
+        ...(settings.referralBonus || {}),
+      },
+    };
     await prisma.systemSetting.upsert({
       where: { key: 'BONUS_SETTINGS' },
       update: { value: JSON.stringify(merged), updatedAt: new Date() },
@@ -826,11 +866,12 @@ export class AdminService {
     }
     const createdAtWhere = Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {};
 
-    const [deposits, withdrawals, purchases, rewardClaims, commissions, levelChanges, adjustments, usersByLevel, walletLiabilities, ledgerAudit, dailyBonusTxs] =
+    const [deposits, withdrawals, purchases, revenueEvents, rewardClaims, commissions, levelChanges, adjustments, usersByLevel, walletLiabilities, ledgerAudit, dailyBonusTxs] =
       await Promise.all([
         prisma.depositRequest.findMany({ where: createdAtWhere, orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true, memberCode: true } }, paymentMethod: { select: { name: true } } } }),
         prisma.withdrawalRequest.findMany({ where: createdAtWhere, orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true, memberCode: true } } } }),
         prisma.packagePurchase.findMany({ where: Object.keys(dateFilter).length > 0 ? { purchasedAt: dateFilter } : {}, include: { user: { select: { fullName: true, email: true } } } }),
+        prisma.revenueEvent.findMany({ where: createdAtWhere, select: { amountCents: true } }),
         prisma.rewardClaim.findMany({ where: Object.keys(dateFilter).length > 0 ? { claimedAt: dateFilter } : {}, include: { user: { select: { fullName: true, email: true } }, video: { select: { title: true } } } }),
         prisma.referralCommission.findMany({ where: createdAtWhere, include: { beneficiary: { select: { fullName: true, email: true } }, sourceUser: { select: { fullName: true } } } }),
         prisma.accountLevelHistory.findMany({ where: createdAtWhere, orderBy: { createdAt: 'desc' }, include: { user: { select: { fullName: true, email: true } } } }),
@@ -864,7 +905,11 @@ export class AdminService {
 
     const approvedDepositsCents = deposits.filter((d) => d.status === 'APPROVED').reduce((s, d) => s + d.amountCents, 0);
     const completedWithdrawalsCents = withdrawals.filter((w) => w.status === 'COMPLETED' || w.status === 'PAID').reduce((s, w) => s + w.amountCents, 0);
-    const packageRevenueCents = purchases.reduce((s, p) => s + p.priceCentsPaid, 0);
+    // Use RevenueEvent.amountCents (actual paid delta, never double-counting upgraded tier values)
+    const packageRevenueCents =
+      revenueEvents.length > 0
+        ? revenueEvents.reduce((s, r) => s + r.amountCents, 0)
+        : purchases.reduce((s, p) => s + p.priceCentsPaid, 0);
     const videoRewardsCents = rewardClaims.reduce((s, r) => s + r.amountCents, 0);
     const referralCommissionsCents = commissions.reduce((s, c) => s + c.commissionCents, 0);
     const dailyBonusCents = dailyBonusTxs.reduce((s, t) => s + (t.entries[0]?.amountCents || 0), 0);

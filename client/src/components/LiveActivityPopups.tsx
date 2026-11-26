@@ -32,29 +32,38 @@ export const LiveActivityPopups: React.FC = () => {
       return;
     }
 
-    const pickNext = () => {
-      let idx = Math.floor(Math.random() * items.length);
-      if (items.length > 1 && idx === lastIdxRef.current) {
-        idx = (idx + 1) % items.length;
-      }
-      lastIdxRef.current = idx;
-      keyCounterRef.current += 1;
-      setActivePopup({ item: items[idx], key: keyCounterRef.current });
+    let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    const durationMs = Math.max(2000, (settings.durationSeconds || 5) * 1000);
+    const gapMs = Math.max(800, Math.max(0, (settings.intervalSeconds || 6) * 1000 - durationMs));
+
+    const scheduleNext = (delayMs: number) => {
+      timerId = setTimeout(() => {
+        if (cancelled) return;
+        let idx = Math.floor(Math.random() * items.length);
+        if (items.length > 1 && idx === lastIdxRef.current) {
+          idx = (idx + 1) % items.length;
+        }
+        lastIdxRef.current = idx;
+        keyCounterRef.current += 1;
+        setActivePopup({ item: items[idx], key: keyCounterRef.current });
+
+        // Wait for the current popup to complete its full upward rise & fade before launching the next
+        scheduleNext(durationMs + gapMs);
+      }, delayMs);
     };
 
-    const initialTimer = setTimeout(pickNext, 1800);
-    const intervalMs = Math.max(2500, (settings.intervalSeconds || 6) * 1000);
-    const loop = setInterval(pickNext, intervalMs);
+    scheduleNext(1500);
 
     return () => {
-      clearTimeout(initialTimer);
-      clearInterval(loop);
+      cancelled = true;
+      if (timerId) clearTimeout(timerId);
     };
-  }, [dismissedAll, settings.enabled, settings.intervalSeconds, items]);
+  }, [dismissedAll, settings.enabled, settings.intervalSeconds, settings.durationSeconds, items]);
 
   if (dismissedAll || !settings.enabled || !activePopup) return null;
 
-  const durationSec = Math.max(3, settings.durationSeconds || 5);
+  const durationSec = Math.max(2, settings.durationSeconds || 5);
 
   return (
     <div

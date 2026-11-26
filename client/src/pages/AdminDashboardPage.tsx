@@ -326,6 +326,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       if (isSupportAgentOnly) {
         const supRes = await api.getAdminSupportConversations({ status: 'ALL' });
         if (supRes.success && supRes.data) {
+          setSupportConversations(supRes.data);
           const waiting = supRes.data.filter((c: any) => c.status === 'WAITING_FOR_AGENT').length;
           setWaitingSupportCount(waiting);
         }
@@ -348,6 +349,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         setPendingWithdrawalsCount(pending);
       }
       if (supRes.status === 'fulfilled' && supRes.value.success && supRes.value.data) {
+        // Keep supportConversations live across ALL tabs so the 10-second incoming ring fires from anywhere!
+        if (activeTab !== 'support') {
+          setSupportConversations(supRes.value.data);
+        }
         const waiting = supRes.value.data.filter((c: any) => c.status === 'WAITING_FOR_AGENT').length;
         setWaitingSupportCount(waiting);
       }
@@ -562,9 +567,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         setSupportConversations(res.data);
         const waiting = res.data.filter((c: any) => c.status === 'WAITING_FOR_AGENT').length;
         setWaitingSupportCount(waiting);
-        if (!selectedConvoId && res.data.length > 0) {
-          setSelectedConvoId(res.data[0].id);
-        }
+        // Do NOT auto-select waiting chats before admin opens them (so the 10-second ring plays until opened)
       }
     } catch (err) {
       console.error(err);
@@ -1397,7 +1400,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       if (res.success) {
         setActionSuccess(`Account level for ${adjustLevelModal.userName} changed to ${selectedNewLevel}.`);
         setAdjustLevelModal(null);
-        loadUsers();
+        loadIpGroups(userSearch);
       } else {
         setActionError(res.error?.message || 'Failed to adjust level.');
       }
@@ -1434,7 +1437,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         if (res.success) {
           setActionSuccess(`Account unlocked for ${lockAccountModal.userName}.`);
           setLockAccountModal(null);
-          loadUsers();
+          loadIpGroups(userSearch);
         } else {
           setActionError(res.error?.message || 'Failed to unlock account.');
         }
@@ -1447,7 +1450,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         if (res.success) {
           setActionSuccess(`Account locked for ${lockDurationDays} days.`);
           setLockAccountModal(null);
-          loadUsers();
+          loadIpGroups(userSearch);
         } else {
           setActionError(res.error?.message || 'Failed to lock account.');
         }
@@ -1484,7 +1487,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
       if (res.success) {
         setActionSuccess(`Role for ${changeRoleModal.userName} updated to ${selectedNewRole}.`);
         setChangeRoleModal(null);
-        loadUsers();
+        loadIpGroups(userSearch);
       } else {
         setActionError(res.error?.message || 'Failed to update role.');
       }
@@ -2626,7 +2629,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                     MIN_DEPOSIT_USD_CENTS: { title: 'Minimum Deposit Amount', unit: 'USD cents (2000 = $20.00)' },
                     DEPOSIT_VERIFICATION_TIME_TEXT: { title: 'Expected Deposit Verification Time', unit: 'Display label' },
                     SUPPORT_REASSIGN_TIMEOUT_SECONDS: { title: 'Support Auto-Reassign Timeout', unit: 'Seconds' },
-                    DAILY_RESET_HOUR: { title: 'Daily Video Reward Cutoff Hour (0–23)', unit: '8 = 8:00 AM to next 8:00 AM' },
+                    DAILY_RESET_HOUR: { title: 'Daily Ad Claim Cycle Cutoff Hour (0–23 PKT)', unit: '20 = 8:00 PM PKT to next 7:59:59 PM PKT' },
                   };
                   const meta = humanMeta[s.key] || {
                     title: s.key.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
@@ -3905,38 +3908,58 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         </div>
       )}
 
-      {/* VIEW RECEIPT SLIP MODAL */}
+      {/* VIEW RECEIPT / PAYOUT PROOF MODAL (z-[80] so it stacks above Dossier & all other modals) */}
       {receiptModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-2xl rounded-3xl bg-white border border-slate-200 p-6 space-y-4 shadow-2xl relative">
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
+          onClick={() => {
+            setReceiptModal(null);
+            setReceiptZoomed(false);
+          }}
+        >
+          <div
+            className="w-full max-w-2xl rounded-3xl bg-white border border-slate-200 p-6 space-y-4 shadow-2xl relative"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <Eye className="w-4 h-4 text-purple-600" />
-                  User Uploaded Payment Receipt Slip
+                  Payment Proof &amp; Receipt Viewer
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Inspect the official bank transfer receipt or transaction screenshot submitted by the user.
+                  Inspect the uploaded deposit receipt slip, withdrawal settlement proof, or attachment.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setReceiptModal(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-900"
+                onClick={() => {
+                  setReceiptModal(null);
+                  setReceiptZoomed(false);
+                }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="bg-slate-950 rounded-2xl p-2 flex items-center justify-center max-h-[70vh] overflow-auto">
-              <img
-                src={receiptModal}
-                alt="Payment slip receipt"
-                onClick={() => setReceiptZoomed(!receiptZoomed)}
-                className={`rounded-xl transition-transform cursor-zoom-in ${
-                  receiptZoomed ? 'scale-150 origin-top' : 'max-h-[65vh] w-auto object-contain'
-                }`}
-              />
+              {receiptModal.toLowerCase().endsWith('.pdf') || receiptModal.startsWith('data:application/pdf') ? (
+                <iframe
+                  src={receiptModal}
+                  title="Payment proof PDF"
+                  className="w-full h-[65vh] rounded-xl bg-white"
+                />
+              ) : (
+                <img
+                  src={receiptModal}
+                  alt="Payment slip receipt"
+                  onClick={() => setReceiptZoomed(!receiptZoomed)}
+                  className={`rounded-xl transition-transform cursor-zoom-in ${
+                    receiptZoomed ? 'scale-150 origin-top' : 'max-h-[65vh] w-auto object-contain'
+                  }`}
+                />
+              )}
             </div>
 
             <div className="flex flex-wrap justify-between items-center gap-2 pt-2">
@@ -3955,14 +3978,29 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                 >
                   Download Slip
                 </a>
-                <a
-                  href={receiptModal}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs font-semibold text-purple-600 hover:text-purple-700 flex items-center gap-1"
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (receiptModal.startsWith('data:')) {
+                      try {
+                        const [header, b64] = receiptModal.split(',');
+                        const mime = header.match(/:(.*?);/)?.[1] || 'image/png';
+                        const bytes = atob(b64);
+                        const arr = new Uint8Array(bytes.length);
+                        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+                        const blobUrl = URL.createObjectURL(new Blob([arr], { type: mime }));
+                        window.open(blobUrl, '_blank', 'noopener,noreferrer');
+                      } catch {
+                        window.open(receiptModal, '_blank', 'noopener,noreferrer');
+                      }
+                    } else {
+                      window.open(receiptModal, '_blank', 'noopener,noreferrer');
+                    }
+                  }}
+                  className="text-xs font-semibold text-purple-600 hover:text-purple-700 flex items-center gap-1 cursor-pointer"
                 >
                   <ExternalLink className="w-3.5 h-3.5" /> Open in New Tab
-                </a>
+                </button>
               </div>
               <button
                 onClick={() => {
@@ -4277,6 +4315,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                               <td className="py-2.5 px-3">
                                 {d.proofImageUrl ? (
                                   <button
+                                    type="button"
                                     onClick={() => setReceiptModal(d.proofImageUrl)}
                                     className="px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-bold hover:bg-purple-100 cursor-pointer"
                                   >

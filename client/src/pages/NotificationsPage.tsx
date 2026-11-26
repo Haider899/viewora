@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NotificationItem } from '../types/index.js';
+import { AdminDirectMessageItem, NotificationItem } from '../types/index.js';
 import { formatRelativeTime, formatDateTime } from '../utils/formatters.js';
 import {
   Bell,
@@ -11,14 +11,17 @@ import {
   ShieldCheck,
   MessageCircle,
   ChevronRight,
+  Paperclip,
 } from 'lucide-react';
 
 interface NotificationsPageProps {
   notifications: NotificationItem[];
+  directMessages?: AdminDirectMessageItem[];
   unreadCount: number;
   onMarkRead: (id: string) => Promise<void>;
   onMarkAllRead: () => Promise<void>;
   onSelectNotification: (n: NotificationItem) => void;
+  onSelectDirectMessage?: (dm: AdminDirectMessageItem) => void;
 }
 
 export function getNotificationDestination(n: NotificationItem): string {
@@ -47,14 +50,17 @@ export function getNotificationIcon(n: NotificationItem) {
 
 export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   notifications,
+  directMessages = [],
   unreadCount,
   onMarkAllRead,
   onSelectNotification,
+  onSelectDirectMessage,
 }) => {
   const [filter, setFilter] = useState<'ALL' | 'UNREAD'>('ALL');
   const [markingAll, setMarkingAll] = useState(false);
 
   const visible = filter === 'UNREAD' ? notifications.filter((n) => !n.isRead) : notifications;
+  const visibleDMs = filter === 'UNREAD' ? directMessages.filter((m) => !m.isRead) : directMessages;
 
   const handleMarkAll = async () => {
     setMarkingAll(true);
@@ -77,7 +83,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
               filter === 'ALL' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            All ({notifications.length})
+            All ({notifications.length + directMessages.length})
           </button>
           <button
             type="button"
@@ -100,6 +106,50 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
           <span>{markingAll ? 'Updating…' : 'Mark all read'}</span>
         </button>
       </div>
+
+      {/* Direct Messages from U-Ads Administration */}
+      {visibleDMs.length > 0 && (
+        <div className="card-white overflow-hidden border-orange-200">
+          <div className="px-5 py-3 bg-orange-50/70 border-b border-orange-100 flex items-center justify-between">
+            <span className="text-xs font-extrabold text-orange-900 uppercase tracking-wider">
+              Messages from U-Ads Administration ({visibleDMs.length})
+            </span>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {visibleDMs.map((dm) => (
+              <button
+                key={dm.id}
+                type="button"
+                onClick={() => onSelectDirectMessage?.(dm)}
+                className={`w-full text-left px-5 py-4 flex items-start gap-3.5 hover:bg-orange-50/40 transition-colors cursor-pointer ${
+                  !dm.isRead ? 'bg-orange-50/30' : ''
+                }`}
+              >
+                <div className="w-9 h-9 rounded-xl bg-orange-100 text-orange-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-extrabold text-slate-900 truncate">
+                      {dm.subject || 'Message from U-Ads Administration'}
+                    </span>
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                      {formatRelativeTime(dm.createdAt)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 line-clamp-2">{dm.message}</p>
+                  {dm.attachmentUrl && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
+                      <Paperclip className="w-3 h-3" /> Attachment included — click to view
+                    </span>
+                  )}
+                </div>
+                {!dm.isRead && <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0 mt-2" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Notification List */}
       <div className="card-white overflow-hidden">

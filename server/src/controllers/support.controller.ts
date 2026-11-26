@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import prisma from '../lib/prisma.js';
 import { SupportService } from '../services/support.service.js';
 
 export const startConversationSchema = z.object({
@@ -181,8 +182,12 @@ export class SupportController {
 
   public static async adminReply(req: Request, res: Response, next: NextFunction) {
     try {
-      const agentId = (req as any).user.id;
-      const agentName = (req as any).user.fullName || 'Support Specialist';
+      const agentId = req.user!.userId;
+      const agentRow = await prisma.user.findUnique({
+        where: { id: agentId },
+        select: { fullName: true },
+      });
+      const agentName = agentRow?.fullName || 'Support Specialist';
       const { message, attachmentUrl, attachmentName } = req.body;
 
       const result = await SupportService.adminReply({

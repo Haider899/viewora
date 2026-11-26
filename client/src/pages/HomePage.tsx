@@ -300,28 +300,31 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
           </h3>
           <p className="text-slate-600 text-xs leading-relaxed">
             {content.packagesSubtitle ||
-              'Four transparent USD tiers — Starter ($20), Basic ($50), Premium ($100), and VIP ($500) — synced live with your Member Portal.'}
+              (packages.length > 0
+                ? `Transparent lifetime USD tiers — ${packages
+                    .map((p) => `${p.name} ($${(p.priceCents / 100).toFixed(0)})`)
+                    .join(', ')} — synced live with your Member Portal.`
+                : 'Transparent lifetime USD tiers synced live with your Member Portal.')}
           </p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {packages.map((pkg) => {
-            let feats: string[] = [];
-            try {
-              feats = JSON.parse(pkg.features || '[]');
-            } catch {}
+            const adsCount = pkg.unlockedAdsCount ?? pkg.videoLimit;
+            const perAdUSD = ((pkg.perVideoRewardCents ?? 50) / 100).toFixed(2);
+            const refRange = pkg.referralRateRange || '5%–15%';
             const isRecommended = pkg.name === 'Premium';
             return (
               <div
                 key={pkg.id}
                 className={`p-6 rounded-2xl bg-white border flex flex-col justify-between space-y-5 relative transition-all card-hover ${
                   isRecommended
-                    ? 'border-2 border-emerald-500 ring-4 ring-emerald-500/10 shadow-md'
+                    ? 'border-2 border-orange-500 ring-4 ring-orange-500/10 shadow-md'
                     : 'border-slate-200/90 shadow-xs'
                 }`}
               >
                 {isRecommended && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider shadow-xs">
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-xs">
                     Recommended
                   </div>
                 )}
@@ -331,18 +334,24 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
                     <span className="text-3xl font-black text-slate-900 tabular-nums">
                       ${(pkg.priceCents / 100).toFixed(0)}
                     </span>
-                    <span className="text-xs font-semibold text-slate-400">USD</span>
+                    <span className="text-xs font-semibold text-slate-400">USD · Lifetime</span>
                   </div>
-                  <div className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
-                    Unlocks {pkg.videoLimit} Video Campaigns
+                  <div className="text-xs font-bold text-slate-700 bg-orange-50/70 border border-orange-200 rounded-xl px-3 py-1.5">
+                    Unlocks {adsCount} Daily Ad{adsCount === 1 ? '' : 's'}
                   </div>
                   <ul className="space-y-1.5 text-xs text-slate-600">
-                    {feats.slice(0, 3).map((f, i) => (
-                      <li key={i} className="flex items-start gap-1.5">
-                        <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                        <span>{f}</span>
-                      </li>
-                    ))}
+                    <li className="flex items-start gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-orange-600 shrink-0 mt-0.5" />
+                      <span>Earn ${perAdUSD} USD per ad watched</span>
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-orange-600 shrink-0 mt-0.5" />
+                      <span>Lifetime subscription · Pay difference to upgrade</span>
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-orange-600 shrink-0 mt-0.5" />
+                      <span>{refRange} Referral Commission eligibility</span>
+                    </li>
                   </ul>
                 </div>
                 <button

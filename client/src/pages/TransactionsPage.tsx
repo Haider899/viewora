@@ -189,9 +189,10 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({ navigate }) 
             className="h-9 px-3 rounded-[10px] bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700"
           >
             <option value="ALL">All Wallets</option>
-            <option value="USER_AVAILABLE">Main Account</option>
-            <option value="USER_VIDEO_REWARDS">Video Rewards</option>
+            <option value="USER_VIDEO_REWARDS">Video Ad Rewards</option>
             <option value="USER_REFERRAL">Referral Wallet</option>
+            <option value="USER_OTHER_REWARDS">Bonuses Wallet</option>
+            <option value="USER_AVAILABLE">Subscription Credit</option>
           </select>
 
           <select

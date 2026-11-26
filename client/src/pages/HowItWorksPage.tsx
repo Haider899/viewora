@@ -30,8 +30,8 @@ export const HowItWorksPage: React.FC<HowItWorksProps> = ({ navigate }) => {
     },
     {
       step: '03',
-      title: 'Select & Unlock Your Package Tier',
-      desc: 'Choose from Starter ($20), Basic ($50), Premium ($100), or VIP ($500). Your purchase is executed via your wallet balance with historical terms snapshot preservation.',
+      title: 'Select & Unlock Your Lifetime Package',
+      desc: 'Choose from our live USD lifetime tiers (Starter, Basic, Premium, or VIP) on the Packages page. Upgrade anytime by paying only the price difference.',
       icon: <Unlock className="w-6 h-6 text-purple-600" />,
     },
     {

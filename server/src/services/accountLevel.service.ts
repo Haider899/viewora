@@ -378,10 +378,12 @@ export class AccountLevelService {
   }
 
   /**
-   * Section 5.1: Daily Account Level Bonus Processing Batch
+   * Section 5.1: Daily Account Level Bonus Processing Batch (anchored to PKT / UTC+5 cycle date)
    */
   static async processDailyLevelBonuses(executedById = 'SYSTEM') {
-    const today = new Date().toISOString().split('T')[0];
+    const resetHour = await this.getDailyResetHour();
+    const { cycleKey } = this.getDailyWindow(resetHour);
+    const today = cycleKey.slice(0, 10);
 
     // Check if today's batch already completed
     const existing = await prisma.dailyBonusBatch.findUnique({
@@ -438,9 +440,10 @@ export class AccountLevelService {
         const bonusCents = Math.floor((lvl.minQualificationUSD * lvl.dailyBonusRateBps) / 10000);
         if (bonusCents <= 0) continue;
 
+        // Rule 3: Daily bonuses are EARNED rewards — credit withdrawable USER_OTHER_REWARDS (never USER_AVAILABLE)
         const userAccount = await LedgerService.getOrCreateAccount(
           tx,
-          AccountType.USER_AVAILABLE,
+          AccountType.USER_OTHER_REWARDS,
           Currency.USD,
           u.id
         );
@@ -473,7 +476,7 @@ export class AccountLevelService {
           data: {
             userId: u.id,
             title: 'Daily Level Bonus Credited',
-            message: `+$${(bonusCents / 100).toFixed(2)} USD daily bonus (${lvl.name}) credited to your Main Account for ${today}.`,
+            message: `+$${(bonusCents / 100).toFixed(2)} USD daily bonus (${lvl.name}) credited to your Earned Bonuses Wallet for ${today}.`,
             type: 'SUCCESS',
           },
         });
@@ -521,8 +524,8 @@ export class AccountLevelService {
   }
 
   /**
-   * Authoritative Level Progress computed strictly from total qualifying volume
-   * (approved USD deposits + active package purchases) — NEVER cash sitting in wallet (#6).
+   * Authoritative Level Progress computed strictly from ACTIVE lifetime packages (Rule 3 & Rule 4) —
+   * NEVER from raw deposits sitting in subscription credit!
    */
   static async getUserLevelProgress(userId: string) {
     const [user, levels] = await Promise.all([
@@ -530,7 +533,6 @@ export class AccountLevelService {
         where: { id: userId },
         include: {
           packagePurchases: { where: { status: 'ACTIVE' } },
-          depositRequests: { where: { status: 'APPROVED' } },
         },
       }),
       this.getAllLevels(),
@@ -539,11 +541,8 @@ export class AccountLevelService {
     if (!user) return null;
 
     let qualifyingVolumeCents = 0;
-    for (const dep of user.depositRequests) {
-      if (dep.currency === 'USD') qualifyingVolumeCents += dep.amountCents;
-    }
     for (const pkg of user.packagePurchases) {
-      if (pkg.currency === 'USD') qualifyingVolumeCents += pkg.priceCentsPaid;
+      if (pkg.currency === 'USD') qualifyingVolumeCents = Math.max(qualifyingVolumeCents, pkg.priceCentsPaid);
     }
 
     const activeLevels = levels.filter((l) => l.isActive);
@@ -608,17 +607,35 @@ export class AccountLevelService {
     return 20; // Default 8:00 PM -> next day 7:59:59 PM
   }
 
+  /**
+   * Deterministic 24-hour claim cycle anchored to Pakistan Standard Time (UTC+5).
+   * Default resetHour = 20 => 8:00 PM PKT (15:00 UTC) -> next day 7:59:59 PM PKT (14:59:59 UTC),
+   * independent of the server OS timezone (works identically on UTC Lightsail and local dev).
+   */
   static getDailyWindow(resetHour: number, now = new Date()) {
-    const windowStart = new Date(now);
-    windowStart.setHours(resetHour, 0, 0, 0);
-    if (now < windowStart) {
-      windowStart.setDate(windowStart.getDate() - 1);
+    const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
+    const pktNow = new Date(now.getTime() + PKT_OFFSET_MS);
+
+    const pktStart = new Date(
+      Date.UTC(
+        pktNow.getUTCFullYear(),
+        pktNow.getUTCMonth(),
+        pktNow.getUTCDate(),
+        resetHour,
+        0,
+        0,
+        0
+      )
+    );
+    if (pktNow.getTime() < pktStart.getTime()) {
+      pktStart.setUTCDate(pktStart.getUTCDate() - 1);
     }
-    const windowEnd = new Date(windowStart);
-    windowEnd.setDate(windowEnd.getDate() + 1);
-    const y = windowStart.getFullYear();
-    const m = String(windowStart.getMonth() + 1).padStart(2, '0');
-    const d = String(windowStart.getDate()).padStart(2, '0');
+
+    const windowStart = new Date(pktStart.getTime() - PKT_OFFSET_MS);
+    const windowEnd = new Date(windowStart.getTime() + 24 * 60 * 60 * 1000);
+    const y = pktStart.getUTCFullYear();
+    const m = String(pktStart.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(pktStart.getUTCDate()).padStart(2, '0');
     const cycleKey = `${y}-${m}-${d}-H${String(resetHour).padStart(2, '0')}`;
     return { cycleKey, windowStart, windowEnd, resetHour };
   }

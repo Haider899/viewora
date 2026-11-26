@@ -20,6 +20,7 @@ import { SettingsPage } from './SettingsPage.js';
 import { SupportPage } from './SupportPage.js';
 import { SupportChatWidget } from '../components/SupportChatWidget.js';
 import { LiveActivityPopups } from '../components/LiveActivityPopups.js';
+import { CompanyInfoModal } from '../components/CompanyInfoModal.js';
 import { useToast } from '../components/ToastProvider.js';
 import { AdminDirectMessageItem } from '../types/index.js';
 import {
@@ -103,6 +104,7 @@ export const UserDashboardPage: React.FC = () => {
   const [openMenu, setOpenMenu] = useState<'none' | 'balance' | 'notif' | 'avatar'>('none');
   const [copiedId, setCopiedId] = useState(false);
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
+  const [companyInfoOpen, setCompanyInfoOpen] = useState(false);
 
   const topBarRef = useRef<HTMLDivElement>(null);
 
@@ -182,9 +184,14 @@ export const UserDashboardPage: React.FC = () => {
   };
 
   const handleMarkAllRead = async () => {
-    await api.markAllNotificationsRead().catch(() => {});
+    await Promise.all([
+      api.markAllNotificationsRead().catch(() => {}),
+      ...directMessages
+        .filter((m) => !m.isRead)
+        .map((m) => api.markDirectMessageRead(m.id).catch(() => {})),
+    ]);
     await loadNotifications();
-    showToast('All notifications marked as read.', 'success');
+    showToast('All notifications and messages marked as read.', 'success');
   };
 
   const navigateInternal = (target: string, state?: any) => {
@@ -766,10 +773,17 @@ export const UserDashboardPage: React.FC = () => {
           {activeTab === 'notifications' && (
             <NotificationsPage
               notifications={notifications}
+              directMessages={directMessages}
               unreadCount={unreadCount}
               onMarkRead={handleMarkRead}
               onMarkAllRead={handleMarkAllRead}
               onSelectNotification={handleNotificationClick}
+              onSelectDirectMessage={(dm) => {
+                setViewingDirectMsg(dm);
+                if (!dm.isRead) {
+                  api.markDirectMessageRead(dm.id).then(() => loadNotifications()).catch(() => {});
+                }
+              }}
             />
           )}
         </main>
@@ -777,14 +791,24 @@ export const UserDashboardPage: React.FC = () => {
         {/* Minimal Legal-Only Footer on Desktop (Issue #17c: clear spacing around year & brand) */}
         <footer className="hidden md:flex items-center justify-between px-8 py-4 border-t border-slate-200/80 bg-white text-[11px] text-slate-400">
           <span>&copy; {new Date().getFullYear()} U-Ads Platform · USD-only audited ledger</span>
-          <button
-            type="button"
-            onClick={() => navigateInternal('support')}
-            className="hover:text-emerald-700 font-semibold transition-colors cursor-pointer"
-          >
-            Need help? Contact Support
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => setCompanyInfoOpen(true)}
+              className="hover:text-orange-600 font-semibold transition-colors cursor-pointer"
+            >
+              Company Info &amp; Licenses
+            </button>
+            <button
+              type="button"
+              onClick={() => navigateInternal('support')}
+              className="hover:text-orange-600 font-semibold transition-colors cursor-pointer"
+            >
+              Need help? Contact Support
+            </button>
+          </div>
         </footer>
+        <CompanyInfoModal open={companyInfoOpen} onClose={() => setCompanyInfoOpen(false)} />
       </div>
 
       {/* MOBILE FIXED BOTTOM NAVIGATION BAR (5 items: Home, Ads, Deposit, Referrals, Profile) */}

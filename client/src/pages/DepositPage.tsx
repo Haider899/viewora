@@ -317,7 +317,7 @@ export const DepositPage: React.FC<DepositProps> = () => {
             <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 text-xs text-emerald-900 flex items-start gap-2.5">
               <Clock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold">Typical verification time: 10–30 minutes.</span> Once approved, your Main Account balance updates automatically and you receive a notification.
+                <span className="font-bold">Typical verification time: 10–30 minutes.</span> Once approved, your subscription deposit is ready to activate or upgrade your lifetime package and you receive a notification.
               </div>
             </div>
 
@@ -482,7 +482,7 @@ export const DepositPage: React.FC<DepositProps> = () => {
             <h3 className="text-sm font-bold text-slate-900">Your Deposit History</h3>
             {deposits.length === 0 ? (
               <p className="text-xs text-slate-500 py-4 text-center">
-                No deposit requests yet. Submit your first transfer above to fund your Main Account.
+                No deposit requests yet. Submit your first transfer above to activate or upgrade your lifetime package.
               </p>
             ) : (
               <div className="space-y-2.5">

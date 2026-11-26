@@ -359,4 +359,97 @@ describe('U-Ads API & RBAC Integration Tests', () => {
     expect(dmInbox.body.data.length).toBeGreaterThanOrEqual(1);
     expect(dmInbox.body.data[0].message).toBe('Hello from U-Ads Admin!');
   });
+
+  it('QA: accepts decimal USD strings ("50.00") on deposit submission (Part 5 #8)', async () => {
+    const sampleProof =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const res = await request(app)
+      .post('/api/v1/payments/deposit')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        paymentMethodId,
+        amount: '50.00',
+        currency: 'USD',
+        transactionRef: `TX-DEC-${Date.now()}`,
+        senderName: 'Test Isolation User',
+        proofImageUrl: sampleProof,
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.data.amountCents).toBe(5000);
+  });
+
+  it('QA: per-video percentage calculates on video base reward (NOT user deposits) & tier edit enforces access immediately (Part 3 #1 & Part 4 #2)', async () => {
+    const createRes = await request(app)
+      .post('/api/v1/admin/videos')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        title: `QA Reward Pct Test ${Date.now()}`,
+        videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+        durationSeconds: 15,
+        minPackageTier: 'Basic',
+        minAccountLevel: 'LEVEL_2',
+        rewardAmountCents: 100, // $1.00 base reward
+        rewardPercentageBps: 5000, // 50% of $1.00 = $0.50 (50 cents), NOT 50% of deposits!
+        isPublished: true,
+      });
+    expect(createRes.status).toBe(201);
+    const createdVid = createRes.body.data;
+
+    // User is on Basic (LEVEL_2) — must have access and see EXACTLY 50 cents ($0.50)
+    const detail1 = await request(app)
+      .get(`/api/v1/videos/${createdVid.id}`)
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(detail1.status).toBe(200);
+    expect(detail1.body.data.hasAccess).toBe(true);
+    expect(detail1.body.data.effectiveRewardCents).toBe(50);
+
+    // Admin raises minPackageTier to VIP while sending stale minAccountLevel: 'LEVEL_2' -> must auto-sync to LEVEL_4 & lock immediately!
+    const editRes = await request(app)
+      .put(`/api/v1/admin/videos/${createdVid.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        minPackageTier: 'VIP',
+        minAccountLevel: 'LEVEL_2',
+      });
+    expect(editRes.status).toBe(200);
+    expect(editRes.body.data.minAccountLevel).toBe('LEVEL_4');
+
+    const detail2 = await request(app)
+      .get(`/api/v1/videos/${createdVid.id}`)
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(detail2.status).toBe(200);
+    expect(detail2.body.data.hasAccess).toBe(false);
+    expect(detail2.body.data.videoUrl).toBe('');
+
+    // Clean up test video
+    await prisma.video.delete({ where: { id: createdVid.id } });
+  });
+
+  it('QA: anchors 24-hour cycle deterministically to 8:00 PM PKT (15:00 UTC), returns dossier proofs, & preserves profile fields', async () => {
+    const { AccountLevelService } = await import('../services/accountLevel.service.js');
+    // 14:59 UTC = 7:59 PM PKT (still previous day's 8 PM PKT cycle); 15:00 UTC = 8:00 PM PKT (new cycle!)
+    const beforeCutoff = AccountLevelService.getDailyWindow(20, new Date('2026-11-26T14:59:59.000Z'));
+    const afterCutoff = AccountLevelService.getDailyWindow(20, new Date('2026-11-26T15:00:00.000Z'));
+    expect(beforeCutoff.cycleKey).toBe('2026-11-25-H20');
+    expect(afterCutoff.cycleKey).toBe('2026-11-26-H20');
+    expect(afterCutoff.windowStart.toISOString()).toBe('2026-11-26T15:00:00.000Z');
+    expect(afterCutoff.windowEnd.toISOString()).toBe('2026-11-27T15:00:00.000Z');
+
+    // User Financial Dossier returns deposit proofImageUrl & header metadata
+    const dossierRes = await request(app)
+      .get(`/api/v1/admin/users/${userId}/financial-dossier`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(dossierRes.status).toBe(200);
+    expect(dossierRes.body.data.deposits.length).toBeGreaterThanOrEqual(1);
+    expect(dossierRes.body.data.deposits[0].proofImageUrl).toBeTruthy();
+
+    // PATCH /auth/profile returns savedPayoutMethod & referredBy keys without wiping them
+    const profRes = await request(app)
+      .patch('/api/v1/auth/profile')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ fullName: 'Test Isolation User QA' });
+    expect(profRes.status).toBe(200);
+    expect('savedPayoutMethod' in profRes.body.data.user).toBe(true);
+    expect('referredBy' in profRes.body.data.user).toBe(true);
+  });
 });

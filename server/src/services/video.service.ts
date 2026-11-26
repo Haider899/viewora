@@ -93,7 +93,8 @@ export class VideoService {
     // 2. Unified Global % × Level %
     const globalFactor = (cfg.globalPercent > 0 ? cfg.globalPercent : 100) / 100;
     const lvlPct = cfg.levelPercentages[userAccountLevel] ?? 100;
-    const levelFactor = lvlPct > 0 ? lvlPct / 100 : 1;
+    if (lvlPct <= 0) return 0;
+    const levelFactor = lvlPct / 100;
     return Math.max(1, Math.round(baseCents * globalFactor * levelFactor));
   }
 
@@ -357,7 +358,7 @@ export class VideoService {
       throw {
         statusCode: 403,
         code: 'ACCESS_RESTRICTED',
-        message: `Increase your account level or upgrade your plan to unlock this video.`,
+        message: `Upgrade to the ${video.minPackageTier} plan (${video.minAccountLevel}) to unlock this ad.`,
       };
     }
 
@@ -837,8 +838,26 @@ export class VideoService {
       data.assignedUserId = null;
     }
 
-    // Part 4 #2: Changing tier OR level syncs both fields immediately so actual access updates!
-    if (data.minAccountLevel && !data.minPackageTier) {
+    // Part 4 #2: Changing tier OR level ALWAYS syncs both fields immediately so actual access updates!
+    const existing = await prisma.video.findUnique({
+      where: { id },
+      select: { minPackageTier: true, minAccountLevel: true },
+    });
+    if (data.minAccountLevel && data.minPackageTier && existing) {
+      const tierChanged = data.minPackageTier !== existing.minPackageTier;
+      const levelChanged = data.minAccountLevel !== existing.minAccountLevel;
+      if (tierChanged && !levelChanged) {
+        data.minAccountLevel = TIER_TO_LEVEL[data.minPackageTier] || data.minAccountLevel;
+      } else if (levelChanged && !tierChanged) {
+        data.minPackageTier = LEVEL_TO_TIER[data.minAccountLevel] || data.minPackageTier;
+      } else if (tierChanged && levelChanged) {
+        // Keep tier/level consistent if mismatched
+        const expectedLevel = TIER_TO_LEVEL[data.minPackageTier];
+        if (expectedLevel && expectedLevel !== data.minAccountLevel) {
+          data.minPackageTier = LEVEL_TO_TIER[data.minAccountLevel] || data.minPackageTier;
+        }
+      }
+    } else if (data.minAccountLevel && !data.minPackageTier) {
       data.minPackageTier = LEVEL_TO_TIER[data.minAccountLevel] || 'Starter';
     } else if (data.minPackageTier && !data.minAccountLevel) {
       data.minAccountLevel = TIER_TO_LEVEL[data.minPackageTier] || 'LEVEL_1';

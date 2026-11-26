@@ -16,7 +16,7 @@ export const SUPPORT_FAQS: BotFaqItem[] = [
     answer: `**Deposit Verification Time**
 Our finance team typically verifies USD deposits within **10 to 30 minutes**.
 
-Once you submit your Transaction ID / TxHash and upload a clear payment receipt, your USD balance is credited to your **Main Account** immediately after review.
+Once you submit your Transaction ID / TxHash and upload a clear payment receipt, your subscription payment is approved so you can activate or upgrade your lifetime package.
 
 If more than 30 minutes have passed, attach your receipt here and select **Talk to a human** for direct help.`,
     quickPrompts: ['How do I deposit USD?', 'What are the withdrawal rules?', 'Talk to a human'],
@@ -42,11 +42,12 @@ If more than 30 minutes have passed, attach your receipt here and select **Talk 
     answer: `**USD Withdrawal Process & Limits**
 • **Currency:** USD only
 • **Minimum withdrawal:** **$10.00 USD**
+• **Withdrawable funds:** Only earned money (**Video Ad Rewards**, **Referral Commissions**, and **Bonuses**) can be withdrawn. Subscription deposits are non-withdrawable.
 • **How to withdraw:**
-1. Open **Withdraw** from the left menu.
-2. Choose your source wallet (Main Account, Video Rewards, or Referral Wallet) and payout method.
-3. Enter your receiving details and confirm.
-4. The amount is held safely while our team reviews and sends your payout with a confirmation reference.`,
+1. Open **Withdraw** from the menu.
+2. Choose your earned wallet (**Video Ad Rewards**, **Referral Wallet**, or **Bonuses**) and payout channel (**USDT TRC-20**, **Binance**, or **USD Bank Wire**).
+3. Your payout details are saved automatically for future withdrawals.
+4. Confirm — our team verifies and settles your payout with a proof receipt.`,
     quickPrompts: ['How do I deposit USD?', 'How do video rewards work?', 'Talk to a human'],
   },
   {
@@ -54,13 +55,11 @@ If more than 30 minutes have passed, attach your receipt here and select **Talk 
     category: 'Packages & Tiers',
     question: 'What are the U-Ads access packages and limits?',
     keywords: ['package', 'packages', 'tier', 'starter', 'basic', 'premium', 'vip', 'price', 'pricing', 'kharidna', 'buy package', 'plans'],
-    answer: `**U-Ads Membership Plans (USD)**
-• **Starter ($20):** Unlocks 2 video campaigns and Video Rewards eligibility.
-• **Basic ($50):** Unlocks 6 video campaigns and full referral rank eligibility.
-• **Premium ($100):** Unlocks 15 video campaigns and priority support.
-• **VIP ($500):** Unlocks up to 60 video campaigns and priority payout review.
-
-Upgrade anytime using your Main Account balance.`,
+    answer: `**U-Ads Lifetime Membership Plans (USD)**
+• Every package is a **one-time lifetime subscription** — watch ads and keep earning!
+• **Starter**, **Basic**, **Premium**, and **VIP** tiers unlock progressively higher-level ads and higher rewards per ad.
+• **Upgrading:** When you move to a higher tier, you only pay the **price difference** between your current plan and the new plan.
+• Open the **Plans / Packages** page to see live pricing, ad counts, and per-ad rewards.`,
     quickPrompts: ['How do video rewards work?', 'How do referral commissions work?', 'Talk to a human'],
   },
   {
@@ -170,8 +169,7 @@ You can share your transaction reference or attach a screenshot while you wait.`
           return {
             answer: `**Your Deposit Status (${ctx.memberCode || ctx.fullName})**
 You have not submitted any USD deposit requests yet.
-• **Main Account Balance:** $${ctx.mainUSD.toFixed(2)}
-You can submit a deposit anytime from the **Deposit** page (verified in 10–30 minutes).`,
+You can submit a subscription deposit anytime from the **Deposit** page (verified in 10–30 minutes).`,
             matchedFaqId: 'account_deposit_status',
             quickPrompts: ['How do I deposit USD?', 'Check my wallet balance', 'Talk to a human'],
             suggestEscalation: false,
@@ -187,7 +185,6 @@ You can submit a deposit anytime from the **Deposit** page (verified in 10–30 
           answer: `**Your Recent USD Deposits (${ctx.memberCode || ctx.fullName})**
 ${lines.join('\n')}
 
-• **Current Main Account Balance:** $${ctx.mainUSD.toFixed(2)}
 Pending deposits are normally verified within 10–30 minutes.`,
           matchedFaqId: 'account_deposit_status',
           quickPrompts: ['Check my withdrawal status', 'Check my referral progress', 'Talk to a human'],
@@ -200,7 +197,7 @@ Pending deposits are normally verified within 10–30 minutes.`,
           return {
             answer: `**Your Withdrawal Status**
 You have no withdrawal requests on record yet.
-• **Main Account:** $${ctx.mainUSD.toFixed(2)} | **Video Rewards:** $${ctx.videoRewardsUSD.toFixed(2)} | **Referral:** $${ctx.referralUSD.toFixed(2)}
+• **Video Ad Rewards:** $${ctx.videoRewardsUSD.toFixed(2)} | **Referral Wallet:** $${ctx.referralUSD.toFixed(2)}
 • **In Hold:** $${ctx.reservedUSD.toFixed(2)}`,
             matchedFaqId: 'account_withdrawal_status',
             quickPrompts: ['What is the withdrawal process and minimum limit?', 'Check my deposit status', 'Talk to a human'],
@@ -246,10 +243,9 @@ ${lines.join('\n')}
             ? 'New User'
             : ctx.accountLevel.replace('_', ' ');
         return {
-          answer: `**Your U-Ads Account Summary (${ctx.memberCode || ctx.fullName})**
+          answer: `**Your U-Ads Earnings Summary (${ctx.memberCode || ctx.fullName})**
 • **Account Level:** ${prettyLevel}
-• **Main Account:** $${ctx.mainUSD.toFixed(2)}
-• **Video Rewards:** $${ctx.videoRewardsUSD.toFixed(2)}
+• **Video Ad Rewards:** $${ctx.videoRewardsUSD.toFixed(2)}
 • **Referral Wallet:** $${ctx.referralUSD.toFixed(2)}
 • **Pending Withdrawal Hold:** $${ctx.reservedUSD.toFixed(2)}
 • **Referral Rank:** ${ctx.referralRank} (${ctx.qualifiedReferrals} qualified / ${ctx.totalReferrals} total)`,

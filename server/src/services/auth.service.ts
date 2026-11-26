@@ -243,6 +243,12 @@ export class AuthService {
         agentAvailability: true,
         referralCode: true,
         referredById: true,
+        referredBy: {
+          select: { id: true, fullName: true, memberCode: true, referralCode: true },
+        },
+        savedPayoutMethod: true,
+        savedAccountTitle: true,
+        savedAccountNumber: true,
         createdAt: true,
       },
     });

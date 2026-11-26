@@ -85,14 +85,23 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, navigate }) => {
         <div className="hidden md:flex items-center gap-3">
           {user ? (
             <div className="flex items-center gap-3">
-              {/* USD Balance Pill */}
+              {/* USD Earnings Balance Pill (Rule 3: earnings only, never subscription deposits) */}
               <div
                 onClick={() => navigate(isAdminOrStaff ? 'admin' : 'wallet')}
-                className="cursor-pointer flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:border-emerald-500 transition-colors shadow-2xs"
+                className="cursor-pointer flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-orange-50/70 border border-orange-200 hover:border-orange-500 transition-colors shadow-2xs"
               >
-                <div className="flex items-center gap-1 text-xs font-bold text-emerald-700">
-                  <span className="text-slate-400">USD:</span>
-                  <span>${((wallet?.USD?.availableCents ?? 0) / 100).toFixed(2)}</span>
+                <div className="flex items-center gap-1 text-xs font-bold text-orange-700">
+                  <span className="text-slate-400">Earned:</span>
+                  <span>
+                    $
+                    {(
+                      ((wallet?.USD?.earningsTotalCents ??
+                        (wallet?.USD?.videoRewardsCents ?? 0) +
+                          (wallet?.USD?.referralCents ?? 0) +
+                          (wallet?.USD?.otherRewardsCents ?? 0)) /
+                        100)
+                    ).toFixed(2)}
+                  </span>
                 </div>
               </div>
 

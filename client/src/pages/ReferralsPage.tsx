@@ -334,36 +334,56 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
                 : ''}
             </p>
           </div>
-          <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-            Your next referral earns{' '}
-            {dynamicPositions.find((p) => nextReferralPos >= p.minPos && nextReferralPos <= p.maxPos)?.ratePercent ?? 15}%
-          </span>
+          {(() => {
+            const maxCap = Number(data?.referralConfig?.maxCommissionReferrals ?? 0);
+            const capReached = maxCap > 0 && nextReferralPos > maxCap;
+            const nextRate =
+              dynamicPositions.find((p) => nextReferralPos >= p.minPos && nextReferralPos <= p.maxPos)?.ratePercent ??
+              dynamicPositions[dynamicPositions.length - 1]?.ratePercent ??
+              15;
+            return capReached ? (
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                Commission cap reached ({maxCap} referrals) · Milestones still active
+              </span>
+            ) : (
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Your next referral earns {nextRate}%
+              </span>
+            );
+          })()}
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
-          {dynamicPositions.map((pos, idx) => {
-            const isNext = nextReferralPos >= pos.minPos && nextReferralPos <= pos.maxPos;
-            return (
-              <div
-                key={idx}
-                className={`p-3.5 rounded-xl border text-center space-y-1 transition-all ${
-                  isNext
-                    ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/15'
-                    : 'bg-slate-50 border-slate-200'
-                }`}
-              >
-                <div className={`text-[11px] font-bold ${isNext ? 'text-emerald-700' : 'text-slate-500'}`}>
-                  {pos.label}
+          {dynamicPositions
+            .filter((pos) => {
+              const maxCap = Number(data?.referralConfig?.maxCommissionReferrals ?? 0);
+              return maxCap <= 0 || pos.minPos <= maxCap;
+            })
+            .map((pos, idx) => {
+              const maxCap = Number(data?.referralConfig?.maxCommissionReferrals ?? 0);
+              const capReached = maxCap > 0 && nextReferralPos > maxCap;
+              const isNext = !capReached && nextReferralPos >= pos.minPos && nextReferralPos <= pos.maxPos;
+              return (
+                <div
+                  key={idx}
+                  className={`p-3.5 rounded-xl border text-center space-y-1 transition-all ${
+                    isNext
+                      ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/15'
+                      : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div className={`text-[11px] font-bold ${isNext ? 'text-emerald-700' : 'text-slate-500'}`}>
+                    {pos.label}
+                  </div>
+                  <div className={`text-xl font-black tabular-nums ${isNext ? 'text-emerald-700' : 'text-slate-900'}`}>
+                    {pos.ratePercent}%
+                  </div>
+                  <div className="text-[10px] font-semibold text-slate-500">
+                    {isNext ? 'Your next tier' : 'First plan'}
+                  </div>
                 </div>
-                <div className={`text-xl font-black tabular-nums ${isNext ? 'text-emerald-700' : 'text-slate-900'}`}>
-                  {pos.ratePercent}%
-                </div>
-                <div className="text-[10px] font-semibold text-slate-500">
-                  {isNext ? 'Your next tier' : 'First plan'}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       </div>
 
@@ -398,7 +418,8 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
             <div className="mt-4 p-8 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-center space-y-2">
               <div className="text-sm font-bold text-slate-900">No invited members yet</div>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Copy your invitation link above and share it with friends to start earning 5%–15% USD referral commissions.
+                Copy your invitation link above and share it with friends to start earning{' '}
+                {dynamicPositions[0]?.ratePercent ?? 5}%–{dynamicPositions[dynamicPositions.length - 1]?.ratePercent ?? 15}% USD referral commissions.
               </p>
             </div>
           ) : (

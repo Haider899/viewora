@@ -535,6 +535,34 @@ export class BootstrapService {
       const existing = await prisma.systemSetting.findUnique({ where: { key: s.key } });
       if (!existing) {
         await prisma.systemSetting.create({ data: s });
+      } else if (s.key === 'BONUS_SETTINGS') {
+        try {
+          const parsed = JSON.parse(existing.value || '{}');
+          let dirty = false;
+          if (parsed?.accountLevelBonus?.creditTimeUTC === '00:00 UTC') {
+            parsed.accountLevelBonus.creditTimeUTC = DEFAULT_BONUS_SETTINGS.accountLevelBonus.creditTimeUTC;
+            dirty = true;
+          }
+          if (!parsed.videoBonus?.globalPercent || !parsed.videoBonus?.levelPercentages) {
+            parsed.videoBonus = {
+              ...DEFAULT_BONUS_SETTINGS.videoBonus,
+              ...(parsed.videoBonus || {}),
+              levelPercentages: {
+                ...DEFAULT_BONUS_SETTINGS.videoBonus.levelPercentages,
+                ...(parsed.videoBonus?.levelPercentages || {}),
+              },
+            };
+            dirty = true;
+          }
+          if (dirty) {
+            await prisma.systemSetting.update({
+              where: { key: s.key },
+              data: { value: JSON.stringify(parsed) },
+            });
+          }
+        } catch {
+          // ignore malformed json
+        }
       } else if (s.key === 'LANDING_CONTENT') {
         try {
           const parsed = JSON.parse(existing.value || '{}');

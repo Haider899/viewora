@@ -69,7 +69,7 @@ export const TermsPage: React.FC<TermsProps> = ({ navigate }) => {
         <section className="space-y-2">
           <h2 className="text-base font-bold text-slate-900">5. Refund & Cancellation Policy</h2>
           <p>
-            Unused wallet balances may be requested for withdrawal subject to standard verification. Package subscription purchases are deemed fulfilled upon access unlocking. In the event of platform downtime, users are credited with equivalent platform vouchers or extensions.
+            Subscription deposits are used solely to activate or upgrade lifetime U-Ads membership packages and are non-withdrawable. Only earned money — including Video Ad Rewards, Referral Commissions, and Bonuses — may be withdrawn subject to standard verification. Package subscription purchases are deemed fulfilled upon access unlocking.
           </p>
         </section>
       </div>

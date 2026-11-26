@@ -265,7 +265,7 @@ export class WithdrawalService {
         userId: withdrawal.userId,
         eventKey: 'withdrawalLifecycle',
         title: `Withdrawal ${targetStatus === 'FAILED' ? 'Failed' : 'Rejected'} & Funds Released`,
-        message: `Your $${(withdrawal.amountCents / 100).toFixed(2)} USD withdrawal was marked ${targetStatus}. Reason: ${reason}. Reserved funds have been returned to your Main Account.`,
+        message: `Your $${(withdrawal.amountCents / 100).toFixed(2)} USD withdrawal was marked ${targetStatus}. Reason: ${reason}. Reserved funds have been returned to your earned wallet.`,
         type: 'DANGER',
       });
 

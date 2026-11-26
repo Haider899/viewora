@@ -76,7 +76,13 @@ function AppContent() {
           </div>
         );
       case 'packages':
-        return <PackagesPage navigate={navigate} />;
+        return (
+          <PackagesPage
+            navigate={navigate}
+            autoSelectTier={routeState?.autoSelectTier || null}
+            onAutoSelectHandled={() => setRouteState(undefined)}
+          />
+        );
       case 'login':
         return <LoginPage navigate={navigate} />;
       case 'register':

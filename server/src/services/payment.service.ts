@@ -243,8 +243,8 @@ export class PaymentService {
     await NotificationService.send({
       userId: deposit.userId,
       eventKey: 'depositApproved',
-      title: 'Deposit Approved & Credited',
-      message: `Your deposit of $${(deposit.amountCents / 100).toFixed(2)} USD has been verified and credited to your Main Account.`,
+      title: 'Subscription Deposit Approved',
+      message: `Your deposit of $${(deposit.amountCents / 100).toFixed(2)} USD has been verified and is ready to activate or upgrade your lifetime package.`,
       type: 'SUCCESS',
     });
 
