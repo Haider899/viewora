@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
 import { ThemeProvider } from './context/ThemeContext.js';
+import { LanguageProvider } from './context/LanguageContext.js';
 import { ToastProvider } from './components/ToastProvider.js';
 import { Navbar } from './components/Navbar.js';
 import { Footer } from './components/Footer.js';
@@ -145,11 +146,13 @@ function AppContent() {
 export function App() {
   return (
     <ToastProvider>
-      <AuthProvider>
-        <ThemeProvider>
-          <AppContent />
-        </ThemeProvider>
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <ThemeProvider>
+            <AppContent />
+          </ThemeProvider>
+        </AuthProvider>
+      </LanguageProvider>
     </ToastProvider>
   );
 }

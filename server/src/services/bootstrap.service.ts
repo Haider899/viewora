@@ -5,6 +5,8 @@ import { CompanyDocumentService } from './companyDocument.service.js';
 export const DEFAULT_REFERRAL_CONFIG = {
   minQualifyingUSD: 20,
   maxCommissionReferrals: 0, // 0 = unlimited; Admin can cap e.g. 2 or 3 referrals that earn commission
+  firstTransactionEnabled: true, // Part 3: Independent switch for One-Time First-Transaction Commission
+  dailyCommissionEnabled: true,  // Part 3: Independent switch for Daily 24h Ad-Earnings Commission
   commissionRates: {
     pos1: 5,
     pos2: 7,
@@ -28,10 +30,10 @@ export const DEFAULT_REFERRAL_CONFIG = {
 
 export const DEFAULT_BONUS_SETTINGS = {
   accountLevelBonus: {
-    enabled: true,
-    eligibility: 'Active unlocked accounts at Level 1 or higher',
+    enabled: false, // Part 13: Switched OFF by default so it cannot pay out by accident outside the ad-share business model
+    eligibility: 'Optional legacy level bonus (disabled by default; platform earnings come from ads & referral commissions)',
     rewardPoolUSD: 50000,
-    schedule: 'Daily Cycle (8:00 PM PKT / 15:00 UTC)',
+    schedule: 'Manual / Disabled by default',
     creditTimeUTC: '15:00 UTC (8:00 PM PKT)',
   },
   videoBonus: {
@@ -110,6 +112,12 @@ export const DEFAULT_LANDING_CONTENT = {
   heroSubtitle:
     'Advertisers pay U-Ads to run their ads — 95% is shared with members who watch them. Choose a lifetime package, watch daily ads, and withdraw your earnings in USD.',
   authBannerImageUrl: '',
+  referralBannerImageUrl: '',
+  companyInfoEnabled: true,
+  companyInfoButtonText: 'Verified Company Details',
+  authBottomBannerImageUrl: '',
+  authBottomBannerLink: '',
+  authBottomBannerOnSignup: true,
   videoPreviewHeading: 'Featured Ad Campaigns',
   videoPreviewSubtitle:
     'Explore active ad campaigns in the catalog. Unlock higher daily ad limits and per-ad rewards as your package level advances.',
@@ -457,6 +465,42 @@ export class BootstrapService {
         },
         data: { rewardAmountCents: 50 },
       });
+
+      // Part 8: Replace any stray test/song videos in the live member catalog with genuine advertising campaigns
+      const allExistingVideos = await prisma.video.findMany({ orderBy: { orderIndex: 'asc' } });
+      const testVideoReplacements = [
+        {
+          title: 'Global Brand Storytelling & Digital Reach',
+          description: 'Sponsored showcase demonstrating high-impact brand storytelling for international consumer audiences.',
+          category: 'AI & Systems Architecture',
+          thumbnailUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80',
+        },
+        {
+          title: 'Next-Gen Consumer E-Commerce Ad Spotlight',
+          description: 'Verified advertiser showcase featuring modern retail growth campaigns and viewer engagement insights.',
+          category: 'Venture Creation & Scaling',
+          thumbnailUrl: 'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&w=800&q=80',
+        },
+      ];
+      let replIdx = 0;
+      for (const vid of allExistingVideos) {
+        if (/\b(test|testing|song|music|demo video)\b/i.test(vid.title || '')) {
+          const rep = testVideoReplacements[replIdx % testVideoReplacements.length];
+          const stream = verifiedMp4Streams[replIdx % verifiedMp4Streams.length];
+          await prisma.video.update({
+            where: { id: vid.id },
+            data: {
+              title: rep.title,
+              description: rep.description,
+              category: rep.category,
+              thumbnailUrl: rep.thumbnailUrl,
+              videoUrl: stream.url,
+              durationSeconds: stream.dur,
+            },
+          });
+          replIdx++;
+        }
+      }
     }
 
     // 5b. Pre-load 20 Live Activity Popups if empty (Part 2 #6)
@@ -511,6 +555,30 @@ export class BootstrapService {
             },
           });
         }
+      }
+
+      // Part 7: Members with NO active package must NEVER carry stale level labels (reset to NEW_USER)
+      await prisma.user.updateMany({
+        where: {
+          role: 'USER',
+          accountLevel: { not: 'NEW_USER' },
+          packagePurchases: { none: { status: 'ACTIVE' } },
+        },
+        data: { accountLevel: 'NEW_USER' },
+      });
+
+      // Part 7: Keep AccountLevelConfig video limits aligned with packages (2 / 5 / 8 / 10)
+      const alignedLimits: Record<string, number> = {
+        LEVEL_1: 2,
+        LEVEL_2: 5,
+        LEVEL_3: 8,
+        LEVEL_4: 10,
+      };
+      for (const [levelKey, videoLimit] of Object.entries(alignedLimits)) {
+        await prisma.accountLevelConfig.updateMany({
+          where: { levelKey },
+          data: { videoLimit },
+        });
       }
     } catch {
       // Non-blocking startup sync
@@ -589,12 +657,48 @@ export class BootstrapService {
       const existing = await prisma.systemSetting.findUnique({ where: { key: s.key } });
       if (!existing) {
         await prisma.systemSetting.create({ data: s });
+      } else if (s.key === 'DAILY_RESET_HOUR') {
+        const expectedDesc =
+          'Daily 24-hour claim cycle reset hour (0-23, default 20 = 8:00 PM PKT to next day 7:59:59 PM PKT). Unclaimed rewards expire at cutoff.';
+        if (existing.description !== expectedDesc) {
+          await prisma.systemSetting.update({
+            where: { key: s.key },
+            data: { description: expectedDesc },
+          });
+        }
+      } else if (s.key === 'REFERRAL_CONFIG') {
+        try {
+          const parsed = JSON.parse(existing.value || '{}');
+          let dirty = false;
+          if (typeof parsed.firstTransactionEnabled !== 'boolean') {
+            parsed.firstTransactionEnabled = true;
+            dirty = true;
+          }
+          if (typeof parsed.dailyCommissionEnabled !== 'boolean') {
+            parsed.dailyCommissionEnabled = true;
+            dirty = true;
+          }
+          if (dirty) {
+            await prisma.systemSetting.update({
+              where: { key: s.key },
+              data: { value: JSON.stringify(parsed) },
+            });
+          }
+        } catch {
+          // ignore malformed json
+        }
       } else if (s.key === 'BONUS_SETTINGS') {
         try {
           const parsed = JSON.parse(existing.value || '{}');
           let dirty = false;
           if (parsed?.accountLevelBonus?.creditTimeUTC === '00:00 UTC') {
             parsed.accountLevelBonus.creditTimeUTC = DEFAULT_BONUS_SETTINGS.accountLevelBonus.creditTimeUTC;
+            dirty = true;
+          }
+          // Part 13: One-time migration to ensure Account Level Daily Bonus defaults to OFF
+          if (parsed?.accountLevelBonus && parsed.accountLevelBonus._defaultOffSynced !== true) {
+            parsed.accountLevelBonus.enabled = false;
+            parsed.accountLevelBonus._defaultOffSynced = true;
             dirty = true;
           }
           if (!parsed.videoBonus?.globalPercent || !parsed.videoBonus?.levelPercentages) {

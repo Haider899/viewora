@@ -183,26 +183,38 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
     }
   };
 
+  // Part 6: Send periodic heartbeats for verification, NEVER credit early!
+  // For HTML5 <video>, playback progress comes strictly from <video> timeupdate and reward credits ONLY on onEnded.
+  // For YouTube embeds, 1-second timer runs until watchSeconds reaches full targetDuration.
+  const isYouTubeEmbed = Boolean(getYouTubeEmbedUrl(video?.videoUrl));
+
   useEffect(() => {
     if (!sessionToken || !isPlaying || isCompleted) return;
     const interval = setInterval(() => {
-      setWatchSeconds((prev) => {
-        const nextSec = prev + 1;
-        maxWatchedRef.current = Math.max(maxWatchedRef.current, nextSec);
-        if (nextSec % 5 === 0) {
+      if (isYouTubeEmbed) {
+        setWatchSeconds((prev) => {
+          const nextSec = prev + 1;
+          maxWatchedRef.current = Math.max(maxWatchedRef.current, nextSec);
+          if (nextSec % 5 === 0) {
+            api
+              .sendVideoHeartbeat(videoId, sessionToken, nextSec, actualDuration ?? undefined)
+              .catch(() => {});
+          }
+          if (nextSec >= targetDuration) setIsCompleted(true);
+          return nextSec;
+        });
+      } else {
+        // HTML5 <video>: report actual playback position every 5s without forcing early completion
+        const currentPos = Math.floor(videoRef.current?.currentTime ?? maxWatchedRef.current);
+        if (currentPos > 0 && currentPos % 5 === 0) {
           api
-            .sendVideoHeartbeat(videoId, sessionToken, nextSec, actualDuration ?? undefined)
-            .then((res) => {
-              if (res.success && res.data?.completed) setIsCompleted(true);
-            })
+            .sendVideoHeartbeat(videoId, sessionToken, currentPos, actualDuration ?? undefined)
             .catch(() => {});
         }
-        if (nextSec >= targetDuration) setIsCompleted(true);
-        return nextSec;
-      });
+      }
     }, 1000);
     return () => clearInterval(interval);
-  }, [sessionToken, isPlaying, videoId, isCompleted, targetDuration, actualDuration]);
+  }, [sessionToken, isPlaying, videoId, isCompleted, targetDuration, actualDuration, isYouTubeEmbed]);
 
   useEffect(() => {
     if (isCompleted && !hasClaimed && !claimLockRef.current && sessionToken && video?.rewardEligible) {
@@ -361,14 +373,9 @@ export const VideoPlayerPage: React.FC<VideoPlayerProps> = ({ videoId, navigate 
                   }}
                   onTimeUpdate={(e) => {
                     const current = Math.floor(e.currentTarget.currentTime);
-                    const dur = Math.floor(e.currentTarget.duration || targetDuration);
                     if (current > maxWatchedRef.current) {
                       maxWatchedRef.current = current;
                       setWatchSeconds(current);
-                    }
-                    if (dur > 0 && e.currentTarget.currentTime >= e.currentTarget.duration - 0.35 && !isCompleted) {
-                      setWatchSeconds(targetDuration);
-                      setIsCompleted(true);
                     }
                   }}
                   onPlay={() => {

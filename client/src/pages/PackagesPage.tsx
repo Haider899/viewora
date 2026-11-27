@@ -27,7 +27,7 @@ export const PackagesPage: React.FC<PackagesProps> = ({
   autoSelectTier,
   onAutoSelectHandled,
 }) => {
-  const { user, wallet, refreshWallet, refreshUser } = useAuth();
+  const { user, wallet, walletLoaded, refreshWallet, refreshUser } = useAuth();
   const { showToast } = useToast();
 
   const [packages, setPackages] = useState<Package[]>([]);
@@ -112,11 +112,16 @@ export const PackagesPage: React.FC<PackagesProps> = ({
         const b = res.data.paymentBreakdown;
         const parts: string[] = [];
         if (b?.subscriptionCreditCents > 0) {
-          parts.push(`${formatUSD(b.subscriptionCreditCents)} from Subscription Credit`);
+          parts.push(`${formatUSD(b.subscriptionCreditCents)} from Credit Balance`);
         }
-        const earnedUsed = (b?.videoRewardsCents || 0) + (b?.referralCents || 0) + (b?.bonusesCents || 0);
-        if (earnedUsed > 0) {
-          parts.push(`${formatUSD(earnedUsed)} from Withdrawable Earnings`);
+        if (b?.videoRewardsCents > 0) {
+          parts.push(`${formatUSD(b.videoRewardsCents)} from Video Ad Rewards`);
+        }
+        if (b?.referralCents > 0) {
+          parts.push(`${formatUSD(b.referralCents)} from Referral Earnings`);
+        }
+        if (b?.bonusesCents > 0) {
+          parts.push(`${formatUSD(b.bonusesCents)} from Bonus Rewards`);
         }
         setSuccessInfo({
           msg: selectedPackage.isUpgrade
@@ -161,6 +166,36 @@ export const PackagesPage: React.FC<PackagesProps> = ({
           </div>
         )}
       </div>
+
+      {/* Credit Balance Card (Part 1: visible on Packages & Deposit pages) */}
+      {user && (
+        <div className="card-white p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-orange-200/80 bg-gradient-to-r from-[#FFF7ED]/70 to-white">
+          <div className="space-y-0.5">
+            <div className="text-[11px] font-extrabold uppercase tracking-wider text-orange-600">
+              Credit Balance
+            </div>
+            <div className="text-2xl font-black text-slate-900 tabular-nums">
+              {walletLoaded ? (
+                formatUSD(wallet?.USD?.creditBalanceCents ?? wallet?.USD?.availableCents ?? 0)
+              ) : (
+                <span className="inline-block w-24 h-7 rounded-lg skeleton-shimmer align-middle" />
+              )}
+            </div>
+            <p className="text-xs text-slate-500">
+              Usable for packages and upgrades · Not withdrawable
+            </p>
+          </div>
+          {navigate && (
+            <button
+              type="button"
+              onClick={() => navigate('deposit')}
+              className="btn-secondary !h-9 shrink-0"
+            >
+              Add Credit Balance
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Halal 95% Advertiser Revenue Share Banner (Part 1 Rule 2) */}
       <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-[#FFF3E6] to-amber-50/40 border border-orange-200/80 space-y-2">
@@ -388,12 +423,12 @@ export const PackagesPage: React.FC<PackagesProps> = ({
                 ? (selectedPackage.upgradeDiffCents ?? selectedPackage.priceCents)
                 : selectedPackage.priceCents;
               const creditCents = selectedPackage.currentPlanPriceCents ?? 0;
-              const subCreditCents = wallet?.USD?.availableCents ?? 0;
+              const subCreditCents = wallet?.USD?.creditBalanceCents ?? wallet?.USD?.availableCents ?? 0;
+              const videoCents = wallet?.USD?.videoRewardsCents ?? 0;
+              const refCents = wallet?.USD?.referralCents ?? 0;
+              const bonusCents = wallet?.USD?.otherRewardsCents ?? 0;
               const earnedCents =
-                wallet?.USD?.earningsTotalCents ??
-                (wallet?.USD?.videoRewardsCents ?? 0) +
-                  (wallet?.USD?.referralCents ?? 0) +
-                  (wallet?.USD?.otherRewardsCents ?? 0);
+                wallet?.USD?.earningsTotalCents ?? videoCents + refCents + bonusCents;
 
               const availableForSource =
                 paymentSource === 'SUBSCRIPTION_CREDIT'
@@ -405,17 +440,27 @@ export const PackagesPage: React.FC<PackagesProps> = ({
               const hasEnough = availableForSource >= reqCents;
               const shortfallCents = Math.max(0, reqCents - availableForSource);
 
-              // Exact preview split of what will be deducted from where (Part 4 #3)
+              // Part 10: Exact wallet-by-wallet deduction preview before confirming
+              let rem = reqCents;
               const willUseSubCents =
-                paymentSource === 'EARNINGS' ? 0 : Math.min(subCreditCents, reqCents);
-              const willUseEarnedCents =
-                paymentSource === 'SUBSCRIPTION_CREDIT'
-                  ? 0
-                  : Math.min(earnedCents, Math.max(0, reqCents - willUseSubCents));
+                paymentSource === 'EARNINGS' ? 0 : Math.min(subCreditCents, rem);
+              rem -= willUseSubCents;
+
+              const willUseVideoCents =
+                paymentSource === 'SUBSCRIPTION_CREDIT' ? 0 : Math.min(videoCents, rem);
+              rem -= willUseVideoCents;
+
+              const willUseRefCents =
+                paymentSource === 'SUBSCRIPTION_CREDIT' ? 0 : Math.min(refCents, rem);
+              rem -= willUseRefCents;
+
+              const willUseBonusCents =
+                paymentSource === 'SUBSCRIPTION_CREDIT' ? 0 : Math.min(bonusCents, rem);
+              rem -= willUseBonusCents;
 
               return (
                 <div className="space-y-4">
-                  {/* Payment Source Selector (Part 4 #3: Earnings, Subscription Credit, or Combined) */}
+                  {/* Payment Source Selector: Earnings, Credit Balance, or Both Combined */}
                   <div className="space-y-1.5">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                       Choose Payment Source
@@ -429,7 +474,7 @@ export const PackagesPage: React.FC<PackagesProps> = ({
                         },
                         {
                           id: 'SUBSCRIPTION_CREDIT' as const,
-                          label: 'Deposit Credit',
+                          label: 'Credit Balance',
                           bal: subCreditCents,
                         },
                         {
@@ -483,17 +528,33 @@ export const PackagesPage: React.FC<PackagesProps> = ({
                       <div className="pt-1.5 border-t border-slate-200 space-y-1 text-[11px] text-slate-600">
                         {willUseSubCents > 0 && (
                           <div className="flex justify-between">
-                            <span>Paid from Deposit Credit</span>
+                            <span>Paid from Credit Balance</span>
                             <span className="font-bold text-slate-900 tabular-nums">
                               {formatUSD(willUseSubCents)}
                             </span>
                           </div>
                         )}
-                        {willUseEarnedCents > 0 && (
+                        {willUseVideoCents > 0 && (
                           <div className="flex justify-between">
-                            <span>Paid from Withdrawable Earnings</span>
+                            <span>Paid from Video Ad Rewards</span>
                             <span className="font-bold text-orange-700 tabular-nums">
-                              {formatUSD(willUseEarnedCents)}
+                              {formatUSD(willUseVideoCents)}
+                            </span>
+                          </div>
+                        )}
+                        {willUseRefCents > 0 && (
+                          <div className="flex justify-between">
+                            <span>Paid from Referral Earnings</span>
+                            <span className="font-bold text-orange-700 tabular-nums">
+                              {formatUSD(willUseRefCents)}
+                            </span>
+                          </div>
+                        )}
+                        {willUseBonusCents > 0 && (
+                          <div className="flex justify-between">
+                            <span>Paid from Bonus Rewards</span>
+                            <span className="font-bold text-orange-700 tabular-nums">
+                              {formatUSD(willUseBonusCents)}
                             </span>
                           </div>
                         )}

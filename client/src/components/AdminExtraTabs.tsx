@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api.js';
+import { useTheme } from '../context/ThemeContext.js';
 import {
   Plus,
   Trash2,
@@ -303,6 +304,9 @@ export const AdminPackagesTab: React.FC<ExtraTabProps> = ({ onSuccess, onError }
    ========================================================================= */
 const DEFAULT_DOC_REFERRAL_CFG = {
   minQualifyingUSD: 20,
+  firstTransactionEnabled: true,
+  dailyCommissionEnabled: true,
+  maxCommissionReferrals: 0,
   commissionRates: {
     pos1: 5,
     pos2: 7,
@@ -371,10 +375,10 @@ export const AdminReferralsConfigTab: React.FC<ExtraTabProps> = ({ onSuccess, on
         <div>
           <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
             <Users className="w-5 h-5 text-indigo-600" />
-            Referrals, Position Rates &amp; Rank Milestones (Unified §7–§8)
+            Referrals, Position Rates &amp; Rank Milestones
           </h2>
           <p className="text-xs text-slate-500">
-            Single source of truth driving both Admin rules and Member Portal Ranks/Milestones (First Qualifying Transaction Only).
+            Independently control One-Time First-Transaction Commissions and Daily 24h Ad-Earnings Commissions, plus shared position rates and rank milestones.
           </p>
         </div>
         <button
@@ -387,10 +391,83 @@ export const AdminReferralsConfigTab: React.FC<ExtraTabProps> = ({ onSuccess, on
         </button>
       </div>
 
+      {/* Part 3: Two Independent Commission Switches Side-by-Side */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div
+          className={`p-5 rounded-2xl border transition-all space-y-2 ${
+            config.firstTransactionEnabled !== false
+              ? 'bg-emerald-50/40 border-emerald-300'
+              : 'bg-slate-50 border-slate-200'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900">
+                1. One-Time First-Transaction Commission
+              </h3>
+              <p className="text-[11px] text-slate-600 mt-0.5">
+                Credits the referrer once when an invited member activates their first qualifying package (using the position rate table below).
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setConfig({
+                  ...config,
+                  firstTransactionEnabled: !(config.firstTransactionEnabled !== false),
+                })
+              }
+              className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold border shrink-0 cursor-pointer transition-colors ${
+                config.firstTransactionEnabled !== false
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-white text-slate-500 border-slate-300'
+              }`}
+            >
+              {config.firstTransactionEnabled !== false ? 'ON' : 'OFF'}
+            </button>
+          </div>
+        </div>
+
+        <div
+          className={`p-5 rounded-2xl border transition-all space-y-2 ${
+            config.dailyCommissionEnabled !== false
+              ? 'bg-orange-50/40 border-orange-300'
+              : 'bg-slate-50 border-slate-200'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900">
+                2. Daily 24h Ad-Earnings Commission
+              </h3>
+              <p className="text-[11px] text-slate-600 mt-0.5">
+                Credits the referrer every day at 8:00 PM based on their qualified referrals&apos; ad earnings for that 24-hour cycle.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setConfig({
+                  ...config,
+                  dailyCommissionEnabled: !(config.dailyCommissionEnabled !== false),
+                })
+              }
+              className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold border shrink-0 cursor-pointer transition-colors ${
+                config.dailyCommissionEnabled !== false
+                  ? 'bg-orange-600 text-white border-orange-600'
+                  : 'bg-white text-slate-500 border-slate-300'
+              }`}
+            >
+              {config.dailyCommissionEnabled !== false ? 'ON' : 'OFF'}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Position Rates & Total Referral Limit (Part 3 #5) */}
+        {/* Shared Position Rates & Total Referral Limit */}
         <div className="lg:col-span-5 p-6 rounded-2xl bg-white border border-slate-200 space-y-4">
-          <h3 className="text-sm font-bold text-slate-900">Commission Rates (First Transaction Only)</h3>
+          <h3 className="text-sm font-bold text-slate-900">Shared Position Commission Rates &amp; Limit</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-bold text-slate-600 mb-1">
@@ -540,7 +617,7 @@ export const AdminReferralsConfigTab: React.FC<ExtraTabProps> = ({ onSuccess, on
 export const AdminBonusesConfigTab: React.FC<ExtraTabProps> = ({ onSuccess, onError }) => {
   const [settings, setSettings] = useState<any>({
     accountLevelBonus: {
-      enabled: true,
+      enabled: false,
       rewardPoolUSD: 50000,
       creditTimeUTC: '15:00 UTC (8:00 PM PKT)',
       schedule: 'Daily Batch',
@@ -651,13 +728,27 @@ export const AdminBonusesConfigTab: React.FC<ExtraTabProps> = ({ onSuccess, onEr
 
       {/* 3 Separate Bonus Categories */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Category 1: Account Level Daily Bonus */}
+        {/* Category 1: Account Level Daily Bonus (Part 13: OFF by default with clear explanation) */}
         <div className="p-5 rounded-2xl bg-white border border-slate-200 space-y-3.5 text-xs">
-          <h3 className="text-sm font-bold text-slate-900">1. Account Level Daily Bonus</h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-slate-900">1. Account Level Daily Bonus</h3>
+            <span
+              className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
+                settings.accountLevelBonus?.enabled
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-slate-100 text-slate-600 border-slate-200'
+              }`}
+            >
+              {settings.accountLevelBonus?.enabled ? 'ACTIVE' : 'OFF (Default)'}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 leading-relaxed bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+            Switched <strong>OFF by default</strong> so no automatic daily level payouts run unexpectedly. If manually enabled, running the batch pays each active Level 1+ member their level&apos;s daily bonus rate.
+          </p>
           <label className="flex items-center gap-2 font-semibold text-slate-700">
             <input
               type="checkbox"
-              checked={settings.accountLevelBonus?.enabled !== false}
+              checked={Boolean(settings.accountLevelBonus?.enabled)}
               onChange={(e) =>
                 setSettings({
                   ...settings,
@@ -1515,6 +1606,7 @@ export const AdminReportsAuditTab: React.FC<ExtraTabProps> = () => {
    6. FULL LANDING CMS & NOTIFICATION SETTINGS PANEL (F14)
    ========================================================================= */
 export const AdminCmsAndNotificationsPanel: React.FC<ExtraTabProps> = ({ onSuccess, onError }) => {
+  const { refreshThemeConfig } = useTheme();
   const [cms, setCms] = useState<any>({});
   const [notif, setNotif] = useState<any>({
     depositApproved: true,
@@ -1551,6 +1643,7 @@ export const AdminCmsAndNotificationsPanel: React.FC<ExtraTabProps> = ({ onSucce
       const res = await api.updateAdminDefaultTheme(next);
       if (res.success) {
         setDefaultTheme(next);
+        await refreshThemeConfig();
         onSuccess(`Platform default theme set to ${next === 'orange' ? 'Orange (White Background)' : 'Green'}!`);
       } else {
         onError(res.error?.message || 'Failed to update default theme.');
@@ -1560,7 +1653,7 @@ export const AdminCmsAndNotificationsPanel: React.FC<ExtraTabProps> = ({ onSucce
     }
   };
 
-  const handleAuthBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFieldUpload = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 4 * 1024 * 1024) {
@@ -1569,7 +1662,7 @@ export const AdminCmsAndNotificationsPanel: React.FC<ExtraTabProps> = ({ onSucce
     }
     const reader = new FileReader();
     reader.onload = () => {
-      setCms((prev: any) => ({ ...prev, authBannerImageUrl: reader.result as string }));
+      setCms((prev: any) => ({ ...prev, [field]: reader.result as string }));
     };
     reader.readAsDataURL(file);
   };
@@ -1578,8 +1671,12 @@ export const AdminCmsAndNotificationsPanel: React.FC<ExtraTabProps> = ({ onSucce
     setSavingCms(true);
     try {
       const res = await api.adminUpdateLandingContent(cms);
-      if (res.success) onSuccess('Full Public Landing Page CMS content updated!');
-      else onError(res.error?.message || 'Failed to update landing content.');
+      if (res.success) {
+        await refreshThemeConfig();
+        onSuccess('CMS banners, Company Info button & Landing settings updated!');
+      } else {
+        onError(res.error?.message || 'Failed to update landing content.');
+      }
     } finally {
       setSavingCms(false);
     }
@@ -1656,13 +1753,13 @@ export const AdminCmsAndNotificationsPanel: React.FC<ExtraTabProps> = ({ onSucce
             </div>
           </div>
 
-          {/* Part 1 #3: Editable Login & Create Account Top Banner Image */}
-          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+          {/* Part 14: Editable Login & Sign Up Top Banner Image (Always shows current preview!) */}
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="font-extrabold text-slate-900">Login &amp; Sign Up Top Banner Image</div>
                 <div className="text-[11px] text-slate-500">
-                  Upload or replace the top picture shown on the Login / Create Account screen, then click Save Landing CMS.
+                  Upload or replace the top picture shown on Login &amp; Sign Up, then click Save Landing CMS.
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -1671,7 +1768,7 @@ export const AdminCmsAndNotificationsPanel: React.FC<ExtraTabProps> = ({ onSucce
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={handleAuthBannerUpload}
+                    onChange={handleImageFieldUpload('authBannerImageUrl')}
                     className="hidden"
                   />
                 </label>
@@ -1686,7 +1783,7 @@ export const AdminCmsAndNotificationsPanel: React.FC<ExtraTabProps> = ({ onSucce
                 )}
               </div>
             </div>
-            {cms.authBannerImageUrl && (
+            {cms.authBannerImageUrl ? (
               <div className="rounded-xl overflow-hidden border border-slate-200 bg-white">
                 <img
                   src={cms.authBannerImageUrl}
@@ -1694,7 +1791,144 @@ export const AdminCmsAndNotificationsPanel: React.FC<ExtraTabProps> = ({ onSucce
                   className="w-full h-28 object-cover"
                 />
               </div>
+            ) : (
+              <div className="rounded-xl p-3 border border-orange-200 bg-gradient-to-r from-[#FFF7ED] to-[#FFEDD5] flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] font-extrabold uppercase text-orange-700">Currently Showing: Default U-ADS Banner</div>
+                  <div className="text-xs font-black text-slate-900">Grow Your Earnings with U-ADS</div>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white text-slate-600 border border-orange-200">
+                  Built-in Default
+                </span>
+              </div>
             )}
+          </div>
+
+          {/* Part 5e: Referrals Page Promotional Banner Image */}
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="font-extrabold text-slate-900">Referrals Page Promotional Banner</div>
+                <div className="text-[11px] text-slate-500">
+                  Optional banner image displayed at the top of the Member Referrals page.
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <label className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold cursor-pointer">
+                  Upload Banner
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageFieldUpload('referralBannerImageUrl')}
+                    className="hidden"
+                  />
+                </label>
+                {cms.referralBannerImageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setCms((prev: any) => ({ ...prev, referralBannerImageUrl: '' }))}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+            {cms.referralBannerImageUrl && (
+              <div className="rounded-xl overflow-hidden border border-slate-200 bg-white">
+                <img
+                  src={cms.referralBannerImageUrl}
+                  alt="Referrals banner preview"
+                  className="w-full h-24 object-cover"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Part 16 a & b: Company Information Button ON/OFF + Editable Button Text */}
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="font-extrabold text-slate-900">Company Information Button (Login &amp; Sign Up)</div>
+                <div className="text-[11px] text-slate-500">
+                  Show or hide the Company Information &amp; Licenses button and customize its label.
+                </div>
+              </div>
+              <label className="inline-flex items-center gap-1.5 font-bold text-slate-700 cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={cms.companyInfoEnabled !== false}
+                  onChange={(e) => setCms({ ...cms, companyInfoEnabled: e.target.checked })}
+                />
+                <span>{cms.companyInfoEnabled !== false ? 'Visible' : 'Hidden'}</span>
+              </label>
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">Button Text</label>
+              <input
+                value={cms.companyInfoButtonText ?? 'Verified Company Details'}
+                onChange={(e) => setCms({ ...cms, companyInfoButtonText: e.target.value })}
+                placeholder="Verified Company Details"
+                className="w-full px-3 py-1.5 rounded-xl bg-white border border-slate-200"
+              />
+            </div>
+          </div>
+
+          {/* Part 16 c: Optional Promotional / Trust Image Below Login Form */}
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="font-extrabold text-slate-900">Login / Sign Up Bottom Promotional Image</div>
+                <div className="text-[11px] text-slate-500">
+                  Optional trust or promotional banner shown below the Login form (and optionally Sign Up).
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <label className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold cursor-pointer">
+                  Upload Image
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageFieldUpload('authBottomBannerImageUrl')}
+                    className="hidden"
+                  />
+                </label>
+                {cms.authBottomBannerImageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setCms((prev: any) => ({ ...prev, authBottomBannerImageUrl: '' }))}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+            {cms.authBottomBannerImageUrl && (
+              <div className="rounded-xl overflow-hidden border border-slate-200 bg-white">
+                <img
+                  src={cms.authBottomBannerImageUrl}
+                  alt="Bottom promo banner preview"
+                  className="w-full h-24 object-cover"
+                />
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-center">
+              <input
+                value={cms.authBottomBannerLink || ''}
+                onChange={(e) => setCms({ ...cms, authBottomBannerLink: e.target.value })}
+                placeholder="Optional click URL (https://...)"
+                className="w-full px-3 py-1.5 rounded-xl bg-white border border-slate-200"
+              />
+              <label className="flex items-center gap-2 font-semibold text-slate-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cms.authBottomBannerOnSignup !== false}
+                  onChange={(e) => setCms({ ...cms, authBottomBannerOnSignup: e.target.checked })}
+                />
+                <span>Also show on Sign Up page</span>
+              </label>
+            </div>
           </div>
 
           <div>

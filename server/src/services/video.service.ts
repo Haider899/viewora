@@ -461,7 +461,8 @@ export class VideoService {
       videoDuration = Math.round(actualDurationSeconds);
     }
 
-    const requiredWatchSeconds = Math.max(5, Math.floor(videoDuration * 0.95));
+    // Part 6: Require true end-of-video completion (100%, allowing 1s player rounding tolerance only)
+    const requiredWatchSeconds = Math.max(1, videoDuration - 1);
     const isCompleted = clientWatchSeconds >= requiredWatchSeconds;
 
     const updated = await prisma.videoSession.update({
@@ -532,7 +533,7 @@ export class VideoService {
       const now = new Date();
       const elapsedRealSeconds = Math.floor((now.getTime() - session.startedAt.getTime()) / 1000);
       const effectiveWatch = Math.max(session.watchSeconds, elapsedRealSeconds);
-      const requiredWatchSeconds = Math.max(5, Math.floor(video.durationSeconds * 0.95));
+      const requiredWatchSeconds = Math.max(1, video.durationSeconds - 1);
 
       if (effectiveWatch >= requiredWatchSeconds) {
         await prisma.videoSession.update({

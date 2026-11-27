@@ -195,7 +195,7 @@ export class PackageService {
         throw {
           statusCode: 400,
           code: 'INSUFFICIENT_FUNDS',
-          message: `Insufficient subscription credit. Required: $${(amountToDeductCents / 100).toFixed(2)} USD, Available Deposit Credit: $${(subTotal / 100).toFixed(2)} USD. Switch payment source to Earnings or Combined, or deposit funds first.`,
+          message: `Insufficient Credit Balance. Required: $${(amountToDeductCents / 100).toFixed(2)} USD, Available Credit Balance: $${(subTotal / 100).toFixed(2)} USD. Switch payment source to Earnings or Combined, or deposit funds first.`,
         };
       }
       if (paymentSource === 'EARNINGS' && earnedTotal < amountToDeductCents) {
@@ -209,7 +209,7 @@ export class PackageService {
         throw {
           statusCode: 400,
           code: 'INSUFFICIENT_FUNDS',
-          message: `Insufficient combined balance. Required: $${(amountToDeductCents / 100).toFixed(2)} USD, Available Deposit Credit: $${(subTotal / 100).toFixed(2)} + Earnings: $${(earnedTotal / 100).toFixed(2)} USD. Please deposit funds first.`,
+          message: `Insufficient combined balance. Required: $${(amountToDeductCents / 100).toFixed(2)} USD, Available Credit Balance: $${(subTotal / 100).toFixed(2)} + Earnings: $${(earnedTotal / 100).toFixed(2)} USD. Please deposit funds first.`,
         };
       }
 
@@ -243,11 +243,16 @@ export class PackageService {
 
       const sourceParts: string[] = [];
       if (breakdown.subscriptionCreditCents > 0) {
-        sourceParts.push(`Subscription Credit $${(breakdown.subscriptionCreditCents / 100).toFixed(2)}`);
+        sourceParts.push(`Credit Balance $${(breakdown.subscriptionCreditCents / 100).toFixed(2)}`);
       }
-      const totalEarnedUsed = breakdown.videoRewardsCents + breakdown.referralCents + breakdown.bonusesCents;
-      if (totalEarnedUsed > 0) {
-        sourceParts.push(`Earnings $${(totalEarnedUsed / 100).toFixed(2)}`);
+      if (breakdown.videoRewardsCents > 0) {
+        sourceParts.push(`Video Ad Rewards $${(breakdown.videoRewardsCents / 100).toFixed(2)}`);
+      }
+      if (breakdown.referralCents > 0) {
+        sourceParts.push(`Referral Earnings $${(breakdown.referralCents / 100).toFixed(2)}`);
+      }
+      if (breakdown.bonusesCents > 0) {
+        sourceParts.push(`Bonus Rewards $${(breakdown.bonusesCents / 100).toFixed(2)}`);
       }
       const sourceLabel = sourceParts.length > 0 ? ` [${sourceParts.join(' + ')}]` : '';
 
@@ -295,7 +300,7 @@ export class PackageService {
         },
       });
 
-      await tx.revenueEvent.create({
+      const revenueEvent = await tx.revenueEvent.create({
         data: {
           sourcePurchaseId: newPurchase.id,
           amountCents: amountToDeductCents,
@@ -303,9 +308,13 @@ export class PackageService {
         },
       });
 
-      // Part 4 #1 & #2: Qualify referral & evaluate milestones on package purchase;
-      // commissions are now settled DAILY (every 24h) based on each referral's daily ad earnings!
-      await ReferralService.markReferralQualifiedOnPurchase(userId, amountToDeductCents, tx);
+      // Part 3 & Part 4: Qualify referral, evaluate milestones, & pay first-transaction commission if enabled
+      await ReferralService.markReferralQualifiedOnPurchase(
+        userId,
+        amountToDeductCents,
+        tx,
+        revenueEvent.id
+      );
 
       return newPurchase;
     });
@@ -314,10 +323,16 @@ export class PackageService {
 
     const paidBreakdownText = [
       breakdown.subscriptionCreditCents > 0
-        ? `$${(breakdown.subscriptionCreditCents / 100).toFixed(2)} from Subscription Credit`
+        ? `$${(breakdown.subscriptionCreditCents / 100).toFixed(2)} from Credit Balance`
         : null,
-      breakdown.videoRewardsCents + breakdown.referralCents + breakdown.bonusesCents > 0
-        ? `$${((breakdown.videoRewardsCents + breakdown.referralCents + breakdown.bonusesCents) / 100).toFixed(2)} from Earnings`
+      breakdown.videoRewardsCents > 0
+        ? `$${(breakdown.videoRewardsCents / 100).toFixed(2)} from Video Ad Rewards`
+        : null,
+      breakdown.referralCents > 0
+        ? `$${(breakdown.referralCents / 100).toFixed(2)} from Referral Earnings`
+        : null,
+      breakdown.bonusesCents > 0
+        ? `$${(breakdown.bonusesCents / 100).toFixed(2)} from Bonus Rewards`
         : null,
     ]
       .filter(Boolean)

@@ -46,18 +46,25 @@ router.get('/landing-content', async (req, res, next) => {
   }
 });
 
-// Public Theme & Auth Banner Config (Part 1 #3 & Part 2 #3)
+// Public Theme, Language & CMS Banner/Company Config (Parts 1, 2, 5e, 14, 16)
 router.get('/theme-config', async (req, res, next) => {
   try {
     const [defaultTheme, landingContent] = await Promise.all([
       AdminService.getDefaultTheme(),
       AdminService.getLandingContent(),
     ]);
+    const lc: any = landingContent || {};
     res.json({
       success: true,
       data: {
         defaultTheme,
-        authBannerImageUrl: (landingContent as any).authBannerImageUrl || '',
+        authBannerImageUrl: lc.authBannerImageUrl || '',
+        referralBannerImageUrl: lc.referralBannerImageUrl || '',
+        companyInfoEnabled: lc.companyInfoEnabled !== false,
+        companyInfoButtonText: lc.companyInfoButtonText || 'Verified Company Details',
+        authBottomBannerImageUrl: lc.authBottomBannerImageUrl || '',
+        authBottomBannerLink: lc.authBottomBannerLink || '',
+        authBottomBannerOnSignup: lc.authBottomBannerOnSignup !== false,
       },
     });
   } catch (err) {

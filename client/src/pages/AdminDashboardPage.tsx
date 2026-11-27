@@ -122,9 +122,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   // Scoped Read-Only Member Summary for Support Desk (Part 3 #1)
   const [supportMemberSummary, setSupportMemberSummary] = useState<any | null>(null);
 
-  // Real Video Duration Auto-Probe State (Part 6)
+  // Real Video Duration Auto-Probe State (Part 2)
   const [probingDuration, setProbingDuration] = useState(false);
   const [durationDetectedSource, setDurationDetectedSource] = useState<'idle' | 'probed' | 'manual'>('idle');
+  const [probedForUrl, setProbedForUrl] = useState<string>('');
 
   // Dynamic packages list for Admin Video Form (Part 5 #6)
   const [adminPackagesDropdown, setAdminPackagesDropdown] = useState<any[]>([]);
@@ -646,14 +647,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const openAddVideoModal = () => {
     setEditingVideo(null);
     setFormVideoTitle('');
-    setFormVideoUrl('https://media.w3.org/2010/05/sintel/trailer.mp4');
+    setFormVideoUrl('');
     setFormVideoDescription('');
     setFormVideoCategory('Special Assignment');
     setFormVideoTier('Starter');
     setFormVideoMinLevel('LEVEL_1');
     setFormVideoIsPublished(true);
     setFormVideoIsLocked(false);
-    setFormVideoDuration(52);
+    setFormVideoDuration(0);
+    setDurationDetectedSource('idle');
+    setProbedForUrl('');
     setFormVideoRewardPct('');
     setFormVideoTarget('ALL');
     setFormAssignedUserId(allUsersDropdown.length > 0 ? allUsersDropdown[0].id : '');
@@ -671,6 +674,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     setFormVideoIsPublished(vid.isPublished !== false);
     setFormVideoIsLocked(Boolean(vid.isLocked));
     setFormVideoDuration(vid.durationSeconds);
+    setDurationDetectedSource(vid.durationSeconds > 0 ? 'probed' : 'idle');
+    setProbedForUrl(vid.videoUrl);
     setFormVideoRewardPct(
       vid.rewardPercentageBps != null && vid.rewardPercentageBps > 0
         ? (vid.rewardPercentageBps / 100).toString()
@@ -733,7 +738,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
         minAccountLevel: formVideoMinLevel,
         isPublished: formVideoIsPublished,
         isLocked: formVideoIsLocked,
-        durationSeconds: Number(formVideoDuration) || 60,
+        durationSeconds: Number(formVideoDuration) > 0 ? Number(formVideoDuration) : undefined,
         rewardPercentageBps,
         assignedUserId: formVideoTarget === 'USER' ? formAssignedUserId : null,
       };
@@ -1017,26 +1022,39 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     };
   }, [selectedConvoId]);
 
-  // Part 6: Real Video Duration Auto-Probe whenever Video URL changes inside Add/Edit Video Modal
+  // Part 2: Real Video Duration Auto-Probe whenever Video URL changes inside Add/Edit Video Modal
   useEffect(() => {
     if (!videoModalOpen) return;
     const trimmed = formVideoUrl.trim();
-    if (!trimmed || !/^https?:\/\//i.test(trimmed)) return;
+    if (!trimmed || !/^https?:\/\//i.test(trimmed)) {
+      setProbingDuration(false);
+      if (!editingVideo) {
+        setFormVideoDuration(0);
+        setDurationDetectedSource('idle');
+        setProbedForUrl('');
+      }
+      return;
+    }
+    if (probedForUrl === trimmed && formVideoDuration > 0 && durationDetectedSource === 'probed') {
+      return;
+    }
     let cancelled = false;
     setProbingDuration(true);
+    setDurationDetectedSource('idle');
     const timer = setTimeout(async () => {
       try {
         const res = await api.probeAdminVideoDuration(trimmed);
         if (!cancelled && res.success && res.data?.durationSeconds && res.data.durationSeconds > 0) {
           setFormVideoDuration(res.data.durationSeconds);
           setDurationDetectedSource('probed');
+          setProbedForUrl(trimmed);
         }
       } catch {
         // fallback to client <video> metadata or manual entry
       } finally {
         if (!cancelled) setProbingDuration(false);
       }
-    }, 450);
+    }, 400);
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -1939,82 +1957,197 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-                <span className="text-xs text-slate-500 font-semibold">Total Registered Users</span>
-                <div className="text-3xl font-extrabold text-slate-900">{kpis?.totalUsers ?? 0}</div>
-                <span className="text-[11px] text-emerald-600 font-medium">
-                  {kpis?.activeUsers ?? 0} Active • {kpis?.suspendedUsers ?? 0} Suspended
-                </span>
+              {!kpis ? (
+                [1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                  <div key={n} className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-3">
+                    <div className="h-3.5 w-28 rounded skeleton-shimmer" />
+                    <div className="h-8 w-24 rounded-lg skeleton-shimmer" />
+                    <div className="h-3 w-36 rounded skeleton-shimmer" />
+                  </div>
+                ))
+              ) : (
+                <>
+                  <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                    <span className="block text-xs text-slate-500 font-semibold">Total Registered Users</span>
+                    <div className="text-3xl font-extrabold text-slate-900 tabular-nums">{kpis.totalUsers ?? 0}</div>
+                    <span className="block text-[11px] text-emerald-600 font-medium">
+                      {`${kpis.activeUsers ?? 0} Active · ${kpis.suspendedUsers ?? 0} Suspended`}
+                    </span>
+                  </div>
+
+                  <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                    <span className="block text-xs text-slate-500 font-semibold">Pending Deposits</span>
+                    <div className="text-3xl font-extrabold text-amber-600 tabular-nums">
+                      {kpis.pendingDepositsCount ?? 0}
+                    </div>
+                    <span className="block text-[11px] text-slate-500 tabular-nums">
+                      {`USD: $${((kpis.pendingDepositsCents?.USD ?? 0) / 100).toFixed(2)}`}
+                    </span>
+                  </div>
+
+                  <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                    <span className="block text-xs text-slate-500 font-semibold">Verified USD Deposits</span>
+                    <div className="text-3xl font-extrabold text-emerald-700 tabular-nums">
+                      {`$${((kpis.verifiedDepositsCents?.USD ?? 0) / 100).toFixed(2)}`}
+                    </div>
+                    <span className="block text-[11px] text-emerald-600 font-medium">
+                      Approved USD treasury inflow
+                    </span>
+                  </div>
+
+                  <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                    <span className="block text-xs text-slate-500 font-semibold">Pending Withdrawals</span>
+                    <div className="text-3xl font-extrabold text-rose-600 tabular-nums">
+                      {kpis.pendingWithdrawalsCount ?? 0}
+                    </div>
+                    <span className="block text-[11px] text-slate-500 tabular-nums">
+                      {`Hold: $${((kpis.pendingWithdrawalsCents?.USD ?? 0) / 100).toFixed(2)} · Paid: $${((kpis.completedPayoutsCents?.USD ?? 0) / 100).toFixed(2)}`}
+                    </span>
+                  </div>
+
+                  <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                    <span className="block text-xs text-slate-500 font-semibold">Total Video Completions</span>
+                    <div className="text-3xl font-extrabold text-teal-700 tabular-nums">
+                      {kpis.totalVideoCompletions ?? kpis.totalViewsCount ?? 0}
+                    </div>
+                    <span className="block text-[11px] text-slate-500">
+                      {`Across ${kpis.totalVideosCount ?? 0} catalog videos`}
+                    </span>
+                  </div>
+
+                  <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                    <span className="block text-xs text-slate-500 font-semibold">Total Eligible Rewards</span>
+                    <div className="text-3xl font-extrabold text-indigo-700 tabular-nums">
+                      {`$${((kpis.totalEligibleRewardsCents ?? 0) / 100).toFixed(2)}`}
+                    </div>
+                    <span className="block text-[11px] text-slate-500">
+                      Video, referral &amp; bonus payouts
+                    </span>
+                  </div>
+
+                  <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                    <span className="block text-xs text-slate-500 font-semibold">Total Referrals</span>
+                    <div className="text-3xl font-extrabold text-purple-700 tabular-nums">
+                      {kpis.totalReferrals ?? 0}
+                    </div>
+                    <span className="block text-[11px] text-slate-500">
+                      Attributed direct referrals
+                    </span>
+                  </div>
+
+                  <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
+                    <span className="block text-xs text-slate-500 font-semibold">Live Support Agents</span>
+                    <div className="text-3xl font-extrabold text-slate-900 tabular-nums">
+                      {`${kpis.onlineSupportAgents ?? 0} / ${kpis.activeSupportAgents ?? 0}`}
+                    </div>
+                    <span className="block text-[11px] text-amber-600 font-medium">
+                      {`${kpis.waitingSupportChats ?? waitingSupportCount} waiting chats`}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Part 15: Executive Operations & Quick Queues Panel below KPIs (eliminates empty whitespace) */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900">Action Queues Requiring Review</h3>
+                    <p className="text-[11px] text-slate-500">Jump straight into live operational queues</p>
+                  </div>
+                  <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+                    Live Sync
+                  </span>
+                </div>
+                <div className="divide-y divide-slate-100 text-xs">
+                  <div className="py-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-bold text-slate-900">Deposit Verification Queue</div>
+                      <div className="text-[11px] text-slate-500">
+                        {`${kpis?.pendingDepositsCount ?? 0} pending · $${((kpis?.pendingDepositsCents?.USD ?? 0) / 100).toFixed(2)} USD`}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('deposits')}
+                      className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold cursor-pointer"
+                    >
+                      Review Deposits
+                    </button>
+                  </div>
+                  <div className="py-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-bold text-slate-900">Withdrawal Payout Queue</div>
+                      <div className="text-[11px] text-slate-500">
+                        {`${kpis?.pendingWithdrawalsCount ?? 0} pending · $${((kpis?.pendingWithdrawalsCents?.USD ?? 0) / 100).toFixed(2)} USD on hold`}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('withdrawals')}
+                      className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold cursor-pointer"
+                    >
+                      Process Payouts
+                    </button>
+                  </div>
+                  <div className="py-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-bold text-slate-900">Live Member Support Desk</div>
+                      <div className="text-[11px] text-slate-500">
+                        {`${kpis?.waitingSupportChats ?? waitingSupportCount} waiting conversations · ${kpis?.onlineSupportAgents ?? 0} agents online`}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('support')}
+                      className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 text-[11px] font-bold cursor-pointer"
+                    >
+                      Open Support
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-                <span className="text-xs text-slate-500 font-semibold">Pending Deposits</span>
-                <div className="text-3xl font-extrabold text-amber-600">
-                  {kpis?.pendingDepositsCount ?? 0}
+              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-4">
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900">Platform Management Shortcuts</h3>
+                  <p className="text-[11px] text-slate-500">Direct access to key member, campaign, and revenue controls</p>
                 </div>
-                <span className="text-[11px] text-slate-500">
-                  USD: ${((kpis?.pendingDepositsCents?.USD ?? 0) / 100).toFixed(2)}
-                </span>
-              </div>
-
-              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-                <span className="text-xs text-slate-500 font-semibold">Verified USD Deposits</span>
-                <div className="text-3xl font-extrabold text-emerald-700">
-                  ${((kpis?.verifiedDepositsCents?.USD ?? 0) / 100).toFixed(2)}
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('users')}
+                    className="p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left space-y-1 transition-colors cursor-pointer"
+                  >
+                    <div className="font-extrabold text-slate-900">Users &amp; Audit Dossiers</div>
+                    <div className="text-[11px] text-slate-500">{`${kpis?.totalUsers ?? 0} accounts`}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('videos')}
+                    className="p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left space-y-1 transition-colors cursor-pointer"
+                  >
+                    <div className="font-extrabold text-slate-900">Ad Video Catalog</div>
+                    <div className="text-[11px] text-slate-500">{`${kpis?.totalVideosCount ?? 0} campaigns`}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('referrals')}
+                    className="p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left space-y-1 transition-colors cursor-pointer"
+                  >
+                    <div className="font-extrabold text-slate-900">Referral Rules &amp; Rates</div>
+                    <div className="text-[11px] text-slate-500">{`${kpis?.totalReferrals ?? 0} total referrals`}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('settings')}
+                    className="p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left space-y-1 transition-colors cursor-pointer"
+                  >
+                    <div className="font-extrabold text-slate-900">CMS Banners &amp; Settings</div>
+                    <div className="text-[11px] text-slate-500">Theme, banners &amp; 8 PM cycle</div>
+                  </button>
                 </div>
-                <span className="text-[11px] text-emerald-600 font-medium">
-                  Approved USD treasury inflow
-                </span>
-              </div>
-
-              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-                <span className="text-xs text-slate-500 font-semibold">Pending Withdrawals</span>
-                <div className="text-3xl font-extrabold text-rose-600">
-                  {kpis?.pendingWithdrawalsCount ?? 0}
-                </div>
-                <span className="text-[11px] text-slate-500">
-                  Hold: ${((kpis?.pendingWithdrawalsCents?.USD ?? 0) / 100).toFixed(2)} • Paid: ${((kpis?.completedPayoutsCents?.USD ?? 0) / 100).toFixed(2)}
-                </span>
-              </div>
-
-              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-                <span className="text-xs text-slate-500 font-semibold">Total Video Completions</span>
-                <div className="text-3xl font-extrabold text-teal-700">
-                  {kpis?.totalVideoCompletions ?? kpis?.totalViewsCount ?? 0}
-                </div>
-                <span className="text-[11px] text-slate-500">
-                  Across {kpis?.totalVideosCount ?? 0} catalog videos
-                </span>
-              </div>
-
-              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-                <span className="text-xs text-slate-500 font-semibold">Total Eligible Rewards</span>
-                <div className="text-3xl font-extrabold text-indigo-700">
-                  ${((kpis?.totalEligibleRewardsCents ?? 0) / 100).toFixed(2)}
-                </div>
-                <span className="text-[11px] text-slate-500">
-                  Video, referral &amp; daily level payouts
-                </span>
-              </div>
-
-              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-                <span className="text-xs text-slate-500 font-semibold">Total Referrals</span>
-                <div className="text-3xl font-extrabold text-purple-700">
-                  {kpis?.totalReferrals ?? 0}
-                </div>
-                <span className="text-[11px] text-slate-500">
-                  Attributed direct referrals
-                </span>
-              </div>
-
-              <div className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-2">
-                <span className="text-xs text-slate-500 font-semibold">Live Support Agents</span>
-                <div className="text-3xl font-extrabold text-slate-900">
-                  {kpis?.onlineSupportAgents ?? 0} / {kpis?.activeSupportAgents ?? 0}
-                </div>
-                <span className="text-[11px] text-amber-600 font-medium">
-                  {kpis?.waitingSupportChats ?? waitingSupportCount} waiting chats
-                </span>
               </div>
             </div>
           </div>
@@ -2453,8 +2586,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                                 </span>
                               </div>
 
-                              {/* Actions: Message First, Dossier, & Admin Controls */}
+                              {/* Part 15: Calm, cohesive action buttons on each user row */}
                               <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => openUserDossier(u.id)}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-900 text-white hover:bg-slate-800 cursor-pointer inline-flex items-center gap-1 transition-colors"
+                                >
+                                  <FileText className="w-3 h-3" />
+                                  Dossier
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -2464,36 +2605,28 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                                     setDirectMsgAttachment(null);
                                     setDirectMsgAttachmentName(null);
                                   }}
-                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 cursor-pointer inline-flex items-center gap-1"
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 cursor-pointer inline-flex items-center gap-1 transition-colors"
                                   title="Send direct push message & screenshot to this user"
                                 >
-                                  <Send className="w-3 h-3" />
+                                  <Send className="w-3 h-3 text-slate-500" />
                                   Message
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openUserDossier(u.id)}
-                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 cursor-pointer inline-flex items-center gap-1"
-                                >
-                                  <FileText className="w-3 h-3" />
-                                  Dossier
                                 </button>
                                 {user?.role === 'SUPER_ADMIN' && u.id !== user.id && (
                                   <>
                                     <button
                                       type="button"
                                       onClick={() => handleOpenAdjustLevelModal(u)}
-                                      className="px-2 py-1 rounded-lg text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 cursor-pointer"
+                                      className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 cursor-pointer transition-colors"
                                     >
                                       Level
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => handleOpenLockModal(u, isLocked)}
-                                      className={`px-2 py-1 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                                      className={`px-2 py-1 rounded-lg text-[11px] font-semibold border cursor-pointer transition-colors ${
                                         isLocked
-                                          ? 'bg-amber-100 text-amber-900 border-amber-300'
-                                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                          ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                                       }`}
                                     >
                                       {isLocked ? 'Unlock' : 'Lock'}
@@ -2501,7 +2634,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                                     <button
                                       type="button"
                                       onClick={() => handleOpenChangeRoleModal(u)}
-                                      className="px-2 py-1 rounded-lg text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 cursor-pointer"
+                                      className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 cursor-pointer transition-colors"
                                     >
                                       Role
                                     </button>
@@ -2511,9 +2644,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                                         await handleToggleUserStatus(u.id, u.status);
                                         loadIpGroups(userSearch);
                                       }}
-                                      className={`px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
+                                      className={`px-2 py-1 rounded-lg text-[11px] font-semibold cursor-pointer transition-colors ${
                                         u.status === 'ACTIVE'
-                                          ? 'bg-slate-100 hover:bg-rose-50 text-rose-600 border border-slate-200'
+                                          ? 'bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 hover:border-rose-200'
                                           : 'bg-emerald-600 text-white hover:bg-emerald-500'
                                       }`}
                                     >
@@ -4264,97 +4397,97 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               </div>
             ) : (
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {/* KPI Summary Cards (All USD Wallets including live Video Rewards balance — F13) */}
+                {/* KPI Summary Cards (Part 15: Clean font-sans tabular-nums without decimal gap) */}
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200/80">
-                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Main Available</span>
-                    <span className="text-lg font-black text-emerald-950 font-mono">${dossierData.balances.availableUSD.toFixed(2)}</span>
-                    <span className="text-[10px] text-emerald-700 block mt-0.5">Main USD Credits</span>
+                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Credit Balance</span>
+                    <span className="text-lg font-black text-emerald-950 font-sans tabular-nums tracking-tight">${dossierData.balances.availableUSD.toFixed(2)}</span>
+                    <span className="text-[10px] text-emerald-700 block mt-0.5">Package credits</span>
                   </div>
                   <div className="p-3.5 rounded-2xl bg-teal-50/80 border border-teal-200/80">
                     <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">Video Rewards</span>
-                    <span className="text-lg font-black text-teal-950 font-mono">${(dossierData.balances.videoRewardsUSD ?? 0).toFixed(2)}</span>
+                    <span className="text-lg font-black text-teal-950 font-sans tabular-nums tracking-tight">${(dossierData.balances.videoRewardsUSD ?? 0).toFixed(2)}</span>
                     <span className="text-[10px] text-teal-700 block mt-0.5">Live Video Wallet</span>
                   </div>
                   <div className="p-3.5 rounded-2xl bg-purple-50/80 border border-purple-200/80">
                     <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">Referral Wallet</span>
-                    <span className="text-lg font-black text-purple-950 font-mono">${dossierData.balances.referralUSD.toFixed(2)}</span>
+                    <span className="text-lg font-black text-purple-950 font-sans tabular-nums tracking-tight">${dossierData.balances.referralUSD.toFixed(2)}</span>
                     <span className="text-[10px] text-purple-700 block mt-0.5">Isolated commissions</span>
                   </div>
                   <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200/80">
                     <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Reserved Hold</span>
-                    <span className="text-lg font-black text-amber-950 font-mono">${dossierData.balances.reservedUSD.toFixed(2)}</span>
+                    <span className="text-lg font-black text-amber-950 font-sans tabular-nums tracking-tight">${dossierData.balances.reservedUSD.toFixed(2)}</span>
                     <span className="text-[10px] text-amber-700 block mt-0.5">Withdrawal hold</span>
                   </div>
                   <div className="p-3.5 rounded-2xl bg-slate-100 border border-slate-200">
                     <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block">Approved Deposits</span>
-                    <span className="text-lg font-black text-slate-900 font-mono">${dossierData.totals.totalDepositsApprovedUSD.toFixed(2)}</span>
+                    <span className="text-lg font-black text-slate-900 font-sans tabular-nums tracking-tight">${dossierData.totals.totalDepositsApprovedUSD.toFixed(2)}</span>
                     <span className="text-[10px] text-slate-500 block mt-0.5">{dossierData.deposits.filter((d: any) => d.status === 'APPROVED').length} Approved txs</span>
                   </div>
                 </div>
 
-                {/* Sub-tab Navigation */}
-                <div className="flex items-center gap-1 border-b border-slate-200 pb-2 overflow-x-auto">
+                {/* Part 15: Sub-tab Navigation — wraps cleanly so ALL 8 tabs fit without cutoff */}
+                <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2.5">
                   <button
                     onClick={() => setDossierTab('overview')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      dossierTab === 'overview' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      dossierTab === 'overview' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     Overview
                   </button>
                   <button
                     onClick={() => setDossierTab('deposits')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      dossierTab === 'deposits' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      dossierTab === 'deposits' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     Deposits ({dossierData.deposits.length})
                   </button>
                   <button
                     onClick={() => setDossierTab('withdrawals')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      dossierTab === 'withdrawals' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      dossierTab === 'withdrawals' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     Withdrawals ({dossierData.withdrawals.length})
                   </button>
                   <button
                     onClick={() => setDossierTab('videos')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      dossierTab === 'videos' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      dossierTab === 'videos' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     Videos ({dossierData.videoRewards.length})
                   </button>
                   <button
                     onClick={() => setDossierTab('referrals')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      dossierTab === 'referrals' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      dossierTab === 'referrals' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     Referrals ({dossierData.referrals.directCount})
                   </button>
                   <button
                     onClick={() => setDossierTab('history')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      dossierTab === 'history' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      dossierTab === 'history' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     Level / Rank / Locks ({(dossierData.levelHistory?.length || 0) + (dossierData.lockHistory?.length || 0)})
                   </button>
                   <button
                     onClick={() => setDossierTab('timeline')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      dossierTab === 'timeline' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      dossierTab === 'timeline' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     Activity Timeline ({dossierData.activityTimeline?.length || 0})
                   </button>
                   <button
                     onClick={() => setDossierTab('ledger')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      dossierTab === 'ledger' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      dossierTab === 'ledger' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     Ledger ({dossierData.recentLedgerEntries.length})
@@ -5630,25 +5763,25 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
-                      min="3"
+                      min="0"
                       max="14400"
-                      value={formVideoDuration}
+                      placeholder="Auto"
+                      value={formVideoDuration || ''}
                       onChange={(e) => {
-                        setFormVideoDuration(parseInt(e.target.value, 10) || 15);
-                        setDurationDetectedSource('manual');
+                        const val = parseInt(e.target.value, 10);
+                        setFormVideoDuration(Number.isFinite(val) && val > 0 ? val : 0);
+                        setDurationDetectedSource(val > 0 ? 'manual' : 'idle');
                       }}
                       className="w-24 bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900"
                     />
-                    <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-xs text-emerald-800 font-semibold tabular-nums">
+                    <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 font-semibold tabular-nums">
                       {probingDuration
                         ? 'Detecting real duration…'
-                        : `${Math.floor(formVideoDuration / 60)}m ${formVideoDuration % 60}s ${
-                            durationDetectedSource === 'probed'
-                              ? '(Verified from file)'
-                              : durationDetectedSource === 'manual'
-                              ? '(Manual)'
-                              : '(Auto-read on save)'
-                          }`}
+                        : formVideoDuration > 0 && durationDetectedSource === 'probed' && probedForUrl === formVideoUrl.trim()
+                        ? `${Math.floor(formVideoDuration / 60)}m ${formVideoDuration % 60}s (Read from file)`
+                        : formVideoDuration > 0 && durationDetectedSource === 'manual'
+                        ? `${Math.floor(formVideoDuration / 60)}m ${formVideoDuration % 60}s (Manual)`
+                        : 'Auto-detects from video link'}
                     </div>
                   </div>
                   {formVideoUrl && !extractYouTubeId(formVideoUrl) && (
@@ -5662,12 +5795,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         if (dur > 0 && Number.isFinite(dur)) {
                           setFormVideoDuration(dur);
                           setDurationDetectedSource('probed');
+                          setProbedForUrl(formVideoUrl.trim());
                         }
                       }}
                     />
                   )}
                   <span className="text-[10px] text-slate-400">
-                    Real duration is probed automatically from MP4 / YouTube link whenever the URL changes.
+                    Real duration is read automatically from MP4, WebM, or YouTube URL (leave blank to auto-detect on save).
                   </span>
                 </div>
               </div>

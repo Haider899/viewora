@@ -120,7 +120,7 @@ export function getInitials(name?: string | null): string {
 export function humanizeWalletName(accountType?: string | null): string {
   switch (accountType) {
     case 'USER_AVAILABLE':
-      return 'Subscription Credit';
+      return 'Credit Balance';
     case 'USER_VIDEO_REWARDS':
       return 'Video Ad Rewards';
     case 'USER_REFERRAL':
@@ -264,19 +264,28 @@ export function groupLedgerEntries(entries: LedgerEntryItem[]): HumanActivityRow
       walletKey = dst.account?.accountType || 'USER_AVAILABLE';
       signedCents = primary.amountCents;
     } else if (creditLeg && !debitLeg) {
-      walletLabel = humanizeWalletName(creditLeg.account?.accountType);
+      const creditLegs = legs.filter((l) => l.entryType === 'CREDIT');
+      const totalCredits = creditLegs.reduce((s, l) => s + l.amountCents, 0);
+      const uniqueNames = Array.from(new Set(creditLegs.map((l) => humanizeWalletName(l.account?.accountType))));
+      walletLabel = uniqueNames.join(' + ');
       walletKey = creditLeg.account?.accountType || 'USER_AVAILABLE';
-      signedCents = creditLeg.amountCents;
+      signedCents = totalCredits;
     } else if (debitLeg && !creditLeg) {
-      walletLabel = humanizeWalletName(debitLeg.account?.accountType);
+      // Part 10: Sum ALL debit legs of a mixed payment (e.g. Credit Balance + Video Ad Rewards + Referral Earnings)
+      const debitLegs = legs.filter((l) => l.entryType === 'DEBIT');
+      const totalDebits = debitLegs.reduce((s, l) => s + l.amountCents, 0);
+      const uniqueNames = Array.from(new Set(debitLegs.map((l) => humanizeWalletName(l.account?.accountType))));
+      walletLabel = uniqueNames.join(' + ');
       walletKey = debitLeg.account?.accountType || 'USER_AVAILABLE';
-      signedCents = -debitLeg.amountCents;
+      signedCents = -totalDebits;
     }
 
     // Clean any raw account codes from descriptions
     const rawDesc = primary.transaction?.description || meta.label;
     const cleanDesc = rawDesc
-      .replace(/USER_AVAILABLE/g, 'Subscription Credit')
+      .replace(/USER_AVAILABLE/g, 'Credit Balance')
+      .replace(/Subscription Credit/g, 'Credit Balance')
+      .replace(/Deposit Credit/g, 'Credit Balance')
       .replace(/USER_VIDEO_REWARDS/g, 'Video Ad Rewards')
       .replace(/USER_REFERRAL/g, 'Referral Earnings')
       .replace(/USER_RESERVED/g, 'Withdrawal Hold')
@@ -284,6 +293,8 @@ export function groupLedgerEntries(entries: LedgerEntryItem[]): HumanActivityRow
       .replace(/BINANCE/g, 'Binance Pay')
       .replace(/USD_BANK_WIRE/g, 'USD Bank Wire')
       .replace(/VistaraX/gi, 'U-Ads');
+
+    const totalDisplayCents = Math.abs(signedCents) || primary.amountCents;
 
     return {
       id: primary.id,
@@ -298,7 +309,7 @@ export function groupLedgerEntries(entries: LedgerEntryItem[]): HumanActivityRow
       walletLabel,
       walletKey,
       signedCents,
-      amountCents: primary.amountCents,
+      amountCents: totalDisplayCents,
       isInternalTransfer:
         isTransfer &&
         (txType === 'VIDEO_REWARD_CONVERT' ||

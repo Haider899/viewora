@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
+import { useTheme } from '../context/ThemeContext.js';
 import { ReferralRankProgress } from '../types/index.js';
 import { useToast } from '../components/ToastProvider.js';
 import { formatDate, formatDateTime, formatUSD, maskEmail } from '../utils/formatters.js';
@@ -33,6 +34,7 @@ const DEFAULT_POSITIONS = [
 
 export const ReferralsPage: React.FC<ReferralsProps> = () => {
   const { user } = useAuth();
+  const { referralBannerImageUrl } = useTheme();
   const { showToast } = useToast();
 
   const [data, setData] = useState<any>(null);
@@ -137,8 +139,24 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
     );
   }
 
+  const stableReferralCode = user?.referralCode || data?.referralCode || '';
+  const stableReferralLink = stableReferralCode
+    ? `${window.location.origin}/signup?ref=${encodeURIComponent(stableReferralCode)}`
+    : data?.referralLink || '';
+
   return (
     <div className="space-y-6">
+      {/* Part 5e: Admin-configurable Referrals Promotional Banner Image */}
+      {referralBannerImageUrl && (
+        <div className="rounded-2xl overflow-hidden border border-orange-200/80 shadow-sm bg-white">
+          <img
+            src={referralBannerImageUrl}
+            alt="U-ADS Referral Program"
+            className="w-full max-h-56 object-cover"
+          />
+        </div>
+      )}
+
       {/* Unified Single-Truth Rank Progress Card */}
       <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 text-white p-6 shadow-md border border-slate-800 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -271,17 +289,17 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
             {formatUSD(data?.totalCommissionCents ?? 0)}
           </div>
           <p className="text-xs text-slate-400">
-            Credited every 24h from referrals&apos; daily ad earnings
+            Credited every day at 8:00 PM
             {(data?.todayPendingCommissionCents ?? 0) > 0 && (
               <span className="block font-bold text-orange-600 mt-0.5 tabular-nums">
-                Today accruing: +{formatUSD(data.todayPendingCommissionCents)}
+                Today Commission: +{formatUSD(data.todayPendingCommissionCents)}
               </span>
             )}
           </p>
         </div>
       </div>
 
-      {/* Share Link & Code */}
+      {/* Share Link & Code (Part 5b: Single permanent Referral Code & Link) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div className="card-white p-5 space-y-3">
           <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
@@ -290,16 +308,11 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
           </div>
           <div className="flex items-center gap-2">
             <div className="flex-1 h-10 px-3 rounded-[10px] bg-slate-50 border border-slate-200 font-mono text-xs text-slate-700 flex items-center truncate">
-              <span className="truncate">{data?.referralLink || `${window.location.origin}/?ref=${user?.referralCode || ''}`}</span>
+              <span className="truncate">{stableReferralLink || '—'}</span>
             </div>
             <button
               type="button"
-              onClick={() =>
-                copyToClipboard(
-                  data?.referralLink || `${window.location.origin}/?ref=${user?.referralCode || ''}`,
-                  'link'
-                )
-              }
+              onClick={() => copyToClipboard(stableReferralLink, 'link')}
               className="btn-primary shrink-0"
             >
               {copiedType === 'link' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
@@ -315,11 +328,11 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
           </div>
           <div className="flex items-center gap-2">
             <div className="flex-1 h-10 px-3 rounded-[10px] bg-slate-50 border border-slate-200 font-mono text-sm font-bold text-emerald-700 flex items-center">
-              {data?.referralCode || user?.referralCode || '—'}
+              {stableReferralCode || '—'}
             </div>
             <button
               type="button"
-              onClick={() => copyToClipboard(data?.referralCode || user?.referralCode || '', 'code')}
+              onClick={() => copyToClipboard(stableReferralCode, 'code')}
               className="btn-secondary shrink-0"
             >
               {copiedType === 'code' ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
@@ -329,13 +342,17 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
         </div>
       </div>
 
-      {/* Position-Based Commission Table (Highlights User's Next Active Position) */}
+      {/* Position-Based Commission Table (Part 5d: Always show full 5-position table + cap note) */}
       <div className="card-white p-5 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 className="text-sm font-bold text-slate-900">Daily Commission Rates by Referral Position</h3>
+            <h3 className="text-sm font-bold text-slate-900">Commission Rates by Referral Position</h3>
             <p className="text-xs text-slate-500">
-              Earned daily (every 24 hours) on what your qualified referrals earn from watching their enabled ads.
+              {data?.referralConfig?.firstTransactionEnabled !== false && data?.referralConfig?.dailyCommissionEnabled !== false
+                ? 'Applies to qualifying first-package commissions and daily 24h ad-earnings commissions (credited every day at 8:00 PM).'
+                : data?.referralConfig?.firstTransactionEnabled !== false
+                ? 'One-time commission credited when your referral activates their first qualifying package.'
+                : 'Daily commission credited every day at 8:00 PM from your qualified referrals’ ad earnings.'}
               {data?.referralConfig?.maxCommissionReferrals > 0
                 ? ` Commission applies up to your first ${data.referralConfig.maxCommissionReferrals} qualified referrals.`
                 : ''}
@@ -361,36 +378,34 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
-          {dynamicPositions
-            .filter((pos) => {
-              const maxCap = Number(data?.referralConfig?.maxCommissionReferrals ?? 0);
-              return maxCap <= 0 || pos.minPos <= maxCap;
-            })
-            .map((pos, idx) => {
-              const maxCap = Number(data?.referralConfig?.maxCommissionReferrals ?? 0);
-              const capReached = maxCap > 0 && nextReferralPos > maxCap;
-              const isNext = !capReached && nextReferralPos >= pos.minPos && nextReferralPos <= pos.maxPos;
-              return (
-                <div
-                  key={idx}
-                  className={`p-3.5 rounded-xl border text-center space-y-1 transition-all ${
-                    isNext
-                      ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/15'
-                      : 'bg-slate-50 border-slate-200'
-                  }`}
-                >
-                  <div className={`text-[11px] font-bold ${isNext ? 'text-emerald-700' : 'text-slate-500'}`}>
-                    {pos.label}
-                  </div>
-                  <div className={`text-xl font-black tabular-nums ${isNext ? 'text-emerald-700' : 'text-slate-900'}`}>
-                    {pos.ratePercent}%
-                  </div>
-                  <div className="text-[10px] font-semibold text-slate-500">
-                    {isNext ? 'Your next tier' : 'First plan'}
-                  </div>
+          {dynamicPositions.map((pos, idx) => {
+            const maxCap = Number(data?.referralConfig?.maxCommissionReferrals ?? 0);
+            const capReached = maxCap > 0 && nextReferralPos > maxCap;
+            const beyondCap = maxCap > 0 && pos.minPos > maxCap;
+            const isNext = !capReached && !beyondCap && nextReferralPos >= pos.minPos && nextReferralPos <= pos.maxPos;
+            return (
+              <div
+                key={idx}
+                className={`p-3.5 rounded-xl border text-center space-y-1 transition-all ${
+                  isNext
+                    ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/15'
+                    : beyondCap
+                    ? 'bg-slate-50/70 border-slate-200 opacity-70'
+                    : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className={`text-[11px] font-bold ${isNext ? 'text-emerald-700' : 'text-slate-500'}`}>
+                  {pos.label}
                 </div>
-              );
-            })}
+                <div className={`text-xl font-black tabular-nums ${isNext ? 'text-emerald-700' : 'text-slate-900'}`}>
+                  {pos.ratePercent}%
+                </div>
+                <div className="text-[10px] font-semibold text-slate-500">
+                  {isNext ? 'Your next tier' : beyondCap ? `Limit: first ${maxCap}` : 'Commission rate'}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 

@@ -121,7 +121,16 @@ class ApiClient {
   }
 
   async getThemeConfig() {
-    return this.request<{ defaultTheme: 'orange' | 'green'; authBannerImageUrl: string }>('/theme-config');
+    return this.request<{
+      defaultTheme: 'orange' | 'green';
+      authBannerImageUrl: string;
+      referralBannerImageUrl?: string;
+      companyInfoEnabled?: boolean;
+      companyInfoButtonText?: string;
+      authBottomBannerImageUrl?: string;
+      authBottomBannerLink?: string;
+      authBottomBannerOnSignup?: boolean;
+    }>('/theme-config');
   }
 
   async updateAdminDefaultTheme(theme: 'orange' | 'green') {

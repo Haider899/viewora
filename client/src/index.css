@@ -334,13 +334,17 @@ html[data-theme='green'] .hover\:bg-orange-600:hover {
 html[data-theme='green'] .bg-orange-50,
 html[data-theme='green'] .bg-orange-50\/70,
 html[data-theme='green'] .bg-orange-50\/60,
+html[data-theme='green'] .bg-orange-50\/50,
 html[data-theme='green'] .bg-orange-50\/40,
-html[data-theme='green'] .bg-orange-50\/30 {
+html[data-theme='green'] .bg-orange-50\/30,
+html[data-theme='green'] .bg-\[\#FFF6EE\] {
   background-color: #ecfdf5 !important;
 }
 html[data-theme='green'] .bg-orange-100,
 html[data-theme='green'] .hover\:bg-orange-100:hover,
-html[data-theme='green'] .hover\:bg-orange-100\/70:hover {
+html[data-theme='green'] .hover\:bg-orange-100\/70:hover,
+html[data-theme='green'] .hover\:bg-orange-50:hover,
+html[data-theme='green'] .hover\:bg-orange-50\/70:hover {
   background-color: #d1fae5 !important;
 }
 html[data-theme='green'] .bg-orange-300 {
@@ -368,11 +372,14 @@ html[data-theme='green'] .text-orange-900 {
 html[data-theme='green'] .border-orange-100,
 html[data-theme='green'] .border-orange-200,
 html[data-theme='green'] .border-orange-200\/60,
+html[data-theme='green'] .border-orange-200\/70,
 html[data-theme='green'] .border-orange-200\/80,
 html[data-theme='green'] .border-orange-200\/90,
-html[data-theme='green'] .border-orange-300 {
+html[data-theme='green'] .border-orange-300,
+html[data-theme='green'] .hover\:border-orange-300:hover {
   border-color: #a7f3d0 !important;
 }
+html[data-theme='green'] .border-orange-400,
 html[data-theme='green'] .border-orange-500,
 html[data-theme='green'] .hover\:border-orange-500:hover,
 html[data-theme='green'] .focus\:border-orange-500:focus {
@@ -390,10 +397,15 @@ html[data-theme='green'] .from-orange-600 {
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
 }
 html[data-theme='green'] .from-orange-50,
-html[data-theme='green'] .from-amber-300 {
+html[data-theme='green'] .from-amber-300,
+html[data-theme='green'] .from-\[\#FFF3E6\],
+html[data-theme='green'] .from-\[\#FFF7ED\]\/70 {
   --tw-gradient-from: #ecfdf5 var(--tw-gradient-from-position) !important;
   --tw-gradient-to: rgb(236 253 245 / 0) var(--tw-gradient-to-position) !important;
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+html[data-theme='green'] .to-\[\#FFF8F1\] {
+  --tw-gradient-to: #f0fdf4 var(--tw-gradient-to-position) !important;
 }
 html[data-theme='green'] .to-amber-500,
 html[data-theme='green'] .to-amber-600,

@@ -23,8 +23,8 @@ interface DepositProps {
   navigate?: (route: string) => void;
 }
 
-export const DepositPage: React.FC<DepositProps> = () => {
-  const { user, refreshWallet } = useAuth();
+export const DepositPage: React.FC<DepositProps> = ({ navigate }) => {
+  const { user, wallet, walletLoaded, refreshWallet } = useAuth();
   const { showToast } = useToast();
 
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
@@ -194,8 +194,34 @@ export const DepositPage: React.FC<DepositProps> = () => {
     }
   };
 
+  const creditBalanceCents = wallet?.USD?.creditBalanceCents ?? wallet?.USD?.availableCents ?? 0;
+
   return (
     <div className="space-y-6">
+      {/* Credit Balance Card (Part 1: clear, consistent label across Deposit & Packages) */}
+      <div className="card-white p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-orange-200/80 bg-gradient-to-r from-[#FFF7ED]/70 to-white">
+        <div className="space-y-0.5">
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-orange-600">
+            Credit Balance
+          </div>
+          <div className="text-2xl font-black text-slate-900 tabular-nums">
+            {walletLoaded ? formatUSD(creditBalanceCents) : <span className="inline-block w-24 h-7 rounded-lg skeleton-shimmer align-middle" />}
+          </div>
+          <p className="text-xs text-slate-500">
+            Usable for packages and upgrades · Not withdrawable
+          </p>
+        </div>
+        {navigate && (
+          <button
+            type="button"
+            onClick={() => navigate('packages')}
+            className="btn-secondary !h-9 shrink-0"
+          >
+            View Packages
+          </button>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Step 1: Select Channel & Recipient Details */}
         <div className="lg:col-span-5 space-y-5">
@@ -317,7 +343,7 @@ export const DepositPage: React.FC<DepositProps> = () => {
             <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 text-xs text-emerald-900 flex items-start gap-2.5">
               <Clock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold">Typical verification time: 10–30 minutes.</span> Once approved, your subscription deposit is ready to activate or upgrade your lifetime package and you receive a notification.
+                <span className="font-bold">Typical verification time: 10–30 minutes.</span> Once approved, your deposit is added to your Credit Balance so you can activate or upgrade your lifetime package.
               </div>
             </div>
 

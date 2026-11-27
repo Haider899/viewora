@@ -307,6 +307,19 @@ Ask a question below or select **Talk to a human** to connect with a specialist.
       throw { statusCode: 404, code: 'NOT_FOUND', message: 'Conversation not found.' };
     }
 
+    // Part 15: Refresh any older bot Account Summary messages live from current figures so they are never stale!
+    if (convo.userId && convo.messages.some((m) => m.senderType === 'BOT' && m.message.includes('Your U-Ads Earnings Summary'))) {
+      const freshCtx = await this.buildAccountContext(convo.userId);
+      if (freshCtx) {
+        const freshSummary = SupportBotService.matchFaq('check my wallet balance', freshCtx).answer;
+        convo.messages = convo.messages.map((m) =>
+          m.senderType === 'BOT' && m.message.includes('Your U-Ads Earnings Summary')
+            ? { ...m, message: freshSummary }
+            : m
+        );
+      }
+    }
+
     return await this.attachQueueMetadata(convo);
   }
 

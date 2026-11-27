@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { useTheme } from '../context/ThemeContext.js';
+import { useLanguage, SUPPORTED_LANGUAGES } from '../context/LanguageContext.js';
 import { useToast } from '../components/ToastProvider.js';
 import { CompanyInfoModal } from '../components/CompanyInfoModal.js';
 import {
@@ -15,8 +16,10 @@ import {
   KeyRound,
   CheckCircle2,
   X,
-  Info,
   TrendingUp,
+  Globe,
+  ChevronDown,
+  Building2,
 } from 'lucide-react';
 
 interface LoginProps {
@@ -25,8 +28,16 @@ interface LoginProps {
 
 export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
   const { login, logout } = useAuth();
-  const { authBannerImageUrl } = useTheme();
+  const {
+    authBannerImageUrl,
+    companyInfoEnabled,
+    companyInfoButtonText,
+    authBottomBannerImageUrl,
+    authBottomBannerLink,
+  } = useTheme();
+  const { lang, setLang, t } = useLanguage();
   const { showToast } = useToast();
+  const [langOpen, setLangOpen] = useState(false);
 
   const isAdminPortal =
     typeof window !== 'undefined' &&
@@ -118,7 +129,11 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
     setErrorMsg(null);
 
     const errs: { email?: string; password?: string } = {};
-    if (!email.trim() || !email.includes('@')) errs.email = 'Enter a valid email address.';
+    if (!email.trim() || email.trim().length < 2) {
+      errs.email = isAdminPortal
+        ? 'Enter a valid staff email address.'
+        : 'Enter your email address or username.';
+    }
     if (!password) errs.password = 'Enter your password.';
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
@@ -233,13 +248,46 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
   return (
     <div className="min-h-screen auth-page-bg bg-white pb-12 animate-page-in">
       <div className="max-w-md mx-auto px-4 pt-6 space-y-5">
-        {/* Top Brand Row */}
-        <div className="flex items-center justify-center">
+        {/* Top Brand Row + Multi-Language Selector */}
+        <div className="flex items-center justify-between">
+          <div className="w-16" />
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-sm">
               <TrendingUp className="w-5 h-5 stroke-[2.5]" />
             </div>
             <span className="text-2xl font-black tracking-tight text-slate-900">U-ADS</span>
+          </div>
+          <div className="relative w-16 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setLangOpen((o) => !o)}
+              className="h-8 px-2.5 rounded-full bg-white border border-slate-200 hover:border-orange-300 text-slate-700 text-[11px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer"
+              aria-label="Select language"
+            >
+              <Globe className="w-3.5 h-3.5 text-orange-500" />
+              <span>{lang}</span>
+              <ChevronDown className="w-3 h-3 text-slate-400" />
+            </button>
+            {langOpen && (
+              <div className="absolute right-0 top-9 z-30 w-36 rounded-xl bg-white border border-slate-200 shadow-lg py-1">
+                {SUPPORTED_LANGUAGES.map((item) => (
+                  <button
+                    key={item.code}
+                    type="button"
+                    onClick={() => {
+                      setLang(item.code);
+                      setLangOpen(false);
+                    }}
+                    className={`w-full px-3 py-1.5 text-left text-xs flex items-center justify-between hover:bg-orange-50 cursor-pointer ${
+                      lang === item.code ? 'font-extrabold text-orange-600 bg-orange-50/50' : 'text-slate-700 font-medium'
+                    }`}
+                  >
+                    <span>{item.native}</span>
+                    <span className="text-[10px] text-slate-400">{item.code}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -257,14 +305,14 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
             <div className="flex items-center justify-between gap-3">
               <div className="space-y-1.5 z-10">
                 <h1 className="text-2xl sm:text-[26px] font-black text-slate-900 leading-tight">
-                  Grow Your
+                  {t('heroLine1')}
                   <br />
-                  Earnings with
+                  {t('heroLine2')}
                   <br />
                   <span className="text-orange-600">U-ADS</span>
                 </h1>
                 <p className="text-[11px] text-slate-600 font-medium leading-snug max-w-[180px]">
-                  Watch Ads, Earn Real USD &amp; Grow with Our Trusted Platform
+                  {t('heroSub')}
                 </p>
                 <div className="w-10 h-1 rounded-full bg-orange-500 mt-1" />
               </div>
@@ -301,8 +349,8 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
             <div className="w-11 h-11 rounded-2xl bg-orange-50 border border-orange-200/80 text-orange-600 flex items-center justify-center mx-auto">
               <Lock className="w-5 h-5" />
             </div>
-            <h2 className="text-xl font-extrabold text-slate-900">Welcome Back!</h2>
-            <p className="text-xs text-slate-500">Login to your account to continue</p>
+            <h2 className="text-xl font-extrabold text-slate-900">{t('welcomeBack')}</h2>
+            <p className="text-xs text-slate-500">{t('loginSubtitle')}</p>
           </div>
 
           <div className="space-y-3 pt-1">
@@ -310,8 +358,9 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
               <div className="relative">
                 <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
-                  type="email"
-                  placeholder="Email Address"
+                  type="text"
+                  autoComplete="username"
+                  placeholder={t('emailOrUsername')}
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
@@ -335,7 +384,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  placeholder="Password"
+                  placeholder={t('password')}
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);
@@ -375,7 +424,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
             disabled={loading}
             className="btn-primary w-full !h-12 !rounded-full !text-sm shadow-lg shadow-orange-500/25"
           >
-            <span>{loading ? 'Logging in…' : 'Log In'}</span>
+            <span>{loading ? t('signingIn') : t('logIn')}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
 
@@ -390,38 +439,66 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
               }}
               className="text-slate-600 hover:text-orange-600 font-semibold cursor-pointer"
             >
-              Forgot Password?
+              {t('forgotPassword')}
             </button>
             <div className="text-slate-500">
-              New User?{' '}
+              {t('newUser')}{' '}
               <button
                 type="button"
                 onClick={() => navigate('register')}
                 className="text-orange-600 font-extrabold hover:underline cursor-pointer"
               >
-                Sign Up
+                {t('signUp')}
               </button>
             </div>
           </div>
         </form>
 
-        {/* "or" Divider + View Company Information & Licenses Button */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-3 px-2">
-            <div className="h-px flex-1 bg-slate-200" />
-            <span className="text-xs font-bold text-slate-400">or</span>
-            <div className="h-px flex-1 bg-slate-200" />
-          </div>
+        {/* Admin-controlled Company Info Button (Part 16 a & b) */}
+        {companyInfoEnabled && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 px-2">
+              <div className="h-px flex-1 bg-slate-200" />
+              <span className="text-xs font-bold text-slate-400">{t('or')}</span>
+              <div className="h-px flex-1 bg-slate-200" />
+            </div>
 
-          <button
-            type="button"
-            onClick={() => setCompanyInfoOpen(true)}
-            className="w-full h-11 rounded-full bg-white hover:bg-orange-50 border-2 border-orange-300 text-slate-900 text-xs font-extrabold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
-          >
-            <Info className="w-4 h-4 text-slate-900" />
-            <span>View Company Information &amp; Licenses</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setCompanyInfoOpen(true)}
+              className="w-full h-11 rounded-2xl bg-slate-50 hover:bg-orange-50/70 border border-slate-200 hover:border-orange-300 text-slate-800 text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+            >
+              <Building2 className="w-4 h-4 text-orange-600" />
+              <span>{companyInfoButtonText || 'Verified Company Details'}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Admin-controlled Optional Promotional / Trust Banner Image below Login (Part 16 c) */}
+        {authBottomBannerImageUrl && (
+          <div className="rounded-2xl overflow-hidden border border-orange-200/70 shadow-xs bg-white">
+            {authBottomBannerLink ? (
+              <a
+                href={authBottomBannerLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block"
+              >
+                <img
+                  src={authBottomBannerImageUrl}
+                  alt="U-ADS Promotion"
+                  className="w-full max-h-40 object-cover"
+                />
+              </a>
+            ) : (
+              <img
+                src={authBottomBannerImageUrl}
+                alt="U-ADS Promotion"
+                className="w-full max-h-40 object-cover"
+              />
+            )}
+          </div>
+        )}
 
         {/* Bottom Soft Peach Trust Card */}
         <div className="rounded-2xl bg-[#FFF6EE] border border-orange-100 p-4 flex items-center gap-3.5">
@@ -431,7 +508,7 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
           <div className="border-l border-orange-200 pl-3.5 space-y-0.5">
             <div className="text-sm font-black text-slate-900">U-ADS</div>
             <p className="text-[11px] text-slate-600 leading-snug">
-              A secure and reliable platform for your financial growth and success.
+              {t('secureFooter')}
             </p>
           </div>
         </div>

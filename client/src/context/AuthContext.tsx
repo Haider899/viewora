@@ -5,9 +5,10 @@ import { User, WalletSummary } from '../types/index.js';
 interface AuthContextType {
   user: User | null;
   wallet: WalletSummary | null;
+  walletLoaded: boolean;
   loading: boolean;
   login: (credentials: { email: string; password: string }) => Promise<User>;
-  register: (data: { email: string; password: string; fullName: string; phone?: string; referralCode?: string }) => Promise<boolean>;
+  register: (data: { email: string; password: string; fullName: string; phone?: string; referralCode?: string }) => Promise<{ success: boolean; referralNotice?: string | null }>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   refreshWallet: () => Promise<void>;
@@ -18,6 +19,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [wallet, setWallet] = useState<WalletSummary | null>(null);
+  const [walletLoaded, setWalletLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const refreshWallet = async () => {
@@ -28,6 +30,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err) {
       console.error('Failed to fetch wallet summary:', err);
+    } finally {
+      setWalletLoaded(true);
     }
   };
 
@@ -86,13 +90,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fullName: string;
     phone?: string;
     referralCode?: string;
-  }): Promise<boolean> => {
+  }): Promise<{ success: boolean; referralNotice?: string | null }> => {
     const res = await api.register(data);
     if (res.success && res.data) {
       api.setToken(res.data.token);
       setUser(res.data.user);
       await refreshWallet();
-      return true;
+      return { success: true, referralNotice: (res.data as any).referralNotice || null };
     }
     throw new Error(res.error?.message || 'Registration failed.');
   };
@@ -101,6 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     api.setToken(null);
     setUser(null);
     setWallet(null);
+    setWalletLoaded(false);
   };
 
   return (
@@ -108,6 +113,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         wallet,
+        walletLoaded,
         loading,
         login,
         register,

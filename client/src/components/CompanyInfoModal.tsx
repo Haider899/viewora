@@ -22,21 +22,30 @@ interface CompanyInfoModalProps {
 
 export const CompanyInfoModal: React.FC<CompanyInfoModalProps> = ({ open, onClose }) => {
   const [docs, setDocs] = useState<CompanyDocument[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadedOnce, setLoadedOnce] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<CompanyDocument | null>(null);
 
+  // Part 16 (d): Preload official documents so modal opens with real content (never "(0)" or empty flash!)
   useEffect(() => {
-    if (!open) return;
-    setLoading(true);
+    let active = true;
     api
       .getPublicDocuments()
       .then((res) => {
-        if (res.success && Array.isArray(res.data)) {
+        if (active && res.success && Array.isArray(res.data)) {
           setDocs(res.data);
         }
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+          setLoadedOnce(true);
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, [open]);
 
   if (!open) return null;
@@ -127,15 +136,15 @@ export const CompanyInfoModal: React.FC<CompanyInfoModalProps> = ({ open, onClos
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
                 <Award className="w-4 h-4 text-orange-600" />
-                Official Licenses &amp; Registrations ({docs.length})
+                Official Licenses &amp; Registrations
+                {loadedOnce && docs.length > 0 ? ` (${docs.length})` : ''}
               </h3>
             </div>
 
-            {loading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[1, 2].map((i) => (
-                  <div key={i} className="h-28 rounded-2xl skeleton-shimmer border border-slate-200" />
-                ))}
+            {loading && !loadedOnce ? (
+              <div className="py-10 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col items-center justify-center gap-2.5 text-xs text-slate-500">
+                <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+                <span>Loading verified company licenses…</span>
               </div>
             ) : docs.length === 0 ? (
               <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 text-center text-xs text-slate-500">

@@ -151,12 +151,15 @@ export interface Video {
 export interface WalletSummary {
   USD: {
     availableCents: number;
+    creditBalanceCents?: number;
     subscriptionCreditCents?: number;
     reservedCents: number;
     referralCents: number;
     videoRewardsCents: number;
     otherRewardsCents: number;
     earningsTotalCents?: number;
+    todayAdsEarningsCents?: number;
+    todayAdsCompletedCount?: number;
     totalCents: number;
   };
 }

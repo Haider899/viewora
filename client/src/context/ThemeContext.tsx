@@ -8,6 +8,12 @@ interface ThemeContextValue {
   theme: WebsiteTheme;
   defaultTheme: WebsiteTheme;
   authBannerImageUrl: string;
+  referralBannerImageUrl: string;
+  companyInfoEnabled: boolean;
+  companyInfoButtonText: string;
+  authBottomBannerImageUrl: string;
+  authBottomBannerLink: string;
+  authBottomBannerOnSignup: boolean;
   setMemberTheme: (next: WebsiteTheme) => Promise<void>;
   refreshThemeConfig: () => Promise<void>;
 }
@@ -18,6 +24,12 @@ const ThemeContext = createContext<ThemeContextValue>({
   theme: 'orange',
   defaultTheme: 'orange',
   authBannerImageUrl: '',
+  referralBannerImageUrl: '',
+  companyInfoEnabled: true,
+  companyInfoButtonText: 'Verified Company Details',
+  authBottomBannerImageUrl: '',
+  authBottomBannerLink: '',
+  authBottomBannerOnSignup: true,
   setMemberTheme: async () => {},
   refreshThemeConfig: async () => {},
 });
@@ -32,6 +44,12 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { user, refreshUser } = useAuth();
   const [defaultTheme, setDefaultTheme] = useState<WebsiteTheme>('orange');
   const [authBannerImageUrl, setAuthBannerImageUrl] = useState<string>('');
+  const [referralBannerImageUrl, setReferralBannerImageUrl] = useState<string>('');
+  const [companyInfoEnabled, setCompanyInfoEnabled] = useState<boolean>(true);
+  const [companyInfoButtonText, setCompanyInfoButtonText] = useState<string>('Verified Company Details');
+  const [authBottomBannerImageUrl, setAuthBottomBannerImageUrl] = useState<string>('');
+  const [authBottomBannerLink, setAuthBottomBannerLink] = useState<string>('');
+  const [authBottomBannerOnSignup, setAuthBottomBannerOnSignup] = useState<boolean>(true);
   const [localChoice, setLocalChoice] = useState<WebsiteTheme | null>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -48,6 +66,12 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const dt: WebsiteTheme = res.data.defaultTheme === 'green' ? 'green' : 'orange';
         setDefaultTheme(dt);
         setAuthBannerImageUrl(res.data.authBannerImageUrl || '');
+        setReferralBannerImageUrl(res.data.referralBannerImageUrl || '');
+        setCompanyInfoEnabled(res.data.companyInfoEnabled !== false);
+        setCompanyInfoButtonText(res.data.companyInfoButtonText || 'Verified Company Details');
+        setAuthBottomBannerImageUrl(res.data.authBottomBannerImageUrl || '');
+        setAuthBottomBannerLink(res.data.authBottomBannerLink || '');
+        setAuthBottomBannerOnSignup(res.data.authBottomBannerOnSignup !== false);
       }
     } catch {
       // silent fallback
@@ -100,6 +124,12 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         theme: resolvedTheme,
         defaultTheme,
         authBannerImageUrl,
+        referralBannerImageUrl,
+        companyInfoEnabled,
+        companyInfoButtonText,
+        authBottomBannerImageUrl,
+        authBottomBannerLink,
+        authBottomBannerOnSignup,
         setMemberTheme,
         refreshThemeConfig,
       }}

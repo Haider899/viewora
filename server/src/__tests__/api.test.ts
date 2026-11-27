@@ -3,6 +3,7 @@ import request from 'supertest';
 import { app } from '../app.js';
 import prisma from '../lib/prisma.js';
 import { LedgerService } from '../services/ledger.service.js';
+import { BootstrapService } from '../services/bootstrap.service.js';
 import { AccountType, Currency, EntryType, LedgerTransactionType } from '../types/index.js';
 
 describe('U-Ads API & RBAC Integration Tests', () => {
@@ -647,5 +648,131 @@ describe('U-Ads API & RBAC Integration Tests', () => {
       .send({ sessionToken: sess.body.data.sessionToken });
     expect(doubleClaim.status).toBe(400);
     expect(doubleClaim.body.error.code).toBe('ALREADY_CLAIMED');
+  });
+
+  it('27-Nov Final Sign-off (Parts 1–16): Dual referral switches, 5%/7% order, graceful bad ref code, username login, single DM notif, default OFF level bonus, unified no-IP group & CMS config', async () => {
+    // Run startup bootstrap migration (same as server boot in production)
+    await BootstrapService.ensurePlatformDefaults();
+
+    // Part 13: Account Level Daily Bonus defaults to OFF
+    const bonusCfg = await request(app)
+      .get('/api/v1/admin/bonus-settings')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(bonusCfg.status).toBe(200);
+    expect(bonusCfg.body.data.accountLevelBonus.enabled).toBe(false);
+
+    // Part 16: Public theme-config includes Company Info toggle/text & promo banner fields
+    const themeRes = await request(app).get('/api/v1/theme-config');
+    expect(themeRes.status).toBe(200);
+    expect(themeRes.body.data.companyInfoEnabled).toBe(true);
+    expect(typeof themeRes.body.data.companyInfoButtonText).toBe('string');
+
+    // Part 5a: Unrecognized referral code completes direct signup (never blocks with 400!)
+    const badRefEmail = `badref-${Date.now()}@u-ads.com`;
+    const badRefSignup = await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        email: badRefEmail,
+        password: 'UAdsSecure2026!',
+        fullName: 'Graceful Signup User',
+        referralCode: 'DOES-NOT-EXIST-999',
+      });
+    expect(badRefSignup.status).toBe(201);
+    expect(badRefSignup.body.data.user.referredById).toBeFalsy();
+    expect(badRefSignup.body.data.referralNotice).toBeTruthy();
+    const gracefulUserId = badRefSignup.body.data.user.id;
+    const gracefulMemberCode = badRefSignup.body.data.user.memberCode;
+
+    // Part 14: Login works using username / Member ID (not only email)
+    const usernameLogin = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: gracefulMemberCode, password: 'UAdsSecure2026!' });
+    expect(usernameLogin.status).toBe(200);
+    expect(usernameLogin.body.data.user.id).toBe(gracefulUserId);
+
+    // Part 12: Admin Direct Message creates 1 DirectMessage and ZERO duplicate mirror Notification rows
+    const notifsBefore = await prisma.notification.count({ where: { userId: gracefulUserId } });
+    const dmRes = await request(app)
+      .post(`/api/v1/admin/users/${gracefulUserId}/message`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ subject: 'Single Notification Check', message: 'Hello from QA' });
+    expect(dmRes.status).toBe(201);
+    const notifsAfter = await prisma.notification.count({ where: { userId: gracefulUserId } });
+    expect(notifsAfter).toBe(notifsBefore);
+
+    // Part 1 & 9: Wallet summary exposes creditBalanceCents, todayAdsEarningsCents & todayAdsCompletedCount
+    const walletRes = await request(app)
+      .get('/api/v1/wallet/summary')
+      .set('Authorization', `Bearer ${usernameLogin.body.data.token}`);
+    expect(walletRes.status).toBe(200);
+    expect(typeof walletRes.body.data.USD.creditBalanceCents).toBe('number');
+    expect(typeof walletRes.body.data.USD.todayAdsEarningsCents).toBe('number');
+    expect(typeof walletRes.body.data.USD.todayAdsCompletedCount).toBe('number');
+
+    // Part 3 & 4: Fresh sponsor verifies exact chronological 1st = 5% ($1.00 on $20), 2nd = 7% ($1.40 on $20)
+    const sponsorSignup = await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        email: `order-sponsor-${Date.now()}@u-ads.com`,
+        password: 'UAdsSecure2026!',
+        fullName: 'Order Sponsor',
+      });
+    expect(sponsorSignup.status).toBe(201);
+    const sId = sponsorSignup.body.data.user.id;
+    const sCode = sponsorSignup.body.data.user.referralCode;
+    const sToken = sponsorSignup.body.data.token;
+
+    // Register Child 1 (lowercase code to test Part 5b case-insensitive matching) & buy $20 Starter -> 5% = 100 cents
+    const c1 = await request(app).post('/api/v1/auth/register').send({
+      email: `c1-${Date.now()}@u-ads.com`,
+      password: 'UAdsSecure2026!',
+      fullName: 'First Child',
+      referralCode: sCode.toLowerCase(),
+    });
+    expect(c1.status).toBe(201);
+    await prisma.walletAccount.updateMany({
+      where: { userId: c1.body.data.user.id, accountType: 'USER_AVAILABLE', currency: 'USD' },
+      data: { balanceCents: 2000 },
+    });
+    const buy1 = await request(app)
+      .post('/api/v1/packages/purchase')
+      .set('Authorization', `Bearer ${c1.body.data.token}`)
+      .send({ packageId: starterPackageId, paymentSource: 'SUBSCRIPTION_CREDIT' });
+    expect(buy1.status).toBe(200);
+
+    // Register Child 2 & buy $20 Starter -> 7% = 140 cents
+    const c2 = await request(app).post('/api/v1/auth/register').send({
+      email: `c2-${Date.now()}@u-ads.com`,
+      password: 'UAdsSecure2026!',
+      fullName: 'Second Child',
+      referralCode: sCode,
+    });
+    expect(c2.status).toBe(201);
+    await prisma.walletAccount.updateMany({
+      where: { userId: c2.body.data.user.id, accountType: 'USER_AVAILABLE', currency: 'USD' },
+      data: { balanceCents: 2000 },
+    });
+    const buy2 = await request(app)
+      .post('/api/v1/packages/purchase')
+      .set('Authorization', `Bearer ${c2.body.data.token}`)
+      .send({ packageId: starterPackageId, paymentSource: 'SUBSCRIPTION_CREDIT' });
+    expect(buy2.status).toBe(200);
+
+    const sSum = await request(app)
+      .get('/api/v1/referrals/summary')
+      .set('Authorization', `Bearer ${sToken}`);
+    expect(sSum.status).toBe(200);
+    expect(sSum.body.data.qualifiedReferrals).toBe(2);
+    expect(sSum.body.data.totalCommissionCents).toBe(240); // $1.00 (5%) + $1.40 (7%) = $2.40!
+
+    // Part 15: IP Groups returns at most ONE "No IP Recorded Yet" group
+    const ipRes = await request(app)
+      .get('/api/v1/admin/users/ip-groups')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(ipRes.status).toBe(200);
+    const groupsArr = Array.isArray(ipRes.body.data) ? ipRes.body.data : ipRes.body.data?.groups || [];
+    const noIpGroups = groupsArr.filter((g: any) => g.ipAddress === 'No IP Recorded Yet');
+    expect(noIpGroups.length).toBeLessThanOrEqual(1);
+    expect(sId).toBeTruthy();
   });
 });

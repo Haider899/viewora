@@ -234,6 +234,7 @@ export class AdminService {
     const byIp = new Map<string, any[]>();
     const unrecordedGroups: any[] = [];
 
+    const unrecordedAccounts: any[] = [];
     for (const u of users) {
       const rawIp = (u.lastLoginIp || u.registrationIp || '').trim();
       const lastSeenMs = u.lastSeenAt ? u.lastSeenAt.getTime() : 0;
@@ -289,18 +290,28 @@ export class AdminService {
         if (!byIp.has(rawIp)) byIp.set(rawIp, []);
         byIp.get(rawIp)!.push(accountObj);
       } else {
-        // Never lump unrecorded-IP users into one misleading group of 23!
-        unrecordedGroups.push({
-          ipAddress: 'No IP Recorded Yet',
-          ip: 'No IP Recorded Yet',
-          isUnrecorded: true,
-          accountCount: 1,
-          onlineCount: isOnline ? 1 : 0,
-          restrictedCount: isRestricted ? 1 : 0,
-          latestSeenMs: lastSeenMs,
-          accounts: [accountObj],
-        });
+        // Part 15: Put ALL members with no IP recorded under ONE single clean group (not 18 repeated headers!)
+        unrecordedAccounts.push(accountObj);
       }
+    }
+
+    if (unrecordedAccounts.length > 0) {
+      unrecordedAccounts.sort((a, b) => {
+        if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+        const aSeen = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0;
+        const bSeen = b.lastSeenAt ? new Date(b.lastSeenAt).getTime() : 0;
+        return bSeen - aSeen;
+      });
+      unrecordedGroups.push({
+        ipAddress: 'No IP Recorded Yet',
+        ip: 'No IP Recorded Yet',
+        isUnrecorded: true,
+        accountCount: unrecordedAccounts.length,
+        onlineCount: unrecordedAccounts.filter((a) => a.isOnline).length,
+        restrictedCount: unrecordedAccounts.filter((a) => a.isRestricted).length,
+        latestSeenMs: Math.max(0, ...unrecordedAccounts.map((a) => (a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0))),
+        accounts: unrecordedAccounts,
+      });
     }
 
     const recordedGroups = Array.from(byIp.entries()).map(([ip, accounts]) => {
@@ -1564,15 +1575,9 @@ export class AdminService {
         },
       });
 
-      // Push notification alert into the user's notification bell immediately
-      await tx.notification.create({
-        data: {
-          userId: recipientId,
-          title: `📩 ${subject}`,
-          message: data.attachmentUrl ? `${cleanMessage} (Screenshot attached — open Messages to view)` : cleanMessage,
-          type: 'INFO',
-        },
-      });
+      // Part 12: One Admin Message = One Notification!
+      // AdminDirectMessage itself is surfaced directly in the member's Notification Bell & Notifications Page
+      // with unread badge and screenshot attachment — do NOT create a duplicate mirror Notification row!
 
       await tx.auditLog.create({
         data: {

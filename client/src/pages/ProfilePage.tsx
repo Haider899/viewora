@@ -46,16 +46,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     setPhone(user?.phone || '');
   }, [user?.fullName, user?.phone]);
 
-  // Issue #6: Single authoritative server-calculated Level Progress (same across Sidebar, Dashboard & Profile)
-  const lp = user?.levelProgress;
-  const levelInfo = lp
-    ? {
-        currentLabel: lp.currentLevelName,
-        nextLabel: lp.nextLevelName,
-        percent: lp.progressPercent,
-        neededCents: lp.neededCents,
-      }
-    : getAccountLevelProgress(user?.accountLevel, 0);
+  const hasActivePackageLevel = Boolean(user?.accountLevel && user.accountLevel !== 'NEW_USER');
 
   const copyText = (value: string, field: 'id' | 'ref', label: string) => {
     if (!value) return;
@@ -246,30 +237,48 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </div>
           </div>
 
-          {/* Level & Rank Progression */}
+          {/* Level & Rank Standing (Part 7: Package-driven levels, no old qualifying balance rule) */}
           <div className="card-white p-6 space-y-4">
-            <h3 className="text-base font-bold text-slate-900">Level &amp; Rank Standing</h3>
+            <h3 className="text-base font-bold text-slate-900">Account &amp; Rank Standing</h3>
 
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
-                  <Award className="w-4 h-4 text-emerald-600" />
-                  <span>Account Level: {formatAccountLevelLabel(user?.accountLevel)}</span>
+            {hasActivePackageLevel ? (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Award className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <div className="text-xs font-bold text-slate-900">
+                      Account Level: {formatAccountLevelLabel(user?.accountLevel)}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Set automatically by your active lifetime package.
+                    </div>
+                  </div>
                 </div>
-                <span className="text-xs font-bold text-emerald-700 tabular-nums">{levelInfo.percent}%</span>
+                <button
+                  type="button"
+                  onClick={() => navigate('packages')}
+                  className="text-xs font-bold text-emerald-700 hover:underline shrink-0 cursor-pointer"
+                >
+                  Upgrade
+                </button>
               </div>
-              <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-emerald-600 transition-all duration-300"
-                  style={{ width: `${levelInfo.percent}%` }}
-                />
+            ) : (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-bold text-slate-900">No Active Package Yet</div>
+                  <div className="text-[11px] text-slate-500">
+                    Activate a lifetime package to unlock your daily ads and account level.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('packages')}
+                  className="text-xs font-bold text-orange-600 hover:underline shrink-0 cursor-pointer"
+                >
+                  View Packages
+                </button>
               </div>
-              <p className="text-[11px] text-slate-500">
-                {levelInfo.nextLabel
-                  ? `${formatUSD(levelInfo.neededCents)} in qualifying balance toward ${levelInfo.nextLabel}.`
-                  : 'You have reached the highest account level.'}
-              </p>
-            </div>
+            )}
 
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2.5">

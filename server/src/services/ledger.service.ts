@@ -185,24 +185,30 @@ export class LedgerService {
 
     const summary = {
       USD: {
-        availableCents: 0, // Paid-in subscription credit ONLY (never withdrawable)
+        availableCents: 0, // Credit Balance (usable for packages/upgrades, never withdrawable)
         subscriptionCreditCents: 0,
+        creditBalanceCents: 0,
         videoRewardsCents: 0,
         otherRewardsCents: 0,
         reservedCents: 0,
         referralCents: 0,
         earningsTotalCents: 0, // Visible member earnings balance (Video Rewards + Referral + Bonuses)
         totalCents: 0,
+        todayAdsEarningsCents: 0, // Part 9: Total member earned from ads in current 24h cycle
+        todayAdsCompletedCount: 0, // Part 11: Total ads claimed in current 24h cycle (including Special Assignments)
       },
       PKR: {
         availableCents: 0,
         subscriptionCreditCents: 0,
+        creditBalanceCents: 0,
         videoRewardsCents: 0,
         otherRewardsCents: 0,
         reservedCents: 0,
         referralCents: 0,
         earningsTotalCents: 0,
         totalCents: 0,
+        todayAdsEarningsCents: 0,
+        todayAdsCompletedCount: 0,
       },
     };
 
@@ -212,6 +218,7 @@ export class LedgerService {
         if (acc.accountType === AccountType.USER_AVAILABLE) {
           summary[cur].availableCents = acc.balanceCents;
           summary[cur].subscriptionCreditCents = acc.balanceCents;
+          summary[cur].creditBalanceCents = acc.balanceCents;
         } else if (acc.accountType === AccountType.USER_VIDEO_REWARDS) {
           summary[cur].videoRewardsCents = acc.balanceCents;
         } else if (acc.accountType === AccountType.USER_OTHER_REWARDS) {
@@ -222,6 +229,41 @@ export class LedgerService {
           summary[cur].referralCents = acc.balanceCents;
         }
       }
+    }
+
+    // Part 9 & Part 11: Compute exact Today Ads Earning & Today Ads Completed (including Special Assignments!)
+    try {
+      const resetSetting = await prisma.systemSetting.findUnique({ where: { key: 'DAILY_RESET_HOUR' } });
+      const resetHour =
+        resetSetting && !isNaN(parseInt(resetSetting.value, 10))
+          ? parseInt(resetSetting.value, 10)
+          : 20;
+      const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
+      const now = new Date();
+      const pktNow = new Date(now.getTime() + PKT_OFFSET_MS);
+      const pktStart = new Date(
+        Date.UTC(pktNow.getUTCFullYear(), pktNow.getUTCMonth(), pktNow.getUTCDate(), resetHour, 0, 0, 0)
+      );
+      if (pktNow.getTime() < pktStart.getTime()) {
+        pktStart.setUTCDate(pktStart.getUTCDate() - 1);
+      }
+      const windowStart = new Date(pktStart.getTime() - PKT_OFFSET_MS);
+      const windowEnd = new Date(windowStart.getTime() + 24 * 60 * 60 * 1000);
+      const cycleKey = `${pktStart.getUTCFullYear()}-${String(pktStart.getUTCMonth() + 1).padStart(2, '0')}-${String(
+        pktStart.getUTCDate()
+      ).padStart(2, '0')}-H${String(resetHour).padStart(2, '0')}`;
+
+      const todayClaims = await prisma.rewardClaim.findMany({
+        where: {
+          userId,
+          OR: [{ cycleKey }, { claimedAt: { gte: windowStart, lt: windowEnd } }],
+        },
+        select: { amountCents: true, videoId: true },
+      });
+      summary.USD.todayAdsEarningsCents = todayClaims.reduce((s, c) => s + c.amountCents, 0);
+      summary.USD.todayAdsCompletedCount = new Set(todayClaims.map((c) => c.videoId)).size;
+    } catch {
+      // non-blocking
     }
 
     summary.USD.earningsTotalCents =

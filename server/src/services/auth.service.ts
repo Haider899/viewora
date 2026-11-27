@@ -22,12 +22,38 @@ export class AuthService {
     }
 
     let referrer = null;
-    if (input.referralCode) {
-      referrer = await prisma.user.findUnique({
-        where: { referralCode: input.referralCode.trim().toUpperCase() },
+    let referralNotice: string | null = null;
+    const rawRefCode = input.referralCode?.trim();
+    if (rawRefCode) {
+      const normalizedRef = rawRefCode.toUpperCase();
+      // Part 5 (b): Match member's permanent referralCode (and also accept memberCode or case variations)
+      referrer = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { referralCode: normalizedRef },
+            { referralCode: rawRefCode },
+            { memberCode: normalizedRef },
+          ],
+        },
       });
       if (!referrer) {
-        throw { statusCode: 400, code: 'INVALID_REFERRAL', message: 'The specified referral code was not found.' };
+        // Fallback case-insensitive search in SQLite
+        const candidates = await prisma.user.findMany({
+          select: { id: true, referralCode: true, memberCode: true },
+        });
+        const hit = candidates.find(
+          (c) =>
+            c.referralCode.toUpperCase() === normalizedRef ||
+            (c.memberCode && c.memberCode.toUpperCase() === normalizedRef)
+        );
+        if (hit) {
+          referrer = await prisma.user.findUnique({ where: { id: hit.id } });
+        }
+      }
+      // Part 5 (a): NEVER block registration on an unrecognised/old referral code — continue as direct sign-up!
+      if (!referrer) {
+        referralNotice =
+          'The referral code was not recognised, so your account was created as a direct registration.';
       }
     }
 
@@ -82,7 +108,7 @@ export class AuthService {
           data: {
             userId: referrer.id,
             title: 'New Referral Registered',
-            message: `${input.fullName} registered using your invitation code (${userReferralCode}). Commissions unlock on their first qualifying transaction.`,
+            message: `${input.fullName} registered using your invitation code (${referrer.referralCode}). Commissions unlock on their first qualifying transaction.`,
             type: 'INFO',
           },
         });
@@ -107,21 +133,65 @@ export class AuthService {
         status: user.status,
         accountLevel: user.accountLevel,
         referralCode: user.referralCode,
+        preferredTheme: (user as any).preferredTheme || null,
         createdAt: user.createdAt,
       },
       token,
+      referralNotice,
     };
   }
 
   static async login(input: { email: string; password: string; ipAddress?: string }) {
-    const user = await prisma.user.findUnique({
-      where: { email: input.email.toLowerCase() },
+    const identifier = input.email.trim();
+    const lowerId = identifier.toLowerCase();
+    const upperId = identifier.toUpperCase();
+
+    // Part 14: Support login with Email OR Username (memberCode, referralCode, or fullName)
+    let user = await prisma.user.findUnique({
+      where: { email: lowerId },
       include: {
         referredBy: {
           select: { id: true, fullName: true, memberCode: true, referralCode: true },
         },
       },
     });
+    if (!user) {
+      user = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { memberCode: upperId },
+            { referralCode: upperId },
+            { fullName: identifier },
+          ],
+        },
+        include: {
+          referredBy: {
+            select: { id: true, fullName: true, memberCode: true, referralCode: true },
+          },
+        },
+      });
+    }
+    if (!user && !identifier.includes('@')) {
+      // Case-insensitive username/fullName match fallback for SQLite
+      const all = await prisma.user.findMany({
+        select: { id: true, fullName: true, email: true },
+      });
+      const hit = all.find(
+        (u) =>
+          u.fullName.toLowerCase() === lowerId ||
+          u.email.split('@')[0].toLowerCase() === lowerId
+      );
+      if (hit) {
+        user = await prisma.user.findUnique({
+          where: { id: hit.id },
+          include: {
+            referredBy: {
+              select: { id: true, fullName: true, memberCode: true, referralCode: true },
+            },
+          },
+        });
+      }
+    }
 
     if (!user) {
       throw { statusCode: 401, code: 'INVALID_CREDENTIALS', message: 'Invalid email address or password.' };

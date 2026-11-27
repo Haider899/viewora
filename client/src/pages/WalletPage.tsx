@@ -31,7 +31,7 @@ interface WalletPageProps {
 }
 
 export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank = 'New' }) => {
-  const { wallet, refreshWallet } = useAuth();
+  const { wallet, walletLoaded, refreshWallet } = useAuth();
 
   const [videos, setVideos] = useState<Video[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
@@ -74,11 +74,15 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
   const videoCents = wallet?.USD?.videoRewardsCents ?? 0;
   const referralCents = wallet?.USD?.referralCents ?? 0;
   const otherCents = wallet?.USD?.otherRewardsCents ?? 0;
+  const todayAdsEarningsCents = wallet?.USD?.todayAdsEarningsCents ?? 0;
   const totalEarningsCents = videoCents + referralCents + otherCents;
 
   const recentFive = useMemo(() => groupLedgerEntries(entries).slice(0, 5), [entries]);
   const unlockedCount = videos.filter((v) => v.hasAccess).length;
-  const claimedTodayCount = videos.filter((v) => v.hasAccess && v.hasClaimedReward).length;
+  const claimedInCatalog = videos.filter((v) => v.hasAccess && v.hasClaimedReward).length;
+  // Part 11: Include all earned ads in the current 24h cycle (including Special Assignment videos)
+  const claimedTodayCount = Math.max(claimedInCatalog, wallet?.USD?.todayAdsCompletedCount ?? 0);
+  const effectiveUnlockedTotal = Math.max(unlockedCount, claimedTodayCount);
 
   return (
     <div className="space-y-6">
@@ -90,7 +94,11 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
               Your Withdrawable Earnings (USD)
             </div>
             <div className="text-3xl sm:text-4xl font-black text-slate-900 tabular-nums tracking-tight">
-              {wallet ? formatUSD(totalEarningsCents) : '—'}
+              {walletLoaded ? (
+                formatUSD(totalEarningsCents)
+              ) : (
+                <span className="inline-block w-36 h-9 rounded-xl skeleton-shimmer align-middle" />
+              )}
             </div>
             <p className="text-[11px] text-slate-500">
               Earned from watching ads, referrals &amp; bonuses · 95% of advertiser ad revenue shared with members (Halal).
@@ -117,8 +125,8 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
           </div>
         </div>
 
-        {/* 3 Compact Earnings Sub-Cards (Video Ad Rewards, Referral Earnings, Bonuses) */}
-        <div className="grid grid-cols-3 gap-2.5 sm:gap-3 pt-1">
+        {/* 4 Compact Earnings Sub-Cards (Video Ad Rewards, Today Ads Earning, Referral Earnings, Bonuses) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 pt-1">
           <div className="p-3 rounded-2xl bg-white border border-orange-100 shadow-2xs">
             <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 truncate">
               Video Ad Rewards
@@ -128,7 +136,19 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
                 videoCents > 0 ? 'text-emerald-600' : 'text-slate-400'
               }`}
             >
-              {formatUSD(videoCents)}
+              {walletLoaded ? formatUSD(videoCents) : <span className="inline-block w-16 h-5 rounded skeleton-shimmer" />}
+            </div>
+          </div>
+          <div className="p-3 rounded-2xl bg-white border border-orange-100 shadow-2xs">
+            <div className="text-[10px] sm:text-[11px] font-bold text-slate-500 truncate">
+              Today Ads Earning
+            </div>
+            <div
+              className={`text-base sm:text-xl font-black tabular-nums mt-0.5 ${
+                todayAdsEarningsCents > 0 ? 'text-orange-600' : 'text-slate-400'
+              }`}
+            >
+              {walletLoaded ? formatUSD(todayAdsEarningsCents) : <span className="inline-block w-16 h-5 rounded skeleton-shimmer" />}
             </div>
           </div>
           <div className="p-3 rounded-2xl bg-white border border-orange-100 shadow-2xs">
@@ -140,7 +160,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
                 referralCents > 0 ? 'text-emerald-600' : 'text-slate-400'
               }`}
             >
-              {formatUSD(referralCents)}
+              {walletLoaded ? formatUSD(referralCents) : <span className="inline-block w-16 h-5 rounded skeleton-shimmer" />}
             </div>
           </div>
           <div className="p-3 rounded-2xl bg-white border border-orange-100 shadow-2xs">
@@ -152,7 +172,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
                 otherCents > 0 ? 'text-emerald-600' : 'text-slate-400'
               }`}
             >
-              {formatUSD(otherCents)}
+              {walletLoaded ? formatUSD(otherCents) : <span className="inline-block w-16 h-5 rounded skeleton-shimmer" />}
             </div>
           </div>
         </div>
@@ -164,13 +184,19 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
           <div className="min-w-0">
             <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-orange-500" />
-              <span>Referrals ({referralRank})</span>
+              <span>Referrals ({loading ? '…' : referralRank})</span>
             </div>
             <div className="text-lg font-black text-slate-900 tabular-nums">
-              {refSummary?.qualifiedReferrals ?? 0} Qualified{' '}
-              <span className="text-xs font-semibold text-slate-400">
-                / {refSummary?.totalReferrals ?? 0} Total
-              </span>
+              {loading ? (
+                <span className="inline-block w-28 h-6 rounded-lg skeleton-shimmer align-middle" />
+              ) : (
+                <>
+                  {refSummary?.qualifiedReferrals ?? 0} Qualified{' '}
+                  <span className="text-xs font-semibold text-slate-400">
+                    / {refSummary?.totalReferrals ?? 0} Total
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <button
@@ -189,8 +215,17 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
               <span>Total Commissions</span>
             </div>
             <div className="text-lg font-black text-emerald-700 tabular-nums">
-              {formatUSD(refSummary?.totalCommissionCents ?? referralCents)}
+              {loading && !walletLoaded ? (
+                <span className="inline-block w-20 h-6 rounded-lg skeleton-shimmer align-middle" />
+              ) : (
+                formatUSD(refSummary?.totalCommissionCents ?? referralCents)
+              )}
             </div>
+            {(refSummary?.todayPendingCommissionCents ?? 0) > 0 && (
+              <div className="text-[10px] font-bold text-orange-600 tabular-nums">
+                Today Commission: +{formatUSD(refSummary.todayPendingCommissionCents)} · Credited at 8:00 PM
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -208,7 +243,11 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
               <span>Bonuses Earned</span>
             </div>
             <div className="text-lg font-black text-slate-900 tabular-nums">
-              {formatUSD(otherCents)}
+              {walletLoaded ? (
+                formatUSD(otherCents)
+              ) : (
+                <span className="inline-block w-20 h-6 rounded-lg skeleton-shimmer align-middle" />
+              )}
             </div>
           </div>
           <button
@@ -255,9 +294,9 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
             return (
               <div
                 key={pkg.id}
-                className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-2.5 transition-all ${
+                className={`p-3.5 rounded-2xl border-2 flex flex-col justify-between gap-2.5 transition-all ${
                   isCurrent
-                    ? 'bg-orange-50/70 border-orange-400 ring-2 ring-orange-500/15'
+                    ? 'bg-orange-50/70 border-orange-500 ring-2 ring-orange-500/15'
                     : 'bg-slate-50/70 border-slate-200 hover:border-orange-300'
                 }`}
               >
@@ -326,7 +365,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
             <p className="text-[11px] text-slate-500">
               Cycle: <strong>8:00 PM – 7:59:59 PM</strong> (unclaimed rewards expire daily) ·{' '}
               <strong className="text-orange-700">
-                {claimedTodayCount}/{unlockedCount}
+                {claimedTodayCount}/{effectiveUnlockedTotal}
               </strong>{' '}
               unlocked ads claimed in this cycle
             </p>
@@ -379,8 +418,8 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
                           {(video.minAccountLevel || 'LEVEL_1').replace('_', ' ')} Required
                         </span>
                       </div>
-                      <span className="absolute top-2 left-2 text-[10px] font-extrabold px-2 py-0.5 rounded bg-slate-900/90 text-slate-100 border border-slate-600">
-                        {(video.minAccountLevel || 'LEVEL_1').replace('_', ' ')}
+                      <span className="absolute top-2 left-2 text-[10px] font-extrabold px-2 py-0.5 rounded bg-white/95 text-slate-900 shadow-xs">
+                        {(video.minAccountLevel || 'LEVEL_1').replace('_', ' ')} · {video.minPackageTier}
                       </span>
                       <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded bg-slate-950/85 text-slate-300 tabular-nums">
                         {formatDurationMMSS(video.durationSeconds)}

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.js';
 import { useTheme } from '../context/ThemeContext.js';
+import { useLanguage, SUPPORTED_LANGUAGES, LanguageCode } from '../context/LanguageContext.js';
+import { useToast } from '../components/ToastProvider.js';
 import { CompanyInfoModal } from '../components/CompanyInfoModal.js';
 import {
   Lock,
@@ -13,8 +15,9 @@ import {
   Eye,
   EyeOff,
   TrendingUp,
-  Info,
   ShieldCheck,
+  Globe,
+  ChevronRight,
 } from 'lucide-react';
 
 interface RegisterProps {
@@ -36,7 +39,16 @@ function getStrength(pw: string): { pct: number; label: string; color: string } 
 
 export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
   const { register } = useAuth();
-  const { authBannerImageUrl } = useTheme();
+  const {
+    authBannerImageUrl,
+    companyInfoEnabled,
+    companyInfoButtonText,
+    authBottomBannerImageUrl,
+    authBottomBannerLink,
+    authBottomBannerOnSignup,
+  } = useTheme();
+  const { lang, setLang, t } = useLanguage();
+  const { showToast } = useToast();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -93,13 +105,19 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
     setFieldErrors({});
     setLoading(true);
     try {
-      await register({
+      const res = await register({
         fullName: fullName.trim(),
         email: email.trim(),
         password,
         phone: phone.trim() || undefined,
         referralCode: referralCode.trim() || undefined,
       });
+      try {
+        sessionStorage.removeItem('uads_pending_ref');
+      } catch {}
+      if (res?.referralNotice) {
+        showToast(res.referralNotice, 'info');
+      }
       navigate('home');
     } catch (err: any) {
       setErrorMsg(err.message || 'Registration failed.');
@@ -111,14 +129,29 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
   return (
     <div className="min-h-screen auth-page-bg bg-white pb-12 animate-page-in">
       <div className="max-w-md mx-auto px-4 pt-6 space-y-5">
-        {/* Top Brand Row */}
-        <div className="flex items-center justify-center">
+        {/* Top Brand Row + Multi-Language Selector (Part 14) */}
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-sm">
               <TrendingUp className="w-5 h-5 stroke-[2.5]" />
             </div>
             <span className="text-2xl font-black tracking-tight text-slate-900">U-ADS</span>
           </div>
+          <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-bold text-slate-700 shadow-xs cursor-pointer hover:border-orange-300 transition-colors">
+            <Globe className="w-3.5 h-3.5 text-orange-600 shrink-0" />
+            <select
+              aria-label="Select Language"
+              value={lang}
+              onChange={(e) => setLang(e.target.value as LanguageCode)}
+              className="bg-transparent text-xs font-extrabold text-slate-800 focus:outline-none cursor-pointer pr-1"
+            >
+              {SUPPORTED_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.code} · {l.native}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         {/* Top Banner Image (Admin-editable via CMS — Part 1 #3) or Default Hero */}
@@ -395,23 +428,48 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
           </div>
         </form>
 
-        {/* "or" + View Company Information & Licenses */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-3 px-2">
-            <div className="h-px flex-1 bg-slate-200" />
-            <span className="text-xs font-bold text-slate-400">or</span>
-            <div className="h-px flex-1 bg-slate-200" />
-          </div>
+        {/* Part 16 (a & b): Admin-toggleable Professional Company Information Button */}
+        {companyInfoEnabled && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 px-2">
+              <div className="h-px flex-1 bg-slate-200" />
+              <span className="text-xs font-bold text-slate-400">{t('or', 'or')}</span>
+              <div className="h-px flex-1 bg-slate-200" />
+            </div>
 
-          <button
-            type="button"
-            onClick={() => setCompanyInfoOpen(true)}
-            className="w-full h-11 rounded-full bg-white hover:bg-orange-50 border-2 border-orange-300 text-slate-900 text-xs font-extrabold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
-          >
-            <Info className="w-4 h-4 text-slate-900" />
-            <span>View Company Information &amp; Licenses</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setCompanyInfoOpen(true)}
+              className="w-full h-12 px-4 rounded-2xl bg-gradient-to-r from-orange-50 to-amber-50/80 hover:from-orange-100 hover:to-amber-100 border border-orange-200/90 text-slate-900 text-xs font-extrabold flex items-center justify-between gap-2 shadow-xs transition-all cursor-pointer"
+            >
+              <span className="flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-lg bg-white border border-orange-200 text-orange-600 flex items-center justify-center shadow-2xs">
+                  <ShieldCheck className="w-4 h-4" />
+                </span>
+                <span>{companyInfoButtonText || 'Verified Company Details'}</span>
+              </span>
+              <ChevronRight className="w-4 h-4 text-orange-600" />
+            </button>
+          </div>
+        )}
+
+        {/* Part 16 (c): Optional CMS Promo Image Below Form */}
+        {authBottomBannerImageUrl && authBottomBannerOnSignup && (
+          authBottomBannerLink ? (
+            <a
+              href={authBottomBannerLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-2xl overflow-hidden border border-slate-200 shadow-xs hover:shadow-md transition-shadow"
+            >
+              <img src={authBottomBannerImageUrl} alt="U-ADS Promotion" className="w-full h-auto object-cover" />
+            </a>
+          ) : (
+            <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-xs">
+              <img src={authBottomBannerImageUrl} alt="U-ADS Promotion" className="w-full h-auto object-cover" />
+            </div>
+          )
+        )}
 
         {/* Bottom Soft Peach Trust Card */}
         <div className="rounded-2xl bg-[#FFF6EE] border border-orange-100 p-4 flex items-center gap-3.5">

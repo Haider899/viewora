@@ -223,11 +223,11 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
                       className="w-full h-full object-cover grayscale opacity-35"
                       loading="lazy"
                     />
-                    <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-slate-900/90 text-slate-200 border border-slate-600">
+                    <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2 z-10">
+                      <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-white/95 text-slate-900 shadow-xs">
                         {video.minPackageTier} Plan · {(video.minAccountLevel || 'LEVEL_1').replace('_', ' ')}
                       </span>
-                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-950/85 text-slate-300 flex items-center gap-1 tabular-nums">
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-950/85 text-white flex items-center gap-1 tabular-nums">
                         <Clock className="w-3 h-3" />
                         {formatDurationMMSS(video.durationSeconds)}
                       </span>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
 import { useTheme } from '../context/ThemeContext.js';
+import { useLanguage, SUPPORTED_LANGUAGES } from '../context/LanguageContext.js';
 import { NotificationItem } from '../types/index.js';
 import { WalletPage } from './WalletPage.js';
 import { VideoCatalogPage } from './VideoCatalogPage.js';
@@ -50,6 +51,7 @@ import {
   CheckCheck,
   Award,
   X,
+  Globe,
 } from 'lucide-react';
 
 export { formatAccountLevelLabel } from '../utils/formatters.js';
@@ -84,8 +86,9 @@ const PAGE_TITLES: Record<UserTab, { title: string; subtitle: string }> = {
 };
 
 export const UserDashboardPage: React.FC = () => {
-  const { user, wallet, logout, refreshUser } = useAuth();
+  const { user, wallet, walletLoaded, logout, refreshUser } = useAuth();
   const { theme, setMemberTheme } = useTheme();
+  const { lang, setLang, t } = useLanguage();
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<UserTab>('overview');
@@ -103,8 +106,8 @@ export const UserDashboardPage: React.FC = () => {
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Top bar dropdowns (only one open at a time)
-  const [openMenu, setOpenMenu] = useState<'none' | 'balance' | 'notif' | 'avatar'>('none');
-  const [copiedId, setCopiedId] = useState(false);
+  const [openMenu, setOpenMenu] = useState<'none' | 'balance' | 'notif' | 'avatar' | 'lang'>('none');
+  const [copiedField, setCopiedField] = useState<'id' | 'ref' | null>(null);
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
   const [companyInfoOpen, setCompanyInfoOpen] = useState(false);
 
@@ -238,12 +241,12 @@ export const UserDashboardPage: React.FC = () => {
     navigateInternal(dest);
   };
 
-  const handleCopyMemberId = () => {
-    if (!user?.memberCode) return;
-    navigator.clipboard.writeText(user.memberCode);
-    setCopiedId(true);
-    showToast('Member ID copied.', 'success');
-    setTimeout(() => setCopiedId(false), 1800);
+  const handleCopyCode = (val: string | undefined, field: 'id' | 'ref', label: string) => {
+    if (!val) return;
+    navigator.clipboard.writeText(val);
+    setCopiedField(field);
+    showToast(`${label} copied.`, 'success');
+    setTimeout(() => setCopiedField(null), 1800);
   };
 
   // Part 1 Rule 3: ONLY show earned balances (Video Ad Rewards + Referral + Bonuses) — NEVER paid-in deposit money!
@@ -251,14 +254,7 @@ export const UserDashboardPage: React.FC = () => {
   const referralCents = wallet?.USD?.referralCents ?? 0;
   const otherCents = wallet?.USD?.otherRewardsCents ?? 0;
   const totalEarningsCents = videoCents + referralCents + otherCents;
-  const levelProgress = user?.levelProgress
-    ? {
-        currentLabel: user.levelProgress.currentLevelName,
-        nextLabel: user.levelProgress.nextLevelName,
-        percent: user.levelProgress.progressPercent,
-        neededCents: user.levelProgress.neededCents,
-      }
-    : getAccountLevelProgress(user?.accountLevel, 0);
+  const hasActivePackageLevel = Boolean(user?.accountLevel && user.accountLevel !== 'NEW_USER');
 
   const navGroups: Array<{
     label: string;
@@ -266,36 +262,36 @@ export const UserDashboardPage: React.FC = () => {
   }> = [
     {
       label: 'Overview',
-      items: [{ id: 'overview', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> }],
+      items: [{ id: 'overview', label: t('home', 'Dashboard'), icon: <LayoutDashboard className="w-4 h-4" /> }],
     },
     {
       label: 'Earn',
       items: [
-        { id: 'videos', label: 'Ads', icon: <PlaySquare className="w-4 h-4" /> },
-        { id: 'packages', label: 'Packages', icon: <Layers className="w-4 h-4" /> },
+        { id: 'videos', label: t('ads', 'Ads'), icon: <PlaySquare className="w-4 h-4" /> },
+        { id: 'packages', label: t('packages', 'Packages'), icon: <Layers className="w-4 h-4" /> },
       ],
     },
     {
       label: 'Money',
       items: [
-        { id: 'deposit', label: 'Deposit', icon: <ArrowDownLeft className="w-4 h-4" /> },
-        { id: 'withdrawal', label: 'Withdraw', icon: <ArrowUpRight className="w-4 h-4" /> },
-        { id: 'transactions', label: 'Transactions', icon: <Receipt className="w-4 h-4" /> },
+        { id: 'deposit', label: t('deposit', 'Deposit'), icon: <ArrowDownLeft className="w-4 h-4" /> },
+        { id: 'withdrawal', label: t('withdraw', 'Withdraw'), icon: <ArrowUpRight className="w-4 h-4" /> },
+        { id: 'transactions', label: t('transactions', 'Transactions'), icon: <Receipt className="w-4 h-4" /> },
       ],
     },
     {
       label: 'Grow',
-      items: [{ id: 'referrals', label: 'Referrals', icon: <Users className="w-4 h-4" /> }],
+      items: [{ id: 'referrals', label: t('referrals', 'Referrals'), icon: <Users className="w-4 h-4" /> }],
     },
     {
       label: 'Help',
-      items: [{ id: 'support', label: 'Support', icon: <Headphones className="w-4 h-4" /> }],
+      items: [{ id: 'support', label: t('support', 'Support'), icon: <Headphones className="w-4 h-4" /> }],
     },
     {
       label: 'Account',
       items: [
-        { id: 'profile', label: 'Profile', icon: <UserIcon className="w-4 h-4" /> },
-        { id: 'settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
+        { id: 'profile', label: t('profile', 'Profile'), icon: <UserIcon className="w-4 h-4" /> },
+        { id: 'settings', label: t('settings', 'Settings'), icon: <Settings className="w-4 h-4" /> },
       ],
     },
   ];
@@ -358,36 +354,35 @@ export const UserDashboardPage: React.FC = () => {
           ))}
         </nav>
 
-        {/* Pinned Bottom Level Progress Card */}
+        {/* Pinned Bottom Account Standing Card (Part 7: Package-driven level, no old progress bar!) */}
         <div className="p-3 border-t border-slate-100 shrink-0">
           <button
             type="button"
-            onClick={() => navigateInternal('profile')}
-            title={`${formatAccountLevelLabel(user?.accountLevel)} · ${referralRank} Rank`}
-            className="w-full p-2.5 xl:p-3.5 rounded-xl bg-orange-50/50 hover:bg-orange-50 border border-orange-200/70 text-left transition-all cursor-pointer space-y-2"
+            onClick={() => navigateInternal(hasActivePackageLevel ? 'profile' : 'packages')}
+            title={
+              hasActivePackageLevel
+                ? `${formatAccountLevelLabel(user?.accountLevel)} · ${referralRank} Rank`
+                : `${referralRank} Rank`
+            }
+            className="w-full p-2.5 xl:p-3.5 rounded-xl bg-orange-50/50 hover:bg-orange-50 border border-orange-200/70 text-left transition-all cursor-pointer space-y-1.5"
           >
             <div className="flex items-center justify-center xl:justify-between gap-2">
               <div className="flex items-center gap-1.5 min-w-0">
                 <Award className="w-4 h-4 text-orange-600 shrink-0" />
                 <span className="hidden xl:inline text-xs font-extrabold text-slate-900 truncate">
-                  {formatAccountLevelLabel(user?.accountLevel)}
+                  {hasActivePackageLevel ? formatAccountLevelLabel(user?.accountLevel) : `${referralRank} Rank`}
                 </span>
               </div>
-              <span className="hidden xl:inline text-[10px] font-bold text-orange-700 bg-white px-1.5 py-0.5 rounded border border-orange-200 shrink-0">
-                {referralRank}
-              </span>
+              {hasActivePackageLevel && (
+                <span className="hidden xl:inline text-[10px] font-bold text-orange-700 bg-white px-1.5 py-0.5 rounded border border-orange-200 shrink-0">
+                  {referralRank}
+                </span>
+              )}
             </div>
-            <div className="hidden xl:block space-y-1">
-              <div className="w-full h-1.5 rounded-full bg-orange-100 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-orange-500 transition-all duration-300"
-                  style={{ width: `${levelProgress.percent}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-[10px] text-slate-500">
-                <span>{levelProgress.nextLabel ? `Next: ${levelProgress.nextLabel}` : 'Max Level'}</span>
-                <span className="font-bold tabular-nums">{levelProgress.percent}%</span>
-              </div>
+            <div className="hidden xl:block text-[10px] text-slate-500 font-medium">
+              {hasActivePackageLevel
+                ? 'Active Lifetime Package'
+                : 'Activate a package to unlock ads'}
             </div>
           </button>
         </div>
@@ -462,6 +457,40 @@ export const UserDashboardPage: React.FC = () => {
               </button>
             </div>
 
+            {/* Language Selector */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setOpenMenu(openMenu === 'lang' ? 'none' : 'lang')}
+                className="h-9 px-2.5 rounded-[10px] border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                aria-label="Language"
+                title="Change language"
+              >
+                <Globe className="w-3.5 h-3.5 text-orange-500" />
+                <span>{lang}</span>
+              </button>
+              {openMenu === 'lang' && (
+                <div className="absolute right-0 mt-2 w-36 bg-white rounded-xl border border-slate-200 shadow-xl z-50 py-1 animate-dropdown-in">
+                  {SUPPORTED_LANGUAGES.map((item) => (
+                    <button
+                      key={item.code}
+                      type="button"
+                      onClick={() => {
+                        setLang(item.code);
+                        setOpenMenu('none');
+                      }}
+                      className={`w-full px-3 py-1.5 text-left text-xs flex items-center justify-between hover:bg-orange-50 cursor-pointer ${
+                        lang === item.code ? 'font-extrabold text-orange-600 bg-orange-50/50' : 'text-slate-700 font-medium'
+                      }`}
+                    >
+                      <span>{item.native}</span>
+                      <span className="text-[10px] text-slate-400">{item.code}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* 1. Earnings-Only Balance Dropdown (Rule 3: NEVER includes paid-in deposit money!) */}
             <div className="relative">
               <button
@@ -473,7 +502,9 @@ export const UserDashboardPage: React.FC = () => {
                     : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-900'
                 }`}
               >
-                <span className="tabular-nums font-extrabold">{formatUSD(totalEarningsCents)}</span>
+                <span className="tabular-nums font-extrabold">
+                  {walletLoaded ? formatUSD(totalEarningsCents) : '…'}
+                </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${
                     openMenu === 'balance' ? 'rotate-180' : ''
@@ -668,7 +699,7 @@ export const UserDashboardPage: React.FC = () => {
                     {user?.fullName}
                   </div>
                   <div className="text-[10px] text-slate-500 font-semibold">
-                    {formatAccountLevelLabel(user?.accountLevel)}
+                    {hasActivePackageLevel ? formatAccountLevelLabel(user?.accountLevel) : `${referralRank} Rank`}
                   </div>
                 </div>
                 <ChevronDown
@@ -679,30 +710,55 @@ export const UserDashboardPage: React.FC = () => {
               </button>
 
               {openMenu === 'avatar' && (
-                <div className="absolute right-0 mt-2 w-68 bg-white rounded-2xl border border-slate-200 shadow-xl z-50 overflow-hidden animate-dropdown-in">
-                  {/* Identity Block */}
+                <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl border border-slate-200 shadow-xl z-50 overflow-hidden animate-dropdown-in">
+                  {/* Identity Block (Part 5b: Clear Member ID vs Referral Code!) */}
                   <div className="p-4 bg-slate-50 border-b border-slate-100 space-y-2">
                     <div>
                       <div className="text-sm font-bold text-slate-900 truncate">{user?.fullName}</div>
                       <div className="text-[11px] text-slate-500 truncate">{user?.email}</div>
                     </div>
-                    {user?.memberCode && (
-                      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px]">
-                        <span className="font-mono font-bold text-slate-700">{user.memberCode}</span>
+                    {user?.referralCode && (
+                      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-emerald-200 text-[11px]">
+                        <div className="min-w-0">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block leading-none">
+                            Referral Code
+                          </span>
+                          <span className="font-mono font-extrabold text-emerald-700">{user.referralCode}</span>
+                        </div>
                         <button
                           type="button"
-                          onClick={handleCopyMemberId}
-                          className="text-emerald-700 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                          onClick={() => handleCopyCode(user.referralCode, 'ref', 'Referral code')}
+                          className="text-emerald-700 hover:underline font-bold flex items-center gap-1 cursor-pointer shrink-0"
                         >
-                          {copiedId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                          {copiedId ? 'Copied' : 'Copy'}
+                          {copiedField === 'ref' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                          {copiedField === 'ref' ? 'Copied' : 'Copy'}
+                        </button>
+                      </div>
+                    )}
+                    {user?.memberCode && (
+                      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px]">
+                        <div className="min-w-0">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block leading-none">
+                            Member ID
+                          </span>
+                          <span className="font-mono font-bold text-slate-700">{user.memberCode}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyCode(user.memberCode, 'id', 'Member ID')}
+                          className="text-slate-600 hover:underline font-bold flex items-center gap-1 cursor-pointer shrink-0"
+                        >
+                          {copiedField === 'id' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                          {copiedField === 'id' ? 'Copied' : 'Copy'}
                         </button>
                       </div>
                     )}
                     <div className="flex items-center gap-1.5 pt-0.5">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        {formatAccountLevelLabel(user?.accountLevel)}
-                      </span>
+                      {hasActivePackageLevel && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          {formatAccountLevelLabel(user?.accountLevel)}
+                        </span>
+                      )}
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-700">
                         {referralRank} Rank
                       </span>

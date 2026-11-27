@@ -201,8 +201,10 @@ export const LiveActivityPopups: React.FC<LiveActivityPopupsProps> = ({ hasBotto
 
   return (
     <div
-      className={`fixed left-3 sm:left-5 ${
-        hasBottomNav ? 'bottom-20 lg:bottom-6' : 'bottom-4 sm:bottom-6'
+      className={`fixed ${
+        hasBottomNav
+          ? 'left-3 sm:left-5 md:left-[88px] xl:left-[256px] bottom-20 md:bottom-6'
+          : 'left-3 sm:left-5 bottom-4 sm:bottom-6'
       } z-40 pointer-events-none max-w-[285px] sm:max-w-[320px]`}
       aria-live="polite"
     >
