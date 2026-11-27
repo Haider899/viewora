@@ -379,6 +379,9 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
                           {(video.minAccountLevel || 'LEVEL_1').replace('_', ' ')} Required
                         </span>
                       </div>
+                      <span className="absolute top-2 left-2 text-[10px] font-extrabold px-2 py-0.5 rounded bg-slate-900/90 text-slate-100 border border-slate-600">
+                        {(video.minAccountLevel || 'LEVEL_1').replace('_', ' ')}
+                      </span>
                       <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded bg-slate-950/85 text-slate-300 tabular-nums">
                         {formatDurationMMSS(video.durationSeconds)}
                       </span>
@@ -421,8 +424,8 @@ export const WalletPage: React.FC<WalletPageProps> = ({ navigate, referralRank =
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-transparent to-transparent" />
 
-                    <span className="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded bg-white/95 text-slate-900">
-                      {video.minPackageTier}
+                    <span className="absolute top-2 left-2 text-[10px] font-extrabold px-2 py-0.5 rounded bg-white/95 text-slate-900 shadow-xs">
+                      {(video.minAccountLevel || 'LEVEL_1').replace('_', ' ')} · {video.minPackageTier}
                     </span>
                     <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded bg-slate-950/80 text-white flex items-center gap-1 tabular-nums">
                       <Clock className="w-2.5 h-2.5" />

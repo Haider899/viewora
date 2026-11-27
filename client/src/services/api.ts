@@ -113,15 +113,55 @@ class ApiClient {
     });
   }
 
+  async updateMyTheme(theme: 'orange' | 'green') {
+    return this.request<{ id: string; preferredTheme: 'orange' | 'green' }>('/auth/theme', {
+      method: 'PATCH',
+      body: JSON.stringify({ theme }),
+    });
+  }
+
+  async getThemeConfig() {
+    return this.request<{ defaultTheme: 'orange' | 'green'; authBannerImageUrl: string }>('/theme-config');
+  }
+
+  async updateAdminDefaultTheme(theme: 'orange' | 'green') {
+    return this.request<{ defaultTheme: 'orange' | 'green' }>('/admin/default-theme', {
+      method: 'PUT',
+      body: JSON.stringify({ theme }),
+    });
+  }
+
+  async probeAdminVideoDuration(videoUrl: string) {
+    return this.request<{ durationSeconds: number | null }>('/admin/videos/probe-duration', {
+      method: 'POST',
+      body: JSON.stringify({ videoUrl }),
+    });
+  }
+
+  async getSupportMemberSummary(conversationId: string) {
+    return this.request<any>(`/admin/support/conversations/${conversationId}/member-summary`);
+  }
+
+  async triggerDailyReferralSettlement(options?: { cycleKey?: string; useCurrentCycle?: boolean }) {
+    return this.request<any>('/admin/referrals/settle-daily', {
+      method: 'POST',
+      body: JSON.stringify(options || {}),
+    });
+  }
+
   // ─── Packages ────────────────────────────────────────────────────────────
   async getPackages() {
     return this.request<any[]>('/packages');
   }
 
-  async purchasePackage(packageId: string, currency: string = 'USD') {
+  async purchasePackage(
+    packageId: string,
+    currency: string = 'USD',
+    paymentSource: 'SUBSCRIPTION_CREDIT' | 'EARNINGS' | 'COMBINED' = 'COMBINED'
+  ) {
     return this.request<any>('/packages/purchase', {
       method: 'POST',
-      body: JSON.stringify({ packageId, currency }),
+      body: JSON.stringify({ packageId, currency, paymentSource }),
     });
   }
 

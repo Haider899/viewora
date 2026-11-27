@@ -37,6 +37,7 @@ model User {
   savedPayoutMethod     String?
   savedAccountTitle     String?
   savedAccountNumber    String?
+  preferredTheme        String?   // "orange" | "green" | null (inherits admin default theme)
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -332,22 +333,28 @@ model RevenueEvent {
 }
 
 model ReferralCommission {
-  id              String          @id @default(uuid())
-  beneficiaryId   String
-  beneficiary     User            @relation("BeneficiaryCommissions", fields: [beneficiaryId], references: [id], onDelete: Cascade)
-  sourceUserId    String
-  sourceUser      User            @relation("SourceUserCommissions", fields: [sourceUserId], references: [id], onDelete: Cascade)
-  revenueEventId  String
-  revenueEvent    RevenueEvent    @relation(fields: [revenueEventId], references: [id], onDelete: Cascade)
-  commissionCents Int
-  currency        String
-  ratePercent     Float           // e.g. 5.0%
-  status          String          @default("CREDITED") // CREDITED, REVERSED
-  ledgerTxId      String?
-  createdAt       DateTime        @default(now())
+  id                  String        @id @default(uuid())
+  beneficiaryId       String
+  beneficiary         User          @relation("BeneficiaryCommissions", fields: [beneficiaryId], references: [id], onDelete: Cascade)
+  sourceUserId        String
+  sourceUser          User          @relation("SourceUserCommissions", fields: [sourceUserId], references: [id], onDelete: Cascade)
+  revenueEventId      String?
+  revenueEvent        RevenueEvent? @relation(fields: [revenueEventId], references: [id], onDelete: SetNull)
+  commissionType      String        @default("DAILY_AD_EARNINGS") // DAILY_AD_EARNINGS, PACKAGE_PURCHASE
+  cycleKey            String?       // 24h cycle key (e.g. 2026-11-27-H20) for idempotent daily settlement
+  sourceEarningsCents Int?          // Referral's total ad earnings in that 24h cycle
+  positionNumber      Int?          // Sponsor referral position (1, 2, 3, 4, 5...)
+  commissionCents     Int
+  currency            String
+  ratePercent         Float         // e.g. 5.0%, 7.0%, 10.0%, 12.0%, 15.0%
+  status              String        @default("CREDITED") // CREDITED, REVERSED
+  ledgerTxId          String?
+  createdAt           DateTime      @default(now())
 
+  @@unique([beneficiaryId, sourceUserId, cycleKey])
   @@index([beneficiaryId])
   @@index([sourceUserId])
+  @@index([cycleKey])
 }
 
 model ReferralMilestoneClaim {

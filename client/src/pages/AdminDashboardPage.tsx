@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
+import { useToast } from '../components/ToastProvider.js';
 import {
   AdminKpiData,
   DepositRequest,
@@ -74,6 +75,7 @@ interface AdminDashboardProps {
 
 export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const { user, logout } = useAuth();
+  const { showToast } = useToast();
   const isSupportAgentOnly = user?.role === 'SUPPORT_AGENT';
   const [activeTab, setActiveTab] = useState<
     | 'kpis'
@@ -115,6 +117,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const [directMsgAttachment, setDirectMsgAttachment] = useState<string | null>(null);
   const [directMsgAttachmentName, setDirectMsgAttachmentName] = useState<string | null>(null);
   const [sendingDirectMsg, setSendingDirectMsg] = useState(false);
+  const [directMsgError, setDirectMsgError] = useState<string | null>(null);
+
+  // Scoped Read-Only Member Summary for Support Desk (Part 3 #1)
+  const [supportMemberSummary, setSupportMemberSummary] = useState<any | null>(null);
+
+  // Real Video Duration Auto-Probe State (Part 6)
+  const [probingDuration, setProbingDuration] = useState(false);
+  const [durationDetectedSource, setDurationDetectedSource] = useState<'idle' | 'probed' | 'manual'>('idle');
 
   // Dynamic packages list for Admin Video Form (Part 5 #6)
   const [adminPackagesDropdown, setAdminPackagesDropdown] = useState<any[]>([]);
@@ -449,27 +459,42 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   const handleSendDirectMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!directMsgModal || !directMsgBody.trim()) return;
+    const targetUserId = directMsgModal.userId;
+    const targetName = directMsgModal.fullName;
     setSendingDirectMsg(true);
+    setDirectMsgError(null);
     setActionSuccess(null);
     setActionError(null);
     try {
-      const res = await api.sendDirectMessageToUser(directMsgModal.userId, {
+      const res = await api.sendDirectMessageToUser(targetUserId, {
         subject: directMsgSubject.trim() || 'Message from U-Ads Administration',
         message: directMsgBody.trim(),
         attachmentUrl: directMsgAttachment || undefined,
         attachmentName: directMsgAttachmentName || undefined,
       });
       if (res.success) {
-        setActionSuccess(`Direct message & push notification sent to ${directMsgModal.fullName}.`);
+        const confirmMsg = `Message & push notification delivered to ${targetName}.`;
+        setActionSuccess(confirmMsg);
+        showToast(confirmMsg, 'success');
         setDirectMsgModal(null);
         setDirectMsgBody('');
         setDirectMsgAttachment(null);
         setDirectMsgAttachmentName(null);
+        setDirectMsgError(null);
+        if (dossierUserId === targetUserId) {
+          openUserDossier(targetUserId);
+        }
       } else {
-        setActionError(res.error?.message || 'Failed to send message.');
+        const errText = res.error?.message || 'Failed to send message.';
+        setDirectMsgError(errText);
+        setActionError(errText);
+        showToast(errText, 'error');
       }
     } catch {
-      setActionError('Error sending direct message.');
+      const errText = 'Network error sending direct message.';
+      setDirectMsgError(errText);
+      setActionError(errText);
+      showToast(errText, 'error');
     } finally {
       setSendingDirectMsg(false);
     }
@@ -963,12 +988,60 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
     }
   };
 
-  // Enforce RBAC for SUPPORT_AGENT (Live Support + Users IP View ONLY — Part 6 #1)
+  // Enforce RBAC for SUPPORT_AGENT (Part 3 #1: Live Support Desk ONLY — no Users IP list or Dossier browsing!)
   useEffect(() => {
-    if (isSupportAgentOnly && !['support', 'users'].includes(activeTab)) {
+    if (isSupportAgentOnly && activeTab !== 'support') {
       setActiveTab('support');
     }
   }, [isSupportAgentOnly, activeTab]);
+
+  // Load scoped read-only summary for ONLY the currently chatting member (Part 3 #1)
+  useEffect(() => {
+    if (!selectedConvoId) {
+      setSupportMemberSummary(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getSupportMemberSummary(selectedConvoId)
+      .then((res) => {
+        if (!cancelled && res.success) {
+          setSupportMemberSummary(res.data || null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSupportMemberSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedConvoId]);
+
+  // Part 6: Real Video Duration Auto-Probe whenever Video URL changes inside Add/Edit Video Modal
+  useEffect(() => {
+    if (!videoModalOpen) return;
+    const trimmed = formVideoUrl.trim();
+    if (!trimmed || !/^https?:\/\//i.test(trimmed)) return;
+    let cancelled = false;
+    setProbingDuration(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.probeAdminVideoDuration(trimmed);
+        if (!cancelled && res.success && res.data?.durationSeconds && res.data.durationSeconds > 0) {
+          setFormVideoDuration(res.data.durationSeconds);
+          setDurationDetectedSource('probed');
+        }
+      } catch {
+        // fallback to client <video> metadata or manual entry
+      } finally {
+        if (!cancelled) setProbingDuration(false);
+      }
+    }, 450);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [formVideoUrl, videoModalOpen]);
 
   // Initial badge check & recurring live counter polling
   useEffect(() => {
@@ -1048,7 +1121,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
   }, [ringingConvoId, soundAlertsEnabled, mutedConvoIds, selectedConvoId]);
 
   useEffect(() => {
-    if (isSupportAgentOnly && !['support', 'users'].includes(activeTab)) {
+    if (isSupportAgentOnly && activeTab !== 'support') {
       return;
     }
     if (activeTab === 'kpis') loadKpis();
@@ -1589,7 +1662,6 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
           label: 'Support Desk',
           items: [
             { id: 'support' as const, label: 'Live Support', icon: <MessageSquare className="w-4 h-4" />, badge: waitingSupportCount },
-            { id: 'users' as const, label: 'Users & IP View', icon: <Users className="w-4 h-4" /> },
           ],
         },
       ]
@@ -3000,12 +3072,12 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                             ))}
                           </select>
                         )}
-                        {(selectedConvo.userId || selectedConvo.user?.id) && (
+                        {!isSupportAgentOnly && (selectedConvo.userId || selectedConvo.user?.id) && (
                           <button
                             type="button"
                             onClick={() => openUserDossier(selectedConvo.userId || selectedConvo.user!.id)}
                             className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
-                            title="Audit user balance, deposits, video claims and activity trail (Audio 2)"
+                            title="Audit user balance, deposits, video claims and activity trail"
                           >
                             <FileText className="w-3.5 h-3.5" />
                             User Dossier
@@ -3046,6 +3118,29 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         )}
                       </div>
                     </div>
+
+                    {/* Part 3 #1: Scoped Read-Only Summary of ONLY the Chatting Member */}
+                    {supportMemberSummary && !supportMemberSummary.isGuest && (
+                      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-extrabold text-slate-800">
+                            Plan: <span className="text-orange-600">{supportMemberSummary.activePackageName}</span>
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-800 font-bold text-[10px]">
+                            {(supportMemberSummary.accountLevel || 'NEW_USER').replace('_', ' ')}
+                          </span>
+                          <span className="font-bold text-slate-700 tabular-nums">
+                            Earnings: <strong className="text-emerald-700">${(supportMemberSummary.earnings?.totalEarningsUSD ?? 0).toFixed(2)}</strong>
+                            {' '}(Ads ${(supportMemberSummary.earnings?.videoRewardsUSD ?? 0).toFixed(2)} · Ref ${(supportMemberSummary.earnings?.referralUSD ?? 0).toFixed(2)})
+                          </span>
+                        </div>
+                        {supportMemberSummary.recentActivity?.[0] && (
+                          <span className="text-[10px] text-slate-500 truncate max-w-xs" title={supportMemberSummary.recentActivity.map((a: any) => a.label).join(' | ')}>
+                            Latest: {supportMemberSummary.recentActivity[0].label}
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {/* Messages Scroll Area */}
                     <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50/60">
@@ -3155,6 +3250,34 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         </button>
                       </div>
                     )}
+
+                    {/* Part 3 #2: Positive Company Quick-Reply Snippets for Support Agents */}
+                    <div className="px-3 pt-2 pb-1 bg-slate-50 border-t border-slate-200 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Quick info:</span>
+                      {[
+                        {
+                          label: '95% Halal Ad Share',
+                          text: 'Advertisers pay U-Ads to show their ads to members, and 95% of advertiser revenue is shared with members who watch those ads — that is where your earnings come from and what makes them halal.',
+                        },
+                        {
+                          label: 'Lifetime Plans (2/5/8/10 Ads)',
+                          text: 'Every U-Ads package is a one-time lifetime subscription! Upgrading unlocks more daily ads and higher rewards per ad: Starter (2 ads), Basic (5 ads), Premium (8 ads), and VIP (10 ads). You only pay the price difference when upgrading — and you can even pay from your earnings!',
+                        },
+                        {
+                          label: 'Earnings vs Deposit Policy',
+                          text: 'All earned money (Video Ad Rewards, Daily Referral Commissions, and Bonuses) is withdrawable anytime. Subscription payments activate your lifetime package and are non-withdrawable.',
+                        },
+                      ].map((snippet) => (
+                        <button
+                          key={snippet.label}
+                          type="button"
+                          onClick={() => setAdminReplyText(snippet.text)}
+                          className="px-2.5 py-1 rounded-full bg-white hover:bg-orange-50 border border-slate-200 hover:border-orange-300 text-[10px] font-bold text-slate-700 hover:text-orange-700 whitespace-nowrap cursor-pointer transition-colors"
+                        >
+                          + {snippet.label}
+                        </button>
+                      ))}
+                    </div>
 
                     {/* Admin Reply Composer Form */}
                     <form onSubmit={handleSendAdminReply} className="p-3 bg-white border-t border-slate-200 flex items-center gap-2">
@@ -5165,6 +5288,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
               )}
             </div>
 
+            {directMsgError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{directMsgError}</span>
+              </div>
+            )}
+
             <div className="flex gap-2.5 pt-2">
               <button
                 type="button"
@@ -5500,14 +5630,25 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
-                      min="5"
-                      max="7200"
+                      min="3"
+                      max="14400"
                       value={formVideoDuration}
-                      onChange={(e) => setFormVideoDuration(parseInt(e.target.value, 10) || 15)}
+                      onChange={(e) => {
+                        setFormVideoDuration(parseInt(e.target.value, 10) || 15);
+                        setDurationDetectedSource('manual');
+                      }}
                       className="w-24 bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900"
                     />
                     <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-xs text-emerald-800 font-semibold tabular-nums">
-                      {Math.floor(formVideoDuration / 60)}m {formVideoDuration % 60}s (Auto-Detected)
+                      {probingDuration
+                        ? 'Detecting real duration…'
+                        : `${Math.floor(formVideoDuration / 60)}m ${formVideoDuration % 60}s ${
+                            durationDetectedSource === 'probed'
+                              ? '(Verified from file)'
+                              : durationDetectedSource === 'manual'
+                              ? '(Manual)'
+                              : '(Auto-read on save)'
+                          }`}
                     </div>
                   </div>
                   {formVideoUrl && !extractYouTubeId(formVideoUrl) && (
@@ -5520,12 +5661,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardProps> = () => {
                         const dur = Math.round(e.currentTarget.duration);
                         if (dur > 0 && Number.isFinite(dur)) {
                           setFormVideoDuration(dur);
+                          setDurationDetectedSource('probed');
                         }
                       }}
                     />
                   )}
                   <span className="text-[10px] text-slate-400">
-                    Automatically re-reads duration whenever the video URL changes; you can also enter exact seconds manually.
+                    Real duration is probed automatically from MP4 / YouTube link whenever the URL changes.
                   </span>
                 </div>
               </div>

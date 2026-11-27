@@ -332,23 +332,38 @@ describe('U-Ads API & RBAC Integration Tests', () => {
     expect(walletAfter.body.data.USD.availableCents).toBe(500);
   });
 
-  it('returns 20 pre-loaded Live Activity Popups, allows Support Agent IP view, and delivers Admin direct messages', async () => {
+  it('returns 20 pre-loaded Live Activity Popups, restricts Support Agent from IP/Dossier (Part 3 #1), and delivers Admin direct messages with Audit + Dossier record (Part 5)', async () => {
     const popupRes = await request(app).get('/api/v1/live-popups');
     expect(popupRes.status).toBe(200);
     expect(popupRes.body.data.items.length).toBeGreaterThanOrEqual(20);
 
-    const ipRes = await request(app)
+    // Part 3 #1: SUPPORT_AGENT must be blocked from full IP Users list & full Financial Dossier
+    const ipResSupport = await request(app)
       .get('/api/v1/admin/users/ip-groups')
       .set('Authorization', `Bearer ${supportToken}`);
-    expect(ipRes.status).toBe(200);
-    expect(Array.isArray(ipRes.body.data)).toBe(true);
+    expect(ipResSupport.status).toBe(403);
 
+    const dossierResSupport = await request(app)
+      .get(`/api/v1/admin/users/${userId}/financial-dossier`)
+      .set('Authorization', `Bearer ${supportToken}`);
+    expect(dossierResSupport.status).toBe(403);
+
+    // Admin still has full IP Users list access
+    const ipResAdmin = await request(app)
+      .get('/api/v1/admin/users/ip-groups')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(ipResAdmin.status).toBe(200);
+    expect(Array.isArray(ipResAdmin.body.data)).toBe(true);
+
+    // Part 5: Admin Direct Message with screenshot reaches member inbox, notifications, audit log, & dossier
     const dmSend = await request(app)
       .post(`/api/v1/admin/users/${userId}/message`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         subject: 'Welcome Verification Notice',
         message: 'Hello from U-Ads Admin!',
+        attachmentUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        attachmentName: 'proof.png',
       });
     expect(dmSend.status).toBe(201);
 
@@ -358,6 +373,13 @@ describe('U-Ads API & RBAC Integration Tests', () => {
     expect(dmInbox.status).toBe(200);
     expect(dmInbox.body.data.length).toBeGreaterThanOrEqual(1);
     expect(dmInbox.body.data[0].message).toBe('Hello from U-Ads Admin!');
+    expect(dmInbox.body.data[0].attachmentUrl).toBeTruthy();
+
+    const dossierAfterDm = await request(app)
+      .get(`/api/v1/admin/users/${userId}/financial-dossier`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(dossierAfterDm.status).toBe(200);
+    expect(dossierAfterDm.body.data.directMessages.length).toBeGreaterThanOrEqual(1);
   });
 
   it('QA: accepts decimal USD strings ("50.00") on deposit submission (Part 5 #8)', async () => {
@@ -451,5 +473,179 @@ describe('U-Ads API & RBAC Integration Tests', () => {
     expect(profRes.status).toBe(200);
     expect('savedPayoutMethod' in profRes.body.data.user).toBe(true);
     expect('referredBy' in profRes.body.data.user).toBe(true);
+  });
+
+  it('QA 27-Nov: repairs all 3 Company Certificates (valid XML SVG), persists two-theme system, & enforces scoped Support Agent summary', async () => {
+    // Part 1 #4: All 3 certificates must have valid XML SVG with zero unescaped '&'
+    const docsRes = await request(app).get('/api/v1/documents');
+    expect(docsRes.status).toBe(200);
+    expect(docsRes.body.data.length).toBeGreaterThanOrEqual(3);
+    for (const doc of docsRes.body.data) {
+      expect(doc.fileUrl).toBeTruthy();
+      if (doc.fileUrl.startsWith('data:image/svg+xml')) {
+        const decoded = decodeURIComponent(doc.fileUrl.split(',')[1] || '');
+        expect(/&(?!amp;|lt;|gt;|quot;|apos;|#)/.test(decoded)).toBe(false);
+      }
+    }
+
+    // Part 2: Super Admin default theme + per-member saved theme
+    const setDefault = await request(app)
+      .put('/api/v1/admin/default-theme')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ theme: 'green' });
+    expect(setDefault.status).toBe(200);
+
+    const themeCfg = await request(app).get('/api/v1/theme-config');
+    expect(themeCfg.status).toBe(200);
+    expect(themeCfg.body.data.defaultTheme).toBe('green');
+
+    // Member picks 'orange' -> persisted independently to their account
+    const memberTheme = await request(app)
+      .patch('/api/v1/auth/theme')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ theme: 'orange' });
+    expect(memberTheme.status).toBe(200);
+    expect(memberTheme.body.data.preferredTheme).toBe('orange');
+
+    // Reset admin default back to 'orange'
+    await request(app)
+      .put('/api/v1/admin/default-theme')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ theme: 'orange' });
+
+    // Part 3 #1: Support Agent can read ONLY the chatting member's scoped summary
+    const convoRes = await request(app)
+      .post('/api/v1/support/conversations')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({});
+    expect(convoRes.status).toBe(200);
+    const convoId = convoRes.body.data.id;
+
+    const summaryRes = await request(app)
+      .get(`/api/v1/admin/support/conversations/${convoId}/member-summary`)
+      .set('Authorization', `Bearer ${supportToken}`);
+    expect(summaryRes.status).toBe(200);
+    expect(summaryRes.body.data.activePackageName).toBe('Basic');
+    expect(summaryRes.body.data.earnings).toBeDefined();
+    expect(Array.isArray(summaryRes.body.data.recentActivity)).toBe(true);
+  });
+
+  it('QA 27-Nov: allows package upgrade from Withdrawable Earnings + Combined with clear breakdown & pays Daily 24h Referral Commission on referral ad earnings', async () => {
+    // Part 4 #3: User currently holds Basic ($50) with $5.00 in USER_AVAILABLE. Credit $45.00 into USER_VIDEO_REWARDS so Combined covers $50 Premium upgrade!
+    const vidAcct = await prisma.walletAccount.findFirst({
+      where: { userId, accountType: 'USER_VIDEO_REWARDS', currency: 'USD' },
+    });
+    expect(vidAcct).toBeDefined();
+    await prisma.walletAccount.update({
+      where: { id: vidAcct!.id },
+      data: { balanceCents: 4500 },
+    });
+
+    const pkgList = await request(app)
+      .get('/api/v1/packages')
+      .set('Authorization', `Bearer ${userToken}`);
+    const premiumPkg = pkgList.body.data.find((p: any) => p.name === 'Premium');
+    expect(premiumPkg).toBeDefined();
+    expect(premiumPkg.upgradeDiffCents).toBe(5000); // $100 - $50 = $50
+
+    const upgRes = await request(app)
+      .post('/api/v1/packages/purchase')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ packageId: premiumPkg.id, paymentSource: 'COMBINED' });
+    expect(upgRes.status).toBe(200);
+    expect(upgRes.body.data.paymentBreakdown.subscriptionCreditCents).toBe(500);
+    expect(upgRes.body.data.paymentBreakdown.videoRewardsCents).toBe(4500);
+
+    // Part 9: Per-ad reward on Packages page matches unlocked ads on GET /videos
+    const vidsAfterUpgrade = await request(app)
+      .get('/api/v1/videos')
+      .set('Authorization', `Bearer ${userToken}`);
+    const openVids = vidsAfterUpgrade.body.data.filter((v: any) => v.hasAccess && !v.rewardPercentageBps);
+    expect(openVids.length).toBeGreaterThanOrEqual(5);
+    for (const v of openVids) {
+      expect(v.effectiveRewardCents).toBe(premiumPkg.perVideoRewardCents);
+    }
+
+    // Part 4 #1: Daily 24h Referral Commission on referral's daily ad earnings (NOT one-time purchase!)
+    const meRes = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${userToken}`);
+    const sponsorRefCode = meRes.body.data.user.referralCode;
+
+    const childRes = await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        email: `refchild-${Date.now()}@u-ads.com`,
+        password: 'UAdsSecure2026!',
+        fullName: 'Daily Ref Child',
+        referralCode: sponsorRefCode,
+      });
+    expect(childRes.status).toBe(201);
+    const childToken = childRes.body.data.token;
+    const childId = childRes.body.data.user.id;
+
+    // Credit $20 deposit credit & purchase Starter -> qualifies child, pays $0 one-time commission
+    await prisma.walletAccount.updateMany({
+      where: { userId: childId, accountType: 'USER_AVAILABLE', currency: 'USD' },
+      data: { balanceCents: 2000 },
+    });
+    const childBuy = await request(app)
+      .post('/api/v1/packages/purchase')
+      .set('Authorization', `Bearer ${childToken}`)
+      .send({ packageId: starterPackageId, paymentSource: 'SUBSCRIPTION_CREDIT' });
+    expect(childBuy.status).toBe(200);
+
+    // Child watches & claims an ad today ($0.50 = 50 cents)
+    const childVids = await request(app)
+      .get('/api/v1/videos')
+      .set('Authorization', `Bearer ${childToken}`);
+    const firstUnlocked = childVids.body.data.find((v: any) => v.hasAccess);
+    const sess = await request(app)
+      .post(`/api/v1/videos/${firstUnlocked.id}/session`)
+      .set('Authorization', `Bearer ${childToken}`);
+    await prisma.videoSession.update({
+      where: { sessionToken: sess.body.data.sessionToken },
+      data: { completed: true, completedAt: new Date(), watchSeconds: firstUnlocked.durationSeconds },
+    });
+    const childClaim = await request(app)
+      .post(`/api/v1/videos/${firstUnlocked.id}/claim-reward`)
+      .set('Authorization', `Bearer ${childToken}`)
+      .send({ sessionToken: sess.body.data.sessionToken });
+    expect(childClaim.status).toBe(200);
+
+    // Trigger daily referral commission settlement for current cycle -> sponsor receives 5% of child's ad earnings
+    const settle1 = await request(app)
+      .post('/api/v1/admin/referrals/settle-daily')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ useCurrentCycle: true });
+    expect(settle1.status).toBe(200);
+    expect(settle1.body.data.settledCount).toBeGreaterThanOrEqual(1);
+
+    const sponsorSummary = await request(app)
+      .get('/api/v1/referrals/summary')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(sponsorSummary.status).toBe(200);
+    expect(sponsorSummary.body.data.dailyCommissionMode).toBe(true);
+    expect(sponsorSummary.body.data.commissions.length).toBeGreaterThanOrEqual(1);
+
+    // Running settlement again for the SAME cycle is strictly idempotent (no double-pay)
+    const settle2 = await request(app)
+      .post('/api/v1/admin/referrals/settle-daily')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ useCurrentCycle: true });
+    expect(settle2.status).toBe(200);
+    expect(settle2.body.data.settledCount).toBe(0);
+
+    // Part 7: Claim survives simulated cycleKey update within same 24h cycle (never double-claims)
+    await prisma.rewardClaim.updateMany({
+      where: { userId: childId, videoId: firstUnlocked.id },
+      data: { cycleKey: 'LEGACY-PRE-UPDATE-KEY' },
+    });
+    const doubleClaim = await request(app)
+      .post(`/api/v1/videos/${firstUnlocked.id}/claim-reward`)
+      .set('Authorization', `Bearer ${childToken}`)
+      .send({ sessionToken: sess.body.data.sessionToken });
+    expect(doubleClaim.status).toBe(400);
+    expect(doubleClaim.body.error.code).toBe('ALREADY_CLAIMED');
   });
 });

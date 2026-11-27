@@ -289,8 +289,8 @@ export const VideoCatalogPage: React.FC<VideoCatalogProps> = ({ navigate }) => {
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/15 to-transparent" />
 
                   <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-white/95 text-slate-900 shadow-xs">
-                      {video.isAssignedToUser ? 'Assigned' : `${video.minPackageTier} Plan`}
+                    <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-white/95 text-slate-900 shadow-xs">
+                      {(video.minAccountLevel || 'LEVEL_1').replace('_', ' ')} · {video.isAssignedToUser ? 'Assigned' : `${video.minPackageTier} Plan`}
                     </span>
                     <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-950/80 text-white flex items-center gap-1 tabular-nums">
                       <Clock className="w-3 h-3" />

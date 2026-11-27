@@ -46,6 +46,25 @@ router.get('/landing-content', async (req, res, next) => {
   }
 });
 
+// Public Theme & Auth Banner Config (Part 1 #3 & Part 2 #3)
+router.get('/theme-config', async (req, res, next) => {
+  try {
+    const [defaultTheme, landingContent] = await Promise.all([
+      AdminService.getDefaultTheme(),
+      AdminService.getLandingContent(),
+    ]);
+    res.json({
+      success: true,
+      data: {
+        defaultTheme,
+        authBannerImageUrl: (landingContent as any).authBannerImageUrl || '',
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Active Live Activity Popups (Member Homepage Left-Edge Loop)
 router.get('/live-popups', async (req, res, next) => {
   try {

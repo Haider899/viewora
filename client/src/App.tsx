@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
+import { ThemeProvider } from './context/ThemeContext.js';
 import { ToastProvider } from './components/ToastProvider.js';
 import { Navbar } from './components/Navbar.js';
 import { Footer } from './components/Footer.js';
@@ -16,10 +17,41 @@ import { RegisterPage } from './pages/RegisterPage.js';
 import { TermsPage } from './pages/TermsPage.js';
 import { PrivacyPage } from './pages/PrivacyPage.js';
 
+function resolveInitialPublicRoute(): string {
+  if (typeof window === 'undefined') return 'login';
+  const params = new URLSearchParams(window.location.search);
+  const ref = params.get('ref');
+  const path = window.location.pathname.toLowerCase().replace(/\/+$/, '');
+
+  // Part 1 #2: ANY referral link (u-ads.com/signup?ref=... or u-ads.com/?ref=...) goes DIRECTLY to Create New Account!
+  if (ref && ref.trim().length > 0) {
+    try {
+      sessionStorage.setItem('uads_pending_ref', ref.trim().toUpperCase());
+    } catch {}
+    return 'register';
+  }
+  if (path === '/signup' || path === '/register') return 'register';
+  if (path === '/login' || path === '/signin') return 'login';
+  if (path === '/packages') return 'packages';
+  if (path === '/how-it-works') return 'how-it-works';
+  if (path === '/terms') return 'terms';
+  if (path === '/privacy') return 'privacy';
+  if (path === '/about' || path === '/landing') return 'home';
+
+  // Part 1 #1: Main website link opens DIRECTLY on the clean Login screen!
+  return 'login';
+}
+
 function AppContent() {
   const { user, loading } = useAuth();
-  const [currentRoute, setCurrentRoute] = useState<string>('home');
+  const [currentRoute, setCurrentRoute] = useState<string>(() => resolveInitialPublicRoute());
   const [routeState, setRouteState] = useState<any>(null);
+
+  useEffect(() => {
+    const onPopState = () => setCurrentRoute(resolveInitialPublicRoute());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const navigate = (route: string, state?: any) => {
     setCurrentRoute(route);
@@ -97,11 +129,13 @@ function AppContent() {
     }
   };
 
+  const isCleanEntryScreen = currentRoute === 'login' || currentRoute === 'register';
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans selection:bg-emerald-500 selection:text-white">
-      <Navbar currentRoute={currentRoute} navigate={navigate} />
+    <div className="min-h-screen flex flex-col bg-white text-slate-900 font-sans selection:bg-orange-500 selection:text-white">
+      {!isCleanEntryScreen && <Navbar currentRoute={currentRoute} navigate={navigate} />}
       <main className="flex-1 animate-page-in" key={currentRoute}>{renderPublicPage()}</main>
-      <Footer navigate={navigate} />
+      {!isCleanEntryScreen && <Footer navigate={navigate} />}
       <SupportChatWidget navigate={navigate} />
       <LiveActivityPopups />
     </div>
@@ -112,7 +146,9 @@ export function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <AppContent />
+        <ThemeProvider>
+          <AppContent />
+        </ThemeProvider>
       </AuthProvider>
     </ToastProvider>
   );

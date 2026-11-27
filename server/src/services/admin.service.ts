@@ -1119,7 +1119,7 @@ export class AdminService {
       totalCents: 0,
     };
 
-    const [deposits, withdrawals, videoClaims, directReferrals, userTransactions, levelHistory, lockHistory, milestoneClaims, userAuditLogs] =
+    const [deposits, withdrawals, videoClaims, directReferrals, userTransactions, levelHistory, lockHistory, milestoneClaims, userAuditLogs, directMessages] =
       await Promise.all([
         prisma.depositRequest.findMany({
           where: { userId },
@@ -1178,6 +1178,12 @@ export class AdminService {
           include: { user: { select: { fullName: true, email: true, role: true } } },
           orderBy: { createdAt: 'desc' },
           take: 40,
+        }),
+        prisma.adminDirectMessage.findMany({
+          where: { recipientId: userId },
+          include: { sender: { select: { fullName: true, role: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: 30,
         }),
       ]);
 
@@ -1266,6 +1272,12 @@ export class AdminService {
         detail: `Actor: ${a.user ? `${a.user.fullName} (${a.user.role})` : 'System'} • ${a.details || ''}`,
         createdAt: a.createdAt,
       })),
+      ...directMessages.map((dm) => ({
+        type: 'ADMIN_DIRECT_MESSAGE',
+        title: `Admin Message: ${dm.subject}`,
+        detail: `${dm.message}${dm.attachmentUrl ? ' [Screenshot attached]' : ''} • Sent by: ${dm.sender?.fullName || 'Admin'} (${dm.isRead ? 'Read' : 'Unread'})`,
+        createdAt: dm.createdAt,
+      })),
     ]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 60);
@@ -1314,6 +1326,16 @@ export class AdminService {
         rewardUSD: m.rewardAmountCents / 100,
       })),
       activityTimeline,
+      directMessages: directMessages.map((dm) => ({
+        id: dm.id,
+        subject: dm.subject,
+        message: dm.message,
+        attachmentUrl: dm.attachmentUrl,
+        attachmentName: dm.attachmentName,
+        isRead: dm.isRead,
+        senderName: dm.sender?.fullName || 'Admin',
+        createdAt: dm.createdAt,
+      })),
       deposits: deposits.map((d) => ({
         id: d.id,
         amountUSD: d.amountCents / 100,
@@ -1590,5 +1612,34 @@ export class AdminService {
       where: { id: messageId, recipientId: userId },
       data: { isRead: true },
     });
+  }
+
+  // Part 2 #3: Super Admin Default Theme ('orange' | 'green')
+  static async getDefaultTheme(): Promise<'orange' | 'green'> {
+    const row = await prisma.systemSetting.findUnique({ where: { key: 'DEFAULT_THEME' } });
+    return row?.value === 'green' ? 'green' : 'orange';
+  }
+
+  static async updateDefaultTheme(adminId: string, theme: 'orange' | 'green') {
+    const normalized: 'orange' | 'green' = theme === 'green' ? 'green' : 'orange';
+    await prisma.systemSetting.upsert({
+      where: { key: 'DEFAULT_THEME' },
+      update: { value: normalized, updatedAt: new Date() },
+      create: {
+        key: 'DEFAULT_THEME',
+        value: normalized,
+        description: 'Platform default color theme for new & pre-login visitors (orange or green)',
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'UPDATE_DEFAULT_THEME',
+        resourceType: 'SystemSetting',
+        resourceId: 'DEFAULT_THEME',
+        details: JSON.stringify({ defaultTheme: normalized }),
+      },
+    }).catch(() => {});
+    return { defaultTheme: normalized };
   }
 }

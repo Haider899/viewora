@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
+import { useTheme } from '../context/ThemeContext.js';
 import { useToast } from '../components/ToastProvider.js';
 import { CompanyInfoModal } from '../components/CompanyInfoModal.js';
 import {
@@ -24,6 +25,7 @@ interface LoginProps {
 
 export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
   const { login, logout } = useAuth();
+  const { authBannerImageUrl } = useTheme();
   const { showToast } = useToast();
 
   const isAdminPortal =
@@ -229,8 +231,8 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-gradient-to-b from-[#FFF3E6] via-[#FFF9F3] to-white pb-12 animate-page-in">
-      <div className="max-w-md mx-auto px-4 pt-5 space-y-5">
+    <div className="min-h-screen auth-page-bg bg-white pb-12 animate-page-in">
+      <div className="max-w-md mx-auto px-4 pt-6 space-y-5">
         {/* Top Brand Row */}
         <div className="flex items-center justify-center">
           <div className="flex items-center gap-2.5">
@@ -241,43 +243,53 @@ export const LoginPage: React.FC<LoginProps> = ({ navigate }) => {
           </div>
         </div>
 
-        {/* Warm Peach Hero Strip */}
-        <div className="relative rounded-3xl bg-gradient-to-br from-[#FFE8D1] via-[#FFF3E6] to-[#FFEAD6] p-5 border border-orange-200/60 overflow-hidden">
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-y-1.5 z-10">
-              <h1 className="text-2xl sm:text-[26px] font-black text-slate-900 leading-tight">
-                Grow Your
-                <br />
-                Earnings with
-                <br />
-                <span className="text-orange-600">U-ADS</span>
-              </h1>
-              <p className="text-[11px] text-slate-600 font-medium leading-snug max-w-[180px]">
-                Watch Ads, Earn Real USD &amp; Grow with Our Trusted Platform
-              </p>
-              <div className="w-10 h-1 rounded-full bg-orange-500 mt-1" />
-            </div>
-
-            {/* Stylized Phone & Growth Chart Graphic */}
-            <div className="relative shrink-0 w-32 h-32 flex items-center justify-center">
-              <div className="w-24 h-28 rounded-2xl bg-white border-[3px] border-slate-900 shadow-lg flex flex-col items-center justify-between p-2.5 rotate-2">
-                <div className="flex items-center gap-1">
-                  <TrendingUp className="w-3.5 h-3.5 text-orange-500" />
-                  <span className="text-[10px] font-black text-slate-900">U-ADS</span>
-                </div>
-                <div className="flex items-end gap-1.5 h-12 w-full justify-center pb-1">
-                  <span className="w-2.5 h-4 rounded-t bg-orange-300" />
-                  <span className="w-2.5 h-6 rounded-t bg-orange-400" />
-                  <span className="w-2.5 h-9 rounded-t bg-orange-500" />
-                  <span className="w-2.5 h-12 rounded-t bg-gradient-to-t from-orange-500 to-amber-400" />
-                </div>
+        {/* Top Banner Image (Admin-editable via CMS — Part 1 #3) or Default Stylized Hero */}
+        {authBannerImageUrl ? (
+          <div className="relative rounded-3xl overflow-hidden border border-orange-200/70 shadow-sm bg-white">
+            <img
+              src={authBannerImageUrl}
+              alt="U-ADS Platform"
+              className="w-full h-44 sm:h-48 object-cover"
+            />
+          </div>
+        ) : (
+          <div className="auth-hero-strip relative rounded-3xl bg-gradient-to-br from-[#FFF7ED] via-[#FFF3E6] to-[#FFEDD5] p-5 border border-orange-200/60 overflow-hidden">
+            <div className="flex items-center justify-between gap-3">
+              <div className="space-y-1.5 z-10">
+                <h1 className="text-2xl sm:text-[26px] font-black text-slate-900 leading-tight">
+                  Grow Your
+                  <br />
+                  Earnings with
+                  <br />
+                  <span className="text-orange-600">U-ADS</span>
+                </h1>
+                <p className="text-[11px] text-slate-600 font-medium leading-snug max-w-[180px]">
+                  Watch Ads, Earn Real USD &amp; Grow with Our Trusted Platform
+                </p>
+                <div className="w-10 h-1 rounded-full bg-orange-500 mt-1" />
               </div>
-              <div className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-gradient-to-br from-amber-300 to-orange-500 border-2 border-amber-100 shadow-md flex items-center justify-center text-white font-black text-base">
-                $
+
+              {/* Stylized Phone & Growth Chart Graphic */}
+              <div className="relative shrink-0 w-32 h-32 flex items-center justify-center">
+                <div className="w-24 h-28 rounded-2xl bg-white border-[3px] border-slate-900 shadow-lg flex flex-col items-center justify-between p-2.5 rotate-2">
+                  <div className="flex items-center gap-1">
+                    <TrendingUp className="w-3.5 h-3.5 text-orange-500" />
+                    <span className="text-[10px] font-black text-slate-900">U-ADS</span>
+                  </div>
+                  <div className="flex items-end gap-1.5 h-12 w-full justify-center pb-1">
+                    <span className="w-2.5 h-4 rounded-t bg-orange-300" />
+                    <span className="w-2.5 h-6 rounded-t bg-orange-400" />
+                    <span className="w-2.5 h-9 rounded-t bg-orange-500" />
+                    <span className="w-2.5 h-12 rounded-t bg-gradient-to-t from-orange-500 to-amber-400" />
+                  </div>
+                </div>
+                <div className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 border-2 border-white shadow-md flex items-center justify-center text-white font-black text-base">
+                  $
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Floating White Login Card */}
         <form

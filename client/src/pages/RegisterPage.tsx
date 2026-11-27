@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.js';
+import { useTheme } from '../context/ThemeContext.js';
 import { CompanyInfoModal } from '../components/CompanyInfoModal.js';
 import {
   Lock,
@@ -35,6 +36,7 @@ function getStrength(pw: string): { pct: number; label: string; color: string } 
 
 export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
   const { register } = useAuth();
+  const { authBannerImageUrl } = useTheme();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -43,6 +45,7 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [phone, setPhone] = useState('');
   const [referralCode, setReferralCode] = useState('');
+  const [hasUrlReferral, setHasUrlReferral] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -57,8 +60,16 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const ref = urlParams.get('ref');
-    if (ref) setReferralCode(ref.toUpperCase());
+    const refFromUrl = urlParams.get('ref')?.trim();
+    let refFromSession = '';
+    try {
+      refFromSession = sessionStorage.getItem('uads_pending_ref') || '';
+    } catch {}
+    const resolved = (refFromUrl || refFromSession).trim().toUpperCase();
+    if (resolved) {
+      setReferralCode(resolved);
+      setHasUrlReferral(true);
+    }
   }, []);
 
   const strength = getStrength(password);
@@ -98,8 +109,8 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-gradient-to-b from-[#FFF3E6] via-[#FFF9F3] to-white pb-12 animate-page-in">
-      <div className="max-w-md mx-auto px-4 pt-5 space-y-5">
+    <div className="min-h-screen auth-page-bg bg-white pb-12 animate-page-in">
+      <div className="max-w-md mx-auto px-4 pt-6 space-y-5">
         {/* Top Brand Row */}
         <div className="flex items-center justify-center">
           <div className="flex items-center gap-2.5">
@@ -110,20 +121,30 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
           </div>
         </div>
 
-        {/* Compact Warm Peach Hero */}
-        <div className="rounded-3xl bg-gradient-to-br from-[#FFE8D1] via-[#FFF3E6] to-[#FFEAD6] p-4 sm:p-5 border border-orange-200/60 flex items-center justify-between gap-3">
-          <div className="space-y-1">
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900 leading-tight">
-              Start Earning with <span className="text-orange-600">U-ADS</span>
-            </h1>
-            <p className="text-[11px] text-slate-600 font-medium">
-              Create your account — watch ads and earn 95% advertiser revenue share.
-            </p>
+        {/* Top Banner Image (Admin-editable via CMS — Part 1 #3) or Default Hero */}
+        {authBannerImageUrl ? (
+          <div className="relative rounded-3xl overflow-hidden border border-orange-200/70 shadow-sm bg-white">
+            <img
+              src={authBannerImageUrl}
+              alt="U-ADS Platform"
+              className="w-full h-44 sm:h-48 object-cover"
+            />
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-300 to-orange-500 text-white font-black text-xl flex items-center justify-center shadow-md shrink-0">
-            $
+        ) : (
+          <div className="auth-hero-strip rounded-3xl bg-gradient-to-br from-[#FFF7ED] via-[#FFF3E6] to-[#FFEDD5] p-4 sm:p-5 border border-orange-200/60 flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 leading-tight">
+                Start Earning with <span className="text-orange-600">U-ADS</span>
+              </h1>
+              <p className="text-[11px] text-slate-600 font-medium">
+                Create your account — watch ads and earn 95% advertiser revenue share.
+              </p>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-500 text-white font-black text-xl flex items-center justify-center shadow-md shrink-0">
+              $
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Floating White Sign Up Card */}
         <form
@@ -275,7 +296,7 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className={hasUrlReferral ? 'space-y-3' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Phone (Optional)</label>
               <div className="relative">
@@ -290,19 +311,21 @@ export const RegisterPage: React.FC<RegisterProps> = ({ navigate }) => {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Referral Code</label>
-              <div className="relative">
-                <Tag className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Optional code"
-                  value={referralCode}
-                  onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                  className="w-full h-10 bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3 text-xs font-mono text-slate-900 placeholder-slate-400 focus:border-orange-500"
-                />
+            {!hasUrlReferral && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Referral Code</label>
+                <div className="relative">
+                  <Tag className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Optional code"
+                    value={referralCode}
+                    onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                    className="w-full h-10 bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3 text-xs font-mono text-slate-900 placeholder-slate-400 focus:border-orange-500"
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div>

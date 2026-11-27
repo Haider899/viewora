@@ -7,6 +7,7 @@ import { AccountLevelService } from './accountLevel.service.js';
 import { DEFAULT_BONUS_SETTINGS } from './bootstrap.service.js';
 import { AccountType, Currency, EntryType, LedgerTransactionType } from '../types/index.js';
 import { extractYouTubeId } from '../utils/youtube.js';
+import { probeVideoDurationSeconds } from '../utils/videoDuration.js';
 
 const TIER_RANK: Record<string, number> = {
   Starter: 1,
@@ -82,7 +83,16 @@ export class VideoService {
     cfg: { defaultRewardCents: number; globalPercent: number; levelPercentages: Record<string, number> }
   ): number {
     if (video.rewardEligible === false) return 0;
-    const baseCents = video.rewardAmountCents > 0 ? video.rewardAmountCents : cfg.defaultRewardCents;
+    // Part 9: Single unified base reward (defaultRewardCents, e.g. $0.50) so Packages Page, Ad Cards,
+    // and actual credited amounts ALWAYS tell one consistent story (Starter $0.50, Basic $0.63, Premium $0.75, VIP $1.00).
+    // If Admin sets an individual per-video %, it scales the base reward cleanly.
+    const standardBaseCents = cfg.defaultRewardCents > 0 ? cfg.defaultRewardCents : 50;
+    const baseCents =
+      typeof video.rewardPercentageBps === 'number' && video.rewardPercentageBps > 0
+        ? video.rewardAmountCents > 0
+          ? video.rewardAmountCents
+          : standardBaseCents
+        : standardBaseCents;
     if (baseCents <= 0) return 0;
 
     // 1. Individual per-video % (stored in basis points: 5000 = 50%, 10000 = 100%, 15000 = 150%)
@@ -137,8 +147,16 @@ export class VideoService {
           },
           select: { videoId: true },
         }),
+        // Part 7: Match claims by BOTH cycleKey AND claimedAt inside [windowStart, windowEnd)
+        // so claim records survive any system update or cycleKey format migration without resetting!
         prisma.rewardClaim.findMany({
-          where: { userId, cycleKey: cycle.cycleKey },
+          where: {
+            userId,
+            OR: [
+              { cycleKey: cycle.cycleKey },
+              { claimedAt: { gte: cycle.windowStart, lt: cycle.windowEnd } },
+            ],
+          },
           select: { videoId: true },
         }),
       ]);
@@ -208,9 +226,10 @@ export class VideoService {
         isAssignedToUser ||
         (!isExplicitlyLocked && hasActivePackage && effectiveUserLevelRank >= requiredLevelRank);
 
+      // Part 9: Open ads display member's active level reward; locked ads display the unlocking package's reward
       const effectiveRewardCents = this.computeEffectiveRewardCents(
         v,
-        hasActivePackage ? effectiveUserLevel : requiredLevelKey,
+        hasTierAccess && hasActivePackage ? effectiveUserLevel : requiredLevelKey,
         rewardCfg
       );
 
@@ -282,8 +301,16 @@ export class VideoService {
             completedAt: { gte: cycle.windowStart, lt: cycle.windowEnd },
           },
         }),
-        prisma.rewardClaim.findUnique({
-          where: { userId_videoId_cycleKey: { userId, videoId, cycleKey: cycle.cycleKey } },
+        // Part 7: Match claims by BOTH cycleKey AND timestamp window so claims survive updates!
+        prisma.rewardClaim.findFirst({
+          where: {
+            userId,
+            videoId,
+            OR: [
+              { cycleKey: cycle.cycleKey },
+              { claimedAt: { gte: cycle.windowStart, lt: cycle.windowEnd } },
+            ],
+          },
         }),
       ]);
 
@@ -317,7 +344,7 @@ export class VideoService {
 
     const effectiveRewardCents = this.computeEffectiveRewardCents(
       video,
-      effectiveUserLevel !== 'NEW_USER' ? effectiveUserLevel : requiredLevelKey,
+      hasAccess && effectiveUserLevel !== 'NEW_USER' ? effectiveUserLevel : requiredLevelKey,
       rewardCfg
     );
 
@@ -534,8 +561,18 @@ export class VideoService {
       throw { statusCode: 400, code: 'NO_REWARD', message: 'No reward amount is configured for this ad.' };
     }
 
-    const existingBefore = await prisma.rewardClaim.findUnique({
-      where: { userId_videoId_cycleKey: { userId, videoId, cycleKey } },
+    // Part 7: Enforce one-claim-per-cycle using BOTH cycleKey AND claimedAt timestamp window
+    // so an update can NEVER reset already-claimed ads in the current 24h cycle!
+    const cycle = await this.getCurrentCycleInfo();
+    const existingBefore = await prisma.rewardClaim.findFirst({
+      where: {
+        userId,
+        videoId,
+        OR: [
+          { cycleKey },
+          { claimedAt: { gte: cycle.windowStart, lt: cycle.windowEnd } },
+        ],
+      },
     });
     if (existingBefore) {
       throw {
@@ -546,8 +583,15 @@ export class VideoService {
     }
 
     const claim = await prisma.$transaction(async (tx) => {
-      const existingInTx = await tx.rewardClaim.findUnique({
-        where: { userId_videoId_cycleKey: { userId, videoId, cycleKey } },
+      const existingInTx = await tx.rewardClaim.findFirst({
+        where: {
+          userId,
+          videoId,
+          OR: [
+            { cycleKey },
+            { claimedAt: { gte: cycle.windowStart, lt: cycle.windowEnd } },
+          ],
+        },
       });
       if (existingInTx) {
         throw {
@@ -801,13 +845,22 @@ export class VideoService {
     const resolvedLevel = data.minAccountLevel || TIER_TO_LEVEL[data.minPackageTier || 'Starter'] || 'LEVEL_1';
     const resolvedTier = data.minPackageTier || LEVEL_TO_TIER[resolvedLevel] || 'Starter';
 
+    // Part 6: Always probe real video duration from file/URL when adding a video
+    const probedDuration = await probeVideoDurationSeconds(data.videoUrl);
+    const resolvedDuration =
+      probedDuration && probedDuration > 0
+        ? probedDuration
+        : data.durationSeconds && data.durationSeconds > 0
+        ? Math.round(data.durationSeconds)
+        : 60;
+
     return await prisma.video.create({
       data: {
         title: data.title,
         description: data.description || 'Verified U-Ads video campaign',
         thumbnailUrl: thumbnail,
         videoUrl: data.videoUrl,
-        durationSeconds: data.durationSeconds && data.durationSeconds > 0 ? data.durationSeconds : 60,
+        durationSeconds: resolvedDuration,
         category: data.category || 'Special Assignment',
         minPackageTier: resolvedTier,
         minAccountLevel: resolvedLevel,
@@ -838,11 +891,23 @@ export class VideoService {
       data.assignedUserId = null;
     }
 
-    // Part 4 #2: Changing tier OR level ALWAYS syncs both fields immediately so actual access updates!
+    // Part 4 #2 & Part 6: Fetch existing video to sync tier/level AND re-probe duration on URL change!
     const existing = await prisma.video.findUnique({
       where: { id },
-      select: { minPackageTier: true, minAccountLevel: true },
+      select: { minPackageTier: true, minAccountLevel: true, videoUrl: true, durationSeconds: true },
     });
+
+    if (data.videoUrl && existing && data.videoUrl.trim() !== existing.videoUrl.trim()) {
+      const probed = await probeVideoDurationSeconds(data.videoUrl);
+      if (probed && probed > 0) {
+        data.durationSeconds = probed;
+      }
+    } else if (data.videoUrl && (!data.durationSeconds || data.durationSeconds <= 0)) {
+      const probed = await probeVideoDurationSeconds(data.videoUrl);
+      if (probed && probed > 0) {
+        data.durationSeconds = probed;
+      }
+    }
     if (data.minAccountLevel && data.minPackageTier && existing) {
       const tierChanged = data.minPackageTier !== existing.minPackageTier;
       const levelChanged = data.minAccountLevel !== existing.minAccountLevel;

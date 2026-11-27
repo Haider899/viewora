@@ -60,20 +60,20 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
       a: 'U-Ads is a USD-based digital video engagement and rewards platform where members unlock curated video campaigns, earn verified full-watch video rewards, advance through Account Levels, and earn tiered referral commissions.',
     },
     {
-      q: 'How do U-Ads USD wallets work?',
-      a: 'Every U-Ads account operates strictly in USD with separated, double-entry ledger wallets: Main Account Credits (for deposits and packages), Video Rewards Wallet (for automatic full-watch video credits), and Referral Wallet (for affiliate commissions & milestones).',
+      q: 'How do U-Ads USD earnings work?',
+      a: 'Advertisers pay U-Ads to run their ads and 95% of advertiser revenue is shared with members who watch them. Your balance displays your real withdrawable earnings across Video Ad Rewards, Daily Referral Commissions, and Bonuses.',
     },
     {
       q: 'How long does deposit verification take?',
-      a: 'Deposits submitted via USDT (TRC-20) or USD International Bank Wire are reviewed by our Finance Administration desk and typically verified within 10–30 minutes once a valid transaction reference and receipt are submitted.',
+      a: 'Subscription deposits submitted via USDT (TRC-20) or USD International Bank Wire are reviewed by our Finance Administration desk and typically verified within 10–30 minutes once a valid transaction reference and receipt are submitted.',
     },
     {
-      q: 'How do video rewards get credited?',
-      a: 'Watch any unlocked video from start to finish without pausing or skipping. Upon 100% completion, the platform automatically verifies your session telemetry and credits your USD Video Rewards Wallet with no manual claim required.',
+      q: 'How do ad rewards get credited?',
+      a: 'Watch any unlocked ad from start to finish without skipping. Upon 100% completion, the platform automatically verifies your session and credits your withdrawable Video Ad Rewards balance.',
     },
     {
-      q: 'How do referral commissions and ranks work?',
-      a: 'You earn tiered USD commissions (scaling from 5% up to 15% by position) on each invited member’s first qualifying USD package transaction, plus automatic rank milestone cash rewards credited to your Referral Wallet.',
+      q: 'How do daily referral commissions and ranks work?',
+      a: 'You earn daily 24-hour USD commissions (5% to 15% by referral position) on what your qualified referrals earn from watching their enabled ads each day, plus automatic rank milestone rewards.',
     },
   ];
 
@@ -164,11 +164,11 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
             <div className="text-xs text-slate-500 mt-0.5">Audited deposit processing</div>
           </div>
           <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs text-left">
-            <div className="text-3xl font-extrabold text-slate-900">3 Wallets</div>
-            <div className="text-xs font-bold text-indigo-600 mt-1 uppercase tracking-wider">
-              Double-Entry Ledger
+            <div className="text-3xl font-extrabold text-slate-900">95% Share</div>
+            <div className="text-xs font-bold text-orange-600 mt-1 uppercase tracking-wider">
+              Halal Ad Earnings
             </div>
-            <div className="text-xs text-slate-500 mt-0.5">Main, Video &amp; Referral USD</div>
+            <div className="text-xs text-slate-500 mt-0.5">Ad Rewards, Referrals &amp; Bonuses</div>
           </div>
           <div className="p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs text-left">
             <div className="text-3xl font-extrabold text-slate-900">5% – 15%</div>
@@ -205,40 +205,45 @@ export const HomePage: React.FC<HomePageProps> = ({ navigate }) => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {previewVideos.length > 0 ? (
-            previewVideos.map((vid) => (
-              <div
-                key={vid.id}
-                className="rounded-3xl bg-white border border-slate-200/90 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
-              >
-                <div className="relative aspect-video bg-slate-900">
-                  <img
-                    src={vid.thumbnailUrl}
-                    alt={vid.title}
-                    className="w-full h-full object-cover opacity-90"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-transparent to-transparent" />
-                  <div className="absolute top-3 left-3 px-2.5 py-0.5 rounded-md bg-white/95 text-slate-900 text-[10px] font-bold">
-                    {vid.minPackageTier} Tier
-                  </div>
-                  {vid.rewardEligible && (
-                    <div className="absolute bottom-3 right-3 px-2.5 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold">
-                      +${(vid.rewardAmountCents / 100).toFixed(2)} USD
+          {(() => {
+            const cleanVideos = previewVideos.filter(
+              (v) => !/\b(test|testing|song|music)\b/i.test(v.title || '')
+            );
+            return cleanVideos.length > 0 ? (
+              cleanVideos.map((vid) => (
+                <div
+                  key={vid.id}
+                  className="rounded-3xl bg-white border border-slate-200/90 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
+                >
+                  <div className="relative aspect-video bg-slate-900">
+                    <img
+                      src={vid.thumbnailUrl}
+                      alt={vid.title}
+                      className="w-full h-full object-cover opacity-90"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-transparent to-transparent" />
+                    <div className="absolute top-3 left-3 px-2.5 py-0.5 rounded-md bg-white/95 text-slate-900 text-[10px] font-bold">
+                      {vid.minPackageTier} · {(vid.minAccountLevel || 'LEVEL_1').replace('_', ' ')}
                     </div>
-                  )}
+                    {vid.rewardEligible && (
+                      <div className="absolute bottom-3 right-3 px-2.5 py-0.5 rounded-md bg-orange-600 text-white text-[10px] font-bold">
+                        +${(vid.rewardAmountCents / 100).toFixed(2)} USD
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-5 space-y-2">
+                    <div className="text-[10px] font-bold uppercase text-orange-600">{vid.category}</div>
+                    <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{vid.title}</h3>
+                    <p className="text-xs text-slate-500 line-clamp-2">{vid.description}</p>
+                  </div>
                 </div>
-                <div className="p-5 space-y-2">
-                  <div className="text-[10px] font-bold uppercase text-emerald-700">{vid.category}</div>
-                  <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{vid.title}</h3>
-                  <p className="text-xs text-slate-500 line-clamp-2">{vid.description}</p>
-                </div>
+              ))
+            ) : (
+              <div className="md:col-span-3 p-10 rounded-3xl bg-white border border-slate-200 text-center text-xs text-slate-500">
+                Sign in to watch verified U-Ads campaigns and start earning USD rewards.
               </div>
-            ))
-          ) : (
-            <div className="md:col-span-3 p-10 rounded-3xl bg-white border border-slate-200 text-center text-xs text-slate-500">
-              Sign in to explore curated U-Ads video campaigns and start earning USD rewards.
-            </div>
-          )}
+            );
+          })()}
         </div>
       </section>
 

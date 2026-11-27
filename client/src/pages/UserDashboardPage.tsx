@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.js';
+import { useTheme } from '../context/ThemeContext.js';
 import { NotificationItem } from '../types/index.js';
 import { WalletPage } from './WalletPage.js';
 import { VideoCatalogPage } from './VideoCatalogPage.js';
@@ -84,6 +85,7 @@ const PAGE_TITLES: Record<UserTab, { title: string; subtitle: string }> = {
 
 export const UserDashboardPage: React.FC = () => {
   const { user, wallet, logout, refreshUser } = useAuth();
+  const { theme, setMemberTheme } = useTheme();
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<UserTab>('overview');
@@ -418,8 +420,48 @@ export const UserDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Right: Combined Balance Dropdown · Bell · Avatar Menu */}
+          {/* Right: Theme Switcher · Combined Balance Dropdown · Bell · Avatar Menu */}
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            {/* Part 2 #2: Member Theme Switcher (Orange / Green — persisted to member account) */}
+            <div
+              className="inline-flex items-center p-0.5 rounded-[10px] bg-slate-100 border border-slate-200"
+              role="group"
+              aria-label="Website theme"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setMemberTheme('orange');
+                  showToast('Orange theme applied & saved to your account.', 'success');
+                }}
+                title="Orange Theme (White Background)"
+                className={`px-2 py-1 rounded-[8px] text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer ${
+                  theme === 'orange'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-[#f97316] shrink-0" />
+                <span className="hidden sm:inline">Orange</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMemberTheme('green');
+                  showToast('Green theme applied & saved to your account.', 'success');
+                }}
+                title="Green Theme"
+                className={`px-2 py-1 rounded-[8px] text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer ${
+                  theme === 'green'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-[#059669] shrink-0" />
+                <span className="hidden sm:inline">Green</span>
+              </button>
+            </div>
+
             {/* 1. Earnings-Only Balance Dropdown (Rule 3: NEVER includes paid-in deposit money!) */}
             <div className="relative">
               <button

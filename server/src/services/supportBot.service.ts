@@ -54,24 +54,29 @@ If more than 30 minutes have passed, attach your receipt here and select **Talk 
     id: 'packages_pricing',
     category: 'Packages & Tiers',
     question: 'What are the U-Ads access packages and limits?',
-    keywords: ['package', 'packages', 'tier', 'starter', 'basic', 'premium', 'vip', 'price', 'pricing', 'kharidna', 'buy package', 'plans'],
-    answer: `**U-Ads Lifetime Membership Plans (USD)**
-• Every package is a **one-time lifetime subscription** — watch ads and keep earning!
-• **Starter**, **Basic**, **Premium**, and **VIP** tiers unlock progressively higher-level ads and higher rewards per ad.
-• **Upgrading:** When you move to a higher tier, you only pay the **price difference** between your current plan and the new plan.
-• Open the **Plans / Packages** page to see live pricing, ad counts, and per-ad rewards.`,
+    keywords: ['package', 'packages', 'tier', 'starter', 'basic', 'premium', 'vip', 'price', 'pricing', 'kharidna', 'buy package', 'plans', 'halal', 'upgrade', 'invest'],
+    answer: `**Why Members Love U-Ads Lifetime Packages**
+• **Halal Advertiser Revenue Share:** Advertisers pay U-Ads to show their ads to our members — **95% of advertiser revenue is shared with members** who watch those ads, which is why earnings are transparent and halal.
+• **One-Time Lifetime Subscription:** Pay once and stay a member for life! Watch ads daily and keep earning.
+• **Higher Tiers = More Daily Ads & Bigger Per-Ad Rewards:**
+  - **Starter:** 2 daily ads
+  - **Basic:** 5 daily ads
+  - **Premium:** 8 daily ads
+  - **VIP:** 10 daily ads
+• **Smart Upgrades & Earnings Payment:** Upgrade anytime by paying **only the price difference** — and you can even pay from your **withdrawable earnings**, subscription credit, or both combined!
+• **Clear & Honest Policy:** All earnings (Ad Rewards, Daily Referral Commissions, and Bonuses) are withdrawable; subscription deposit payments activate your lifetime package and are non-withdrawable.`,
     quickPrompts: ['How do video rewards work?', 'How do referral commissions work?', 'Talk to a human'],
   },
   {
     id: 'video_rewards_claim',
     category: 'Videos & Rewards',
     question: 'How do video watch rewards get credited?',
-    keywords: ['reward', 'video', 'videos', 'watch', 'earn', 'claim', '0.50', 'dekh kar', 'paise', 'earning'],
-    answer: `**Automatic Video Reward Credits**
-1. Open an unlocked campaign from **Videos**.
-2. Watch the **full video** from start to finish (seeking forward is disabled during verification).
-3. As soon as playback finishes, your USD reward is **credited automatically** to your **Video Rewards** wallet.
-Each campaign awards its credit once.`,
+    keywords: ['reward', 'video', 'videos', 'ads', 'watch', 'earn', 'claim', '0.50', 'dekh kar', 'paise', 'earning'],
+    answer: `**Daily Ad Rewards (8:00 PM – 7:59:59 PM Cycle)**
+1. Open an unlocked ad from **Ads** or your Home dashboard.
+2. Watch the **full ad** from start to finish — 95% of what advertisers pay is shared directly with members.
+3. Your USD reward is **credited automatically** to your withdrawable **Video Ad Rewards** wallet.
+4. Claim each unlocked ad once per 24-hour cycle (8:00 PM to next day 7:59:59 PM). Upgrading your lifetime package unlocks more ads every day and higher rewards per ad!`,
     quickPrompts: ['What are the plans?', 'What is the withdrawal process and minimum limit?', 'Talk to a human'],
   },
   {
@@ -79,10 +84,10 @@ Each campaign awards its credit once.`,
     category: 'Referrals & Ranks',
     question: 'How do referral commissions and ranks work?',
     keywords: ['referral', 'invite', 'refer', 'commission', '5%', 'link', 'dost', 'earning', 'rank', 'milestone'],
-    answer: `**U-Ads Referral & Rank Program**
-• Share your personal invitation link from **Referrals**.
-• Commissions apply to each referred member's **first qualifying package**, credited to your **Referral Wallet**.
-• **Position Rates:** 1st: 5%, 2nd: 7%, 3rd: 10%, 4th: 12%, 5th+: 15%.
+    answer: `**U-Ads Daily Referral Commissions & Ranks**
+• Share your personal invitation link from **Referrals** — anyone clicking it lands directly on Sign Up with your code auto-filled!
+• **Daily 24-Hour Commissions:** Every 24 hours, you earn commission on what your qualified referrals earned from watching their enabled ads that day! The more ads they unlock and watch, the more you earn daily.
+• **Position Rates:** 1st: **5%**, 2nd: **7%**, 3rd: **10%**, 4th: **12%**, 5th+: **15%**.
 • **Ranks & Milestones:** Gold (1–5, +$20 at 5), Platinum (6–10, +$100 at 10), Diamond (11–100), Rank 4 (101–500), Rank 5 (501–10,000).`,
     quickPrompts: ['What is the withdrawal process and minimum limit?', 'What are the plans?', 'Talk to a human'],
   },

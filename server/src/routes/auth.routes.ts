@@ -19,6 +19,7 @@ router.post('/forgot-password', validateRequest(forgotPasswordSchema), AuthContr
 router.post('/reset-password', validateRequest(resetPasswordSchema), AuthController.resetPassword);
 router.get('/me', authenticate, AuthController.me);
 router.patch('/profile', authenticate, validateRequest(updateProfileSchema), AuthController.updateProfile);
+router.patch('/theme', authenticate, AuthController.updateTheme);
 router.post('/change-password', authenticate, validateRequest(changePasswordSchema), AuthController.changePassword);
 
 export default router;

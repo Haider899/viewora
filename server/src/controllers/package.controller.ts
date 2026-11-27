@@ -5,6 +5,7 @@ import { PackageService } from '../services/package.service.js';
 export const purchaseSchema = z.object({
   packageId: z.string().uuid(),
   currency: z.enum(['USD', 'PKR']).optional(),
+  paymentSource: z.enum(['SUBSCRIPTION_CREDIT', 'EARNINGS', 'COMBINED']).optional(),
 });
 
 export class PackageController {
@@ -24,12 +25,15 @@ export class PackageController {
     try {
       const purchase = await PackageService.purchasePackageWithWallet(
         req.user!.userId,
-        req.body.packageId
+        req.body.packageId,
+        req.body.paymentSource || 'COMBINED'
       );
       res.json({
         success: true,
         data: purchase,
-        message: 'Package purchased successfully.',
+        message: purchase.isUpgrade
+          ? 'Package upgraded successfully.'
+          : 'Package purchased successfully.',
       });
     } catch (err) {
       next(err);

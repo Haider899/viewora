@@ -1528,15 +1528,51 @@ export const AdminCmsAndNotificationsPanel: React.FC<ExtraTabProps> = ({ onSucce
   });
   const [savingCms, setSavingCms] = useState(false);
   const [savingNotif, setSavingNotif] = useState(false);
+  const [defaultTheme, setDefaultTheme] = useState<'orange' | 'green'>('orange');
+  const [savingTheme, setSavingTheme] = useState(false);
 
   useEffect(() => {
     api.adminGetLandingContent().then((r) => {
       if (r.success && r.data) setCms(r.data);
     });
+    api.getThemeConfig().then((r) => {
+      if (r.success && r.data?.defaultTheme) {
+        setDefaultTheme(r.data.defaultTheme === 'green' ? 'green' : 'orange');
+      }
+    }).catch(() => {});
     api.getNotificationSettings().then((r) => {
       if (r.success && r.data) setNotif((p: any) => ({ ...p, ...r.data }));
     });
   }, []);
+
+  const handleDefaultThemeChange = async (next: 'orange' | 'green') => {
+    setSavingTheme(true);
+    try {
+      const res = await api.updateAdminDefaultTheme(next);
+      if (res.success) {
+        setDefaultTheme(next);
+        onSuccess(`Platform default theme set to ${next === 'orange' ? 'Orange (White Background)' : 'Green'}!`);
+      } else {
+        onError(res.error?.message || 'Failed to update default theme.');
+      }
+    } finally {
+      setSavingTheme(false);
+    }
+  };
+
+  const handleAuthBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      onError('Banner image must be under 4 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCms((prev: any) => ({ ...prev, authBannerImageUrl: reader.result as string }));
+    };
+    reader.readAsDataURL(file);
+  };
 
   const saveCms = async () => {
     setSavingCms(true);
@@ -1580,6 +1616,87 @@ export const AdminCmsAndNotificationsPanel: React.FC<ExtraTabProps> = ({ onSucce
         </div>
 
         <div className="space-y-2.5 text-xs">
+          {/* Part 2 #3: Super Admin Default Website Theme */}
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="font-extrabold text-slate-900">Default Platform Theme</div>
+                <div className="text-[11px] text-slate-500">
+                  Shown to pre-login visitors &amp; new members until they pick their own theme.
+                </div>
+              </div>
+              <div className="inline-flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={savingTheme}
+                  onClick={() => handleDefaultThemeChange('orange')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 cursor-pointer ${
+                    defaultTheme === 'orange'
+                      ? 'bg-orange-50 border-orange-500 text-orange-800 ring-2 ring-orange-500/20'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#f97316]" />
+                  Orange
+                </button>
+                <button
+                  type="button"
+                  disabled={savingTheme}
+                  onClick={() => handleDefaultThemeChange('green')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 cursor-pointer ${
+                    defaultTheme === 'green'
+                      ? 'bg-emerald-50 border-emerald-600 text-emerald-800 ring-2 ring-emerald-500/20'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#059669]" />
+                  Green
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Part 1 #3: Editable Login & Create Account Top Banner Image */}
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="font-extrabold text-slate-900">Login &amp; Sign Up Top Banner Image</div>
+                <div className="text-[11px] text-slate-500">
+                  Upload or replace the top picture shown on the Login / Create Account screen, then click Save Landing CMS.
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <label className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold cursor-pointer">
+                  Upload Image
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAuthBannerUpload}
+                    className="hidden"
+                  />
+                </label>
+                {cms.authBannerImageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setCms((prev: any) => ({ ...prev, authBannerImageUrl: '' }))}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                  >
+                    Reset Default
+                  </button>
+                )}
+              </div>
+            </div>
+            {cms.authBannerImageUrl && (
+              <div className="rounded-xl overflow-hidden border border-slate-200 bg-white">
+                <img
+                  src={cms.authBannerImageUrl}
+                  alt="Login top banner preview"
+                  className="w-full h-28 object-cover"
+                />
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="block font-bold text-slate-700 mb-1">Top Hero Badge</label>
             <input

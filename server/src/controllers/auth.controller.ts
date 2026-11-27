@@ -90,6 +90,20 @@ export class AuthController {
     }
   }
 
+  static async updateTheme(req: Request, res: Response, next: NextFunction) {
+    try {
+      const theme = req.body?.theme === 'green' ? 'green' : 'orange';
+      const updated = await AuthService.updatePreferredTheme(req.user!.userId, theme);
+      res.json({
+        success: true,
+        data: updated,
+        message: `Theme switched to ${theme}.`,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   static async changePassword(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await AuthService.changePassword(

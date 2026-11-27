@@ -3,6 +3,7 @@ import prisma from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { LedgerService } from './ledger.service.js';
 import { NotificationService } from './notification.service.js';
+import { AccountLevelService } from './accountLevel.service.js';
 import { DEFAULT_REFERRAL_CONFIG } from './bootstrap.service.js';
 import { AccountType, Currency, EntryType, LedgerTransactionType } from '../types/index.js';
 
@@ -42,34 +43,31 @@ export class ReferralService {
     return merged;
   }
 
+  static resolvePositionRate(position: number, config: any): number {
+    const rates = config?.commissionRates || DEFAULT_REFERRAL_CONFIG.commissionRates;
+    if (position <= 1) return Number(rates.pos1 ?? 5);
+    if (position === 2) return Number(rates.pos2 ?? 7);
+    if (position === 3) return Number(rates.pos3 ?? 10);
+    if (position === 4) return Number(rates.pos4 ?? 12);
+    if (position === 5) return Number(rates.pos5 ?? 15);
+    if (position <= 10) return Number(rates.range6to10 ?? 15);
+    if (position <= 100) return Number(rates.range11to100 ?? 15);
+    if (position <= 500) return Number(rates.range101to500 ?? 15);
+    return Number(rates.range501Plus ?? 15);
+  }
+
   /**
-   * Processes referral commission ONLY on the referred user's FIRST qualifying transaction.
-   * Uses dynamic rates and minimum qualifying USD from REFERRAL_CONFIG.
+   * Part 4 #1 & #2: When a referred member purchases their first qualifying package,
+   * mark them as a qualified referral and evaluate sponsor rank milestones immediately.
+   * Commission itself is now paid DAILY (every 24h) on the referral's daily ad earnings!
    */
-  static async processCommissionForRevenueEvent(
+  static async markReferralQualifiedOnPurchase(
     sourceUserId: string,
-    revenueEventId: string,
     netRevenueCents: number,
-    currency: Currency,
     tx: Prisma.TransactionClient
   ) {
-    if (!env.ENABLE_REFERRAL_COMMISSIONS) {
-      return null;
-    }
-
-    const bonusSetting = await tx.systemSetting.findUnique({ where: { key: 'BONUS_SETTINGS' } });
-    if (bonusSetting) {
-      try {
-        const parsed = JSON.parse(bonusSetting.value);
-        if (parsed?.referralBonus?.enabled === false) {
-          return null;
-        }
-      } catch {}
-    }
-
     const config = await this.getReferralConfig();
     const minQualifyingCents = Math.round((config.minQualifyingUSD || 20) * 100);
-
     if (netRevenueCents < minQualifyingCents) {
       return null;
     }
@@ -84,116 +82,244 @@ export class ReferralService {
     }
 
     const beneficiary = sourceUser.referredBy;
-
     if (beneficiary.id === sourceUserId) {
-      console.warn(`[Referral Anti-Fraud] Blocked self-referral for user ${sourceUserId}`);
       return null;
     }
 
-    // Strict Documentation Rule: Commission applies ONLY on the referred user's FIRST qualifying transaction
-    const priorCommissionForSourceUser = await tx.referralCommission.count({
-      where: { sourceUserId },
-    });
-    if (priorCommissionForSourceUser > 0) {
-      return null;
+    if (!sourceUser.isQualifiedReferral) {
+      await tx.user.update({
+        where: { id: sourceUserId },
+        data: { isQualifiedReferral: true },
+      });
+
+      await tx.notification.create({
+        data: {
+          userId: beneficiary.id,
+          title: 'Referral Qualified for Daily Commissions',
+          message: `${sourceUser.fullName} activated a qualifying package! You will now earn daily 24h commissions on their ad earnings.`,
+          type: 'SUCCESS',
+        },
+      });
     }
-
-    // Mark source user as qualified referral
-    await tx.user.update({
-      where: { id: sourceUserId },
-      data: { isQualifiedReferral: true },
-    });
-
-    // Determine position for beneficiary
-    const priorDirectCount = await tx.referralCommission.count({
-      where: { beneficiaryId: beneficiary.id },
-    });
-    const position = priorDirectCount + 1;
-
-    // Part 3 #5: Enforce Admin-configurable Total Referral Limit (maxCommissionReferrals > 0 caps commissionable referrals)
-    const maxLimit = Number(config.maxCommissionReferrals ?? 0);
-    if (maxLimit > 0 && position > maxLimit) {
-      await this.checkAndAwardMilestones(beneficiary.id, Currency.USD, tx, config);
-      return null;
-    }
-
-    const rates = config.commissionRates || DEFAULT_REFERRAL_CONFIG.commissionRates;
-    let ratePercent = Number(rates.pos1 ?? 5);
-    if (position === 1) ratePercent = Number(rates.pos1 ?? 5);
-    else if (position === 2) ratePercent = Number(rates.pos2 ?? 7);
-    else if (position === 3) ratePercent = Number(rates.pos3 ?? 10);
-    else if (position === 4) ratePercent = Number(rates.pos4 ?? 12);
-    else if (position === 5) ratePercent = Number(rates.pos5 ?? 15);
-    else if (position <= 10) ratePercent = Number(rates.range6to10 ?? 15);
-    else if (position <= 100) ratePercent = Number(rates.range11to100 ?? 15);
-    else if (position <= 500) ratePercent = Number(rates.range101to500 ?? 15);
-    else ratePercent = Number(rates.range501Plus ?? 15);
-
-    const commissionCents = Math.floor((netRevenueCents * ratePercent) / 100);
-    if (commissionCents <= 0) return null;
-
-    const beneficiaryAccount = await LedgerService.getOrCreateAccount(
-      tx,
-      AccountType.USER_REFERRAL,
-      Currency.USD,
-      beneficiary.id
-    );
-
-    const sysExpenseAccount = await LedgerService.getOrCreateAccount(
-      tx,
-      AccountType.SYSTEM_EXPENSE_REFERRALS,
-      Currency.USD,
-      null
-    );
-
-    const ref = `REF-COMM-${beneficiary.id.slice(0, 8)}-${revenueEventId.slice(0, 8)}-${Date.now()}`;
-    const ledgerTx = await LedgerService.postTransaction(
-      {
-        reference: ref,
-        transactionType: LedgerTransactionType.REFERRAL_COMMISSION,
-        currency: Currency.USD,
-        description: `Position #${position} Referral Commission (${ratePercent}%) on first qualifying transaction by ${sourceUser.fullName}`,
-        entries: [
-          {
-            accountId: sysExpenseAccount.id,
-            entryType: EntryType.DEBIT,
-            amountCents: commissionCents,
-          },
-          {
-            accountId: beneficiaryAccount.id,
-            entryType: EntryType.CREDIT,
-            amountCents: commissionCents,
-          },
-        ],
-      },
-      tx
-    );
-
-    const commission = await tx.referralCommission.create({
-      data: {
-        beneficiaryId: beneficiary.id,
-        sourceUserId: sourceUser.id,
-        revenueEventId,
-        commissionCents,
-        currency: 'USD',
-        ratePercent,
-        status: 'CREDITED',
-        ledgerTxId: ledgerTx.id,
-      },
-    });
-
-    await tx.notification.create({
-      data: {
-        userId: beneficiary.id,
-        title: 'Referral Qualified & Commission Credited',
-        message: `${sourceUser.fullName} completed their first qualifying transaction! +$${(commissionCents / 100).toFixed(2)} USD (${ratePercent}%) credited to your Referral Wallet.`,
-        type: 'SUCCESS',
-      },
-    });
 
     await this.checkAndAwardMilestones(beneficiary.id, Currency.USD, tx, config);
+    return { qualified: true, beneficiaryId: beneficiary.id };
+  }
 
-    return commission;
+  /**
+   * Part 4 #1 & #2: Daily 24-hour Referral Commission Settlement.
+   * Computes each sponsor's commission on what their qualified referrals ACTUALLY earned from ads
+   * during the given 24-hour cycle (defaults to the most recently completed 8 PM PKT cycle).
+   * - Respects exact position rates (5% / 7% / 10% / 12% / 15%) and maxCommissionReferrals cap.
+   * - Referrals with 0 ad earnings in that cycle earn their sponsor $0.
+   * - Strictly idempotent per (beneficiaryId, sourceUserId, cycleKey) — never double-credits!
+   */
+  static async settleDailyReferralCommissions(options?: {
+    cycleKey?: string;
+    windowStart?: Date;
+    windowEnd?: Date;
+    executedById?: string;
+    useCurrentCycle?: boolean;
+  }) {
+    if (!env.ENABLE_REFERRAL_COMMISSIONS) {
+      return { settledCount: 0, totalCommissionCents: 0, cycleKey: null, skipped: 'DISABLED' };
+    }
+
+    const bonusSetting = await prisma.systemSetting.findUnique({ where: { key: 'BONUS_SETTINGS' } });
+    if (bonusSetting) {
+      try {
+        const parsed = JSON.parse(bonusSetting.value);
+        if (parsed?.referralBonus?.enabled === false) {
+          return { settledCount: 0, totalCommissionCents: 0, cycleKey: null, skipped: 'PAUSED' };
+        }
+      } catch {}
+    }
+
+    const resetHour = await AccountLevelService.getDailyResetHour();
+    const now = new Date();
+    const refDate = options?.useCurrentCycle ? now : new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const defaultWin = AccountLevelService.getDailyWindow(resetHour, refDate);
+    const cycleKey = options?.cycleKey || defaultWin.cycleKey;
+    const windowStart = options?.windowStart || defaultWin.windowStart;
+    const windowEnd = options?.windowEnd || defaultWin.windowEnd;
+    const executedById = options?.executedById || 'SYSTEM';
+
+    const config = await this.getReferralConfig();
+    const maxLimit = Number(config.maxCommissionReferrals ?? 0);
+
+    // Gather all ad reward claims inside this 24-hour cycle
+    const claims = await prisma.rewardClaim.findMany({
+      where: {
+        OR: [
+          { cycleKey },
+          { claimedAt: { gte: windowStart, lt: windowEnd } },
+        ],
+      },
+      select: { userId: true, amountCents: true },
+    });
+
+    const earningsByUser = new Map<string, number>();
+    for (const c of claims) {
+      earningsByUser.set(c.userId, (earningsByUser.get(c.userId) || 0) + c.amountCents);
+    }
+
+    if (earningsByUser.size === 0) {
+      return { settledCount: 0, totalCommissionCents: 0, cycleKey };
+    }
+
+    const activeReferralIds = Array.from(earningsByUser.keys());
+    const referredEarners = await prisma.user.findMany({
+      where: {
+        id: { in: activeReferralIds },
+        referredById: { not: null },
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true,
+        fullName: true,
+        referredById: true,
+        isQualifiedReferral: true,
+        packagePurchases: { where: { status: 'ACTIVE' }, select: { id: true } },
+      },
+    });
+
+    // Group by sponsor so we compute accurate chronological referral positions
+    const sponsorIds = Array.from(
+      new Set(
+        referredEarners
+          .filter((u) => u.referredById && u.referredById !== u.id && (u.isQualifiedReferral || u.packagePurchases.length > 0))
+          .map((u) => u.referredById!)
+      )
+    );
+
+    let settledCount = 0;
+    let totalCommissionCents = 0;
+
+    for (const sponsorId of sponsorIds) {
+      // Determine stable chronological positions of ALL qualified referrals for this sponsor
+      const allSponsorRefs = await prisma.user.findMany({
+        where: {
+          referredById: sponsorId,
+          OR: [{ isQualifiedReferral: true }, { packagePurchases: { some: { status: 'ACTIVE' } } }],
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, fullName: true },
+      });
+
+      const posMap = new Map<string, number>();
+      allSponsorRefs.forEach((r, idx) => posMap.set(r.id, idx + 1));
+
+      const sponsorEarners = referredEarners.filter(
+        (u) => u.referredById === sponsorId && posMap.has(u.id)
+      );
+
+      for (const refUser of sponsorEarners) {
+        const position = posMap.get(refUser.id) || 1;
+        if (maxLimit > 0 && position > maxLimit) {
+          continue;
+        }
+
+        const sourceEarningsCents = earningsByUser.get(refUser.id) || 0;
+        if (sourceEarningsCents <= 0) continue;
+
+        const ratePercent = this.resolvePositionRate(position, config);
+        const commissionCents = Math.max(1, Math.round((sourceEarningsCents * ratePercent) / 100));
+        if (commissionCents <= 0) continue;
+
+        // Idempotency check: never double-pay for the same (sponsor, referral, cycleKey)
+        const existing = await prisma.referralCommission.findFirst({
+          where: {
+            beneficiaryId: sponsorId,
+            sourceUserId: refUser.id,
+            cycleKey,
+          },
+        });
+        if (existing) continue;
+
+        await prisma.$transaction(async (tx) => {
+          const beneficiaryAccount = await LedgerService.getOrCreateAccount(
+            tx,
+            AccountType.USER_REFERRAL,
+            Currency.USD,
+            sponsorId
+          );
+          const sysExpenseAccount = await LedgerService.getOrCreateAccount(
+            tx,
+            AccountType.SYSTEM_EXPENSE_REFERRALS,
+            Currency.USD,
+            null
+          );
+
+          const ref = `REF-DAILY-${sponsorId.slice(0, 6)}-${refUser.id.slice(0, 6)}-${cycleKey}`;
+          const ledgerTx = await LedgerService.postTransaction(
+            {
+              reference: ref,
+              transactionType: LedgerTransactionType.REFERRAL_COMMISSION,
+              currency: Currency.USD,
+              description: `Daily Referral Commission (#${position}, ${ratePercent}%) on ${refUser.fullName}'s $${(sourceEarningsCents / 100).toFixed(2)} daily ad earnings (${cycleKey})`,
+              postedById: executedById,
+              entries: [
+                {
+                  accountId: sysExpenseAccount.id,
+                  entryType: EntryType.DEBIT,
+                  amountCents: commissionCents,
+                },
+                {
+                  accountId: beneficiaryAccount.id,
+                  entryType: EntryType.CREDIT,
+                  amountCents: commissionCents,
+                },
+              ],
+            },
+            tx
+          );
+
+          await tx.referralCommission.create({
+            data: {
+              beneficiaryId: sponsorId,
+              sourceUserId: refUser.id,
+              revenueEventId: null,
+              commissionType: 'DAILY_AD_EARNINGS',
+              cycleKey,
+              sourceEarningsCents,
+              positionNumber: position,
+              commissionCents,
+              currency: 'USD',
+              ratePercent,
+              status: 'CREDITED',
+              ledgerTxId: ledgerTx.id,
+            },
+          });
+
+          await tx.notification.create({
+            data: {
+              userId: sponsorId,
+              title: 'Daily Referral Commission Credited',
+              message: `+$${(commissionCents / 100).toFixed(2)} USD (${ratePercent}% on ${refUser.fullName}'s $${(sourceEarningsCents / 100).toFixed(2)} ad earnings) credited to your Referral Earnings.`,
+              type: 'SUCCESS',
+            },
+          });
+        });
+
+        settledCount++;
+        totalCommissionCents += commissionCents;
+      }
+    }
+
+    return { settledCount, totalCommissionCents, cycleKey };
+  }
+
+  /**
+   * Legacy helper kept for backwards compatibility if called directly.
+   */
+  static async processCommissionForRevenueEvent(
+    sourceUserId: string,
+    _revenueEventId: string,
+    netRevenueCents: number,
+    _currency: Currency,
+    tx: Prisma.TransactionClient
+  ) {
+    return this.markReferralQualifiedOnPurchase(sourceUserId, netRevenueCents, tx);
   }
 
   /**
@@ -463,17 +589,47 @@ export class ReferralService {
     }
 
     const rankProgress = await this.getReferralRankAndProgress(userId);
+    const resetHour = await AccountLevelService.getDailyResetHour();
+    const cycle = AccountLevelService.getDailyWindow(resetHour);
 
-    // Issue #8: Single consistent position number matching qualification/commission chronological order!
-    const commissionsAsc = [...user.referralCommissions].sort(
-      (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
-    );
+    // Stable chronological position numbers for ALL qualified referrals (1, 2, 3, 4, 5...)
+    const qualifiedAsc = [...user.referrals]
+      .filter((r) => r.isQualifiedReferral || r.packagePurchases.length > 0)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
     const positionBySourceUserId = new Map<string, number>();
-    commissionsAsc.forEach((c, idx) => {
-      if (!positionBySourceUserId.has(c.sourceUserId)) {
-        positionBySourceUserId.set(c.sourceUserId, idx + 1);
-      }
+    qualifiedAsc.forEach((r, idx) => {
+      positionBySourceUserId.set(r.id, idx + 1);
     });
+
+    // Compute live preview of today's accruing daily referral commissions (settled every 24h)
+    const qualifiedIds = qualifiedAsc.map((r) => r.id);
+    const todayClaims = qualifiedIds.length
+      ? await prisma.rewardClaim.findMany({
+          where: {
+            userId: { in: qualifiedIds },
+            OR: [
+              { cycleKey: cycle.cycleKey },
+              { claimedAt: { gte: cycle.windowStart, lt: cycle.windowEnd } },
+            ],
+          },
+          select: { userId: true, amountCents: true },
+        })
+      : [];
+    const todayEarnedByRef = new Map<string, number>();
+    for (const cl of todayClaims) {
+      todayEarnedByRef.set(cl.userId, (todayEarnedByRef.get(cl.userId) || 0) + cl.amountCents);
+    }
+
+    const maxLimit = Number(rankProgress.config?.maxCommissionReferrals ?? 0);
+    let todayPendingCommissionCents = 0;
+    for (const r of qualifiedAsc) {
+      const pos = positionBySourceUserId.get(r.id) || 1;
+      if (maxLimit > 0 && pos > maxLimit) continue;
+      const earned = todayEarnedByRef.get(r.id) || 0;
+      if (earned <= 0) continue;
+      const rate = this.resolvePositionRate(pos, rankProgress.config);
+      todayPendingCommissionCents += Math.max(1, Math.round((earned * rate) / 100));
+    }
 
     // Sort referrals: qualified first by their true qualification position, then pending by join date
     const enrichedReferrals = user.referrals.map((r) => {
@@ -486,6 +642,7 @@ export class ReferralService {
         status: r.status,
         isQualified,
         positionNumber,
+        todayAdEarningsCents: todayEarnedByRef.get(r.id) || 0,
         createdAt: r.createdAt.toISOString(),
         hasActivePackage: r.packagePurchases.length > 0,
       };
@@ -499,10 +656,13 @@ export class ReferralService {
 
     return {
       referralCode: user.referralCode,
-      referralLink: `${env.CORS_ORIGIN === '*' ? 'https://u-ads.com' : env.CORS_ORIGIN}/register?ref=${user.referralCode}`,
+      referralLink: `${env.CORS_ORIGIN === '*' ? 'https://u-ads.com' : env.CORS_ORIGIN}/signup?ref=${user.referralCode}`,
       totalReferrals,
       qualifiedReferrals,
       totalCommissionCents,
+      dailyCommissionMode: true,
+      todayPendingCommissionCents,
+      nextSettlementAt: cycle.windowEnd.toISOString(),
       currency: 'USD',
       rankProgress,
       referralConfig: rankProgress.config,
@@ -511,7 +671,10 @@ export class ReferralService {
         id: c.id,
         sourceUserId: c.sourceUserId,
         sourceUserName: c.sourceUser.fullName,
-        positionNumber: positionBySourceUserId.get(c.sourceUserId) ?? null,
+        positionNumber: (c as any).positionNumber ?? positionBySourceUserId.get(c.sourceUserId) ?? null,
+        commissionType: (c as any).commissionType || 'DAILY_AD_EARNINGS',
+        cycleKey: (c as any).cycleKey || null,
+        sourceEarningsCents: (c as any).sourceEarningsCents ?? null,
         commissionCents: c.commissionCents,
         currency: 'USD',
         ratePercent: c.ratePercent,

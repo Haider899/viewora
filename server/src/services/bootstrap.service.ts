@@ -104,20 +104,21 @@ export const DEFAULT_NOTIFICATION_SETTINGS = {
 };
 
 export const DEFAULT_LANDING_CONTENT = {
-  badgeText: 'U-Ads • Verified Video Campaigns & USD Rewards',
-  heroTitle: 'Watch Verified Campaigns & Earn Real USD Rewards',
+  badgeText: 'U-Ads • Verified Video Ads & USD Earnings',
+  heroTitle: 'Watch Verified Ads & Earn Real USD Rewards',
   heroHighlight: '',
   heroSubtitle:
-    'Access curated digital media campaigns on U-Ads. Complete verified full-duration sessions, grow your referral rank, and manage everything in USD with a transparent double-entry ledger.',
-  videoPreviewHeading: 'Featured Video Preview',
+    'Advertisers pay U-Ads to run their ads — 95% is shared with members who watch them. Choose a lifetime package, watch daily ads, and withdraw your earnings in USD.',
+  authBannerImageUrl: '',
+  videoPreviewHeading: 'Featured Ad Campaigns',
   videoPreviewSubtitle:
-    'Explore active campaigns in the catalog. Unlock higher video limits as your account level and plan advance.',
-  rewardsHeading: 'Transparent Rewards & Bonus Structure',
+    'Explore active ad campaigns in the catalog. Unlock higher daily ad limits and per-ad rewards as your package level advances.',
+  rewardsHeading: 'Transparent Earnings & Rewards',
   rewardsSubtitle:
-    'Three distinct USD reward streams tracked cleanly across your Main, Video Rewards, and Referral wallets.',
+    'Your balance shows your real withdrawable earnings across Video Ad Rewards, Daily Referral Commissions, and Bonuses.',
   contactHeading: 'Contact & 24/7 Customer Support',
   contactSubtitle:
-    'Need help with deposits, account levels, or payouts? Our support team responds directly through live chat and email.',
+    'Need help with deposits, packages, or payouts? Our support team responds directly through live chat and email.',
   contactEmail: 'support@u-ads.com',
   contactPhone: '+1 (800) 555-0194',
   contactHours: '24/7 Live Support • Deposit Verification: 10–30 Minutes',
@@ -323,7 +324,7 @@ export class BootstrapService {
           category: 'Quantitative Finance & Ledgering',
           minPackageTier: 'Basic',
           durationSeconds: verifiedMp4Streams[2].dur,
-          rewardAmountCents: 75,
+          rewardAmountCents: 50,
           thumbnailUrl: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=800&q=80',
           videoUrl: verifiedMp4Streams[2].url,
         },
@@ -333,7 +334,7 @@ export class BootstrapService {
           category: 'Full-Stack Software Engineering',
           minPackageTier: 'Basic',
           durationSeconds: verifiedMp4Streams[3].dur,
-          rewardAmountCents: 75,
+          rewardAmountCents: 50,
           thumbnailUrl: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=800&q=80',
           videoUrl: verifiedMp4Streams[3].url,
         },
@@ -343,7 +344,7 @@ export class BootstrapService {
           category: 'Full-Stack Software Engineering',
           minPackageTier: 'Basic',
           durationSeconds: verifiedMp4Streams[4].dur,
-          rewardAmountCents: 75,
+          rewardAmountCents: 50,
           thumbnailUrl: 'https://images.unsplash.com/photo-1504639725590-34d0984388bd?auto=format&fit=crop&w=800&q=80',
           videoUrl: verifiedMp4Streams[4].url,
         },
@@ -353,7 +354,7 @@ export class BootstrapService {
           category: 'Cybersecurity & Cryptography',
           minPackageTier: 'Premium',
           durationSeconds: verifiedMp4Streams[5].dur,
-          rewardAmountCents: 100,
+          rewardAmountCents: 50,
           thumbnailUrl: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=800&q=80',
           videoUrl: verifiedMp4Streams[5].url,
         },
@@ -363,7 +364,7 @@ export class BootstrapService {
           category: 'Quantitative Finance & Ledgering',
           minPackageTier: 'Premium',
           durationSeconds: verifiedMp4Streams[6].dur,
-          rewardAmountCents: 100,
+          rewardAmountCents: 50,
           thumbnailUrl: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=800&q=80',
           videoUrl: verifiedMp4Streams[6].url,
         },
@@ -373,7 +374,7 @@ export class BootstrapService {
           category: 'Venture Creation & Scaling',
           minPackageTier: 'Premium',
           durationSeconds: verifiedMp4Streams[7].dur,
-          rewardAmountCents: 100,
+          rewardAmountCents: 50,
           thumbnailUrl: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
           videoUrl: verifiedMp4Streams[7].url,
         },
@@ -383,7 +384,7 @@ export class BootstrapService {
           category: 'Executive Leadership & Strategy',
           minPackageTier: 'VIP',
           durationSeconds: verifiedMp4Streams[8].dur,
-          rewardAmountCents: 150,
+          rewardAmountCents: 50,
           thumbnailUrl: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=800&q=80',
           videoUrl: verifiedMp4Streams[8].url,
         },
@@ -393,7 +394,7 @@ export class BootstrapService {
           category: 'Executive Leadership & Strategy',
           minPackageTier: 'VIP',
           durationSeconds: verifiedMp4Streams[9].dur,
-          rewardAmountCents: 150,
+          rewardAmountCents: 50,
           thumbnailUrl: 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=800&q=80',
           videoUrl: verifiedMp4Streams[9].url,
         },
@@ -447,6 +448,15 @@ export class BootstrapService {
           data: { minAccountLevel: lvl },
         });
       }
+
+      // Part 9: Normalize legacy catalog videos (without custom per-video %) to uniform base reward 50 cents ($0.50)
+      await prisma.video.updateMany({
+        where: {
+          rewardPercentageBps: null,
+          rewardAmountCents: { in: [75, 100, 150] },
+        },
+        data: { rewardAmountCents: 50 },
+      });
     }
 
     // 5b. Pre-load 20 Live Activity Popups if empty (Part 2 #6)
@@ -467,8 +477,52 @@ export class BootstrapService {
     await AccountLevelService.ensureDefaultLevels();
     await CompanyDocumentService.ensureInitialDocuments();
 
-    // 7. System Config Defaults (USD Only, Referral Config, Bonus Settings, Notifications, Landing CMS)
+    // 6b. Part 8: Recalculate EVERY existing member's accountLevel from their active lifetime package
+    try {
+      const [allPackages, activePurchases] = await Promise.all([
+        prisma.package.findMany({ orderBy: { priceCents: 'asc' } }),
+        prisma.packagePurchase.findMany({
+          where: { status: 'ACTIVE' },
+          orderBy: { purchasedAt: 'desc' },
+          include: {
+            user: { select: { id: true, accountLevel: true } },
+            package: { select: { name: true } },
+          },
+        }),
+      ]);
+      const seenUserIds = new Set<string>();
+      for (const p of activePurchases) {
+        if (!p.user || seenUserIds.has(p.userId)) continue;
+        seenUserIds.add(p.userId);
+        const pkgName = p.package?.name || p.packageName;
+        const expectedLevel = AccountLevelService.mapPackageToLevel(pkgName, allPackages);
+        if (expectedLevel && p.user.accountLevel !== expectedLevel) {
+          await prisma.user.update({
+            where: { id: p.userId },
+            data: { accountLevel: expectedLevel },
+          });
+          await prisma.accountLevelHistory.create({
+            data: {
+              userId: p.userId,
+              oldLevel: p.user.accountLevel || 'NEW_USER',
+              newLevel: expectedLevel,
+              reason: `Synchronized account level to match active ${pkgName} lifetime package`,
+              adjustedById: 'SYSTEM',
+            },
+          });
+        }
+      }
+    } catch {
+      // Non-blocking startup sync
+    }
+
+    // 7. System Config Defaults (USD Only, Theme, Referral Config, Bonus Settings, Notifications, Landing CMS)
     const defaultJsonSettings: Array<{ key: string; value: string; description: string }> = [
+      {
+        key: 'DEFAULT_THEME',
+        value: 'orange',
+        description: 'Platform default color theme for new & pre-login visitors (orange or green)',
+      },
       {
         key: 'REWARDS_ENABLED',
         value: 'true',

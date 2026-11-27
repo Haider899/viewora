@@ -170,6 +170,7 @@ export class AuthService {
         savedPayoutMethod: user.savedPayoutMethod,
         savedAccountTitle: user.savedAccountTitle,
         savedAccountNumber: user.savedAccountNumber,
+        preferredTheme: (user as any).preferredTheme || null,
         createdAt: user.createdAt,
         levelProgress,
       },
@@ -200,6 +201,7 @@ export class AuthService {
         savedPayoutMethod: true,
         savedAccountTitle: true,
         savedAccountNumber: true,
+        preferredTheme: true,
         lastSeenAt: true,
         createdAt: true,
       },
@@ -249,6 +251,7 @@ export class AuthService {
         savedPayoutMethod: true,
         savedAccountTitle: true,
         savedAccountNumber: true,
+        preferredTheme: true,
         createdAt: true,
       },
     });
@@ -263,6 +266,16 @@ export class AuthService {
       },
     });
 
+    return updated;
+  }
+
+  static async updatePreferredTheme(userId: string, theme: 'orange' | 'green') {
+    const normalized = theme === 'green' ? 'green' : 'orange';
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { preferredTheme: normalized },
+      select: { id: true, preferredTheme: true },
+    });
     return updated;
   }
 

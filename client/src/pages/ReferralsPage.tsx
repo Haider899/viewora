@@ -270,7 +270,14 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
           <div className="text-3xl font-extrabold text-emerald-700 tabular-nums">
             {formatUSD(data?.totalCommissionCents ?? 0)}
           </div>
-          <p className="text-xs text-slate-400">Credited into Referral Wallet</p>
+          <p className="text-xs text-slate-400">
+            Credited every 24h from referrals&apos; daily ad earnings
+            {(data?.todayPendingCommissionCents ?? 0) > 0 && (
+              <span className="block font-bold text-orange-600 mt-0.5 tabular-nums">
+                Today accruing: +{formatUSD(data.todayPendingCommissionCents)}
+              </span>
+            )}
+          </p>
         </div>
       </div>
 
@@ -326,9 +333,9 @@ export const ReferralsPage: React.FC<ReferralsProps> = () => {
       <div className="card-white p-5 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 className="text-sm font-bold text-slate-900">Commission Rates by Referral Position</h3>
+            <h3 className="text-sm font-bold text-slate-900">Daily Commission Rates by Referral Position</h3>
             <p className="text-xs text-slate-500">
-              Earned once on each invited member&apos;s first qualifying USD package subscription.
+              Earned daily (every 24 hours) on what your qualified referrals earn from watching their enabled ads.
               {data?.referralConfig?.maxCommissionReferrals > 0
                 ? ` Commission applies up to your first ${data.referralConfig.maxCommissionReferrals} qualified referrals.`
                 : ''}

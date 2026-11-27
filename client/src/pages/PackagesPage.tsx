@@ -36,7 +36,12 @@ export const PackagesPage: React.FC<PackagesProps> = ({
   const [selectedPackage, setSelectedPackage] = useState<Package | null>(null);
   const [purchasing, setPurchasing] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [successInfo, setSuccessInfo] = useState<{ msg: string; remainingCents: number } | null>(null);
+  const [paymentSource, setPaymentSource] = useState<'COMBINED' | 'EARNINGS' | 'SUBSCRIPTION_CREDIT'>('COMBINED');
+  const [successInfo, setSuccessInfo] = useState<{
+    msg: string;
+    remainingCents: number;
+    breakdownText?: string;
+  } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchPackagesData = async () => {
@@ -80,6 +85,7 @@ export const PackagesPage: React.FC<PackagesProps> = ({
       return;
     }
     setSelectedPackage(pkg);
+    setPaymentSource('COMBINED');
     setErrorMsg(null);
     setSuccessInfo(null);
     setModalOpen(true);
@@ -91,18 +97,33 @@ export const PackagesPage: React.FC<PackagesProps> = ({
       ? (selectedPackage.upgradeDiffCents ?? selectedPackage.priceCents)
       : selectedPackage.priceCents;
     const availBefore = wallet?.USD?.availableCents ?? 0;
-    const expectedRemaining = Math.max(0, availBefore - costCents);
+    const earningsBefore =
+      wallet?.USD?.earningsTotalCents ??
+      (wallet?.USD?.videoRewardsCents ?? 0) +
+        (wallet?.USD?.referralCents ?? 0) +
+        (wallet?.USD?.otherRewardsCents ?? 0);
+    const expectedRemaining = Math.max(0, availBefore + earningsBefore - costCents);
 
     setPurchasing(true);
     setErrorMsg(null);
     try {
-      const res = await api.purchasePackage(selectedPackage.id, 'USD');
+      const res = await api.purchasePackage(selectedPackage.id, 'USD', paymentSource);
       if (res.success && res.data) {
+        const b = res.data.paymentBreakdown;
+        const parts: string[] = [];
+        if (b?.subscriptionCreditCents > 0) {
+          parts.push(`${formatUSD(b.subscriptionCreditCents)} from Subscription Credit`);
+        }
+        const earnedUsed = (b?.videoRewardsCents || 0) + (b?.referralCents || 0) + (b?.bonusesCents || 0);
+        if (earnedUsed > 0) {
+          parts.push(`${formatUSD(earnedUsed)} from Withdrawable Earnings`);
+        }
         setSuccessInfo({
           msg: selectedPackage.isUpgrade
             ? `Upgraded to ${selectedPackage.name} Lifetime Plan! Higher-level ads are now unlocked.`
             : `${selectedPackage.name} Lifetime Plan is now active on your account.`,
           remainingCents: expectedRemaining,
+          breakdownText: parts.length > 0 ? `Paid: ${parts.join(' + ')}` : undefined,
         });
         showToast(
           selectedPackage.isUpgrade
@@ -329,6 +350,11 @@ export const PackagesPage: React.FC<PackagesProps> = ({
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                         <span>{successInfo.msg}</span>
                       </div>
+                      {successInfo.breakdownText && (
+                        <div className="text-[11px] font-semibold text-emerald-800 pl-6">
+                          {successInfo.breakdownText}
+                        </div>
+                      )}
                     </div>
                     <div className="flex gap-2.5">
                       <button
@@ -362,12 +388,80 @@ export const PackagesPage: React.FC<PackagesProps> = ({
                 ? (selectedPackage.upgradeDiffCents ?? selectedPackage.priceCents)
                 : selectedPackage.priceCents;
               const creditCents = selectedPackage.currentPlanPriceCents ?? 0;
-              const availCents = wallet?.USD?.availableCents ?? 0;
-              const hasEnough = availCents >= reqCents;
-              const shortfallCents = Math.max(0, reqCents - availCents);
+              const subCreditCents = wallet?.USD?.availableCents ?? 0;
+              const earnedCents =
+                wallet?.USD?.earningsTotalCents ??
+                (wallet?.USD?.videoRewardsCents ?? 0) +
+                  (wallet?.USD?.referralCents ?? 0) +
+                  (wallet?.USD?.otherRewardsCents ?? 0);
+
+              const availableForSource =
+                paymentSource === 'SUBSCRIPTION_CREDIT'
+                  ? subCreditCents
+                  : paymentSource === 'EARNINGS'
+                  ? earnedCents
+                  : subCreditCents + earnedCents;
+
+              const hasEnough = availableForSource >= reqCents;
+              const shortfallCents = Math.max(0, reqCents - availableForSource);
+
+              // Exact preview split of what will be deducted from where (Part 4 #3)
+              const willUseSubCents =
+                paymentSource === 'EARNINGS' ? 0 : Math.min(subCreditCents, reqCents);
+              const willUseEarnedCents =
+                paymentSource === 'SUBSCRIPTION_CREDIT'
+                  ? 0
+                  : Math.min(earnedCents, Math.max(0, reqCents - willUseSubCents));
 
               return (
                 <div className="space-y-4">
+                  {/* Payment Source Selector (Part 4 #3: Earnings, Subscription Credit, or Combined) */}
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      Choose Payment Source
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        {
+                          id: 'EARNINGS' as const,
+                          label: 'Earnings',
+                          bal: earnedCents,
+                        },
+                        {
+                          id: 'SUBSCRIPTION_CREDIT' as const,
+                          label: 'Deposit Credit',
+                          bal: subCreditCents,
+                        },
+                        {
+                          id: 'COMBINED' as const,
+                          label: 'Both Combined',
+                          bal: subCreditCents + earnedCents,
+                        },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => {
+                            setPaymentSource(opt.id);
+                            setErrorMsg(null);
+                          }}
+                          className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                            paymentSource === opt.id
+                              ? 'bg-orange-50 border-orange-500 ring-2 ring-orange-500/15'
+                              : 'bg-white border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="text-[10px] font-extrabold text-slate-900 leading-tight">
+                            {opt.label}
+                          </div>
+                          <div className="text-[11px] font-black text-orange-600 tabular-nums mt-0.5">
+                            {formatUSD(opt.bal)}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
                     <div className="flex justify-between items-center text-slate-600">
                       <span>{selectedPackage.name} full price</span>
@@ -385,10 +479,26 @@ export const PackagesPage: React.FC<PackagesProps> = ({
                       <span>{isUpgrade ? 'Upgrade difference due' : 'Subscription payment due'}</span>
                       <span className="text-orange-600 tabular-nums">{formatUSD(reqCents)}</span>
                     </div>
-                    <div className="flex justify-between items-center text-slate-600">
-                      <span>Available deposit credit</span>
-                      <span className="font-bold text-slate-900 tabular-nums">{formatUSD(availCents)}</span>
-                    </div>
+                    {hasEnough && (
+                      <div className="pt-1.5 border-t border-slate-200 space-y-1 text-[11px] text-slate-600">
+                        {willUseSubCents > 0 && (
+                          <div className="flex justify-between">
+                            <span>Paid from Deposit Credit</span>
+                            <span className="font-bold text-slate-900 tabular-nums">
+                              {formatUSD(willUseSubCents)}
+                            </span>
+                          </div>
+                        )}
+                        {willUseEarnedCents > 0 && (
+                          <div className="flex justify-between">
+                            <span>Paid from Withdrawable Earnings</span>
+                            <span className="font-bold text-orange-700 tabular-nums">
+                              {formatUSD(willUseEarnedCents)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {!hasEnough ? (

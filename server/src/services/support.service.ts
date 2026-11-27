@@ -5,6 +5,108 @@ import { LedgerService } from './ledger.service.js';
 const prisma = new PrismaClient();
 
 export class SupportService {
+  /**
+   * Part 3 #1: Strictly scoped read-only summary for ONLY the member chatting in `conversationId`.
+   * Returns package, level, earnings summary, and last 5 recent activities — NO full dossier,
+   * NO other members, and NO edit/financial approval capabilities.
+   */
+  public static async getChattingMemberSummary(conversationId: string) {
+    const convo = await prisma.supportConversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, userId: true, guestName: true, guestEmail: true },
+    });
+    if (!convo) {
+      throw { statusCode: 404, code: 'NOT_FOUND', message: 'Conversation not found.' };
+    }
+    if (!convo.userId) {
+      return {
+        isGuest: true,
+        fullName: convo.guestName || 'Guest Visitor',
+        email: convo.guestEmail || null,
+        memberCode: null,
+        activePackageName: null,
+        accountLevel: 'NEW_USER',
+        earnings: { videoRewardsUSD: 0, referralUSD: 0, bonusesUSD: 0, totalEarningsUSD: 0 },
+        recentActivity: [],
+      };
+    }
+
+    const userId = convo.userId;
+    const [user, activePurchase, wallet, recentClaims, recentWithdrawals, recentDeposits] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, fullName: true, email: true, memberCode: true, accountLevel: true, status: true },
+      }),
+      prisma.packagePurchase.findFirst({
+        where: { userId, status: 'ACTIVE' },
+        orderBy: { purchasedAt: 'desc' },
+        select: { packageName: true, purchasedAt: true },
+      }),
+      LedgerService.getUserWalletSummary(userId),
+      prisma.rewardClaim.findMany({
+        where: { userId },
+        orderBy: { claimedAt: 'desc' },
+        take: 5,
+        include: { video: { select: { title: true } } },
+      }),
+      prisma.withdrawalRequest.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 3,
+        select: { amountCents: true, status: true, createdAt: true },
+      }),
+      prisma.depositRequest.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 3,
+        select: { amountCents: true, status: true, createdAt: true },
+      }),
+    ]);
+
+    if (!user) return null;
+
+    const videoRewardsUSD = (wallet.USD?.videoRewardsCents || 0) / 100;
+    const referralUSD = (wallet.USD?.referralCents || 0) / 100;
+    const bonusesUSD = (wallet.USD?.otherRewardsCents || 0) / 100;
+
+    const recentActivity = [
+      ...recentClaims.map((c) => ({
+        type: 'AD_REWARD',
+        label: `Ad reward +$${(c.amountCents / 100).toFixed(2)} (${c.video?.title || 'Ad'})`,
+        createdAt: c.claimedAt,
+      })),
+      ...recentWithdrawals.map((w) => ({
+        type: 'WITHDRAWAL',
+        label: `Withdrawal $${(w.amountCents / 100).toFixed(2)} — ${w.status}`,
+        createdAt: w.createdAt,
+      })),
+      ...recentDeposits.map((d) => ({
+        type: 'DEPOSIT',
+        label: `Subscription payment $${(d.amountCents / 100).toFixed(2)} — ${d.status}`,
+        createdAt: d.createdAt,
+      })),
+    ]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5);
+
+    return {
+      isGuest: false,
+      fullName: user.fullName,
+      email: user.email,
+      memberCode: user.memberCode,
+      status: user.status,
+      activePackageName: activePurchase?.packageName || 'No Active Plan',
+      accountLevel: user.accountLevel || 'NEW_USER',
+      earnings: {
+        videoRewardsUSD,
+        referralUSD,
+        bonusesUSD,
+        totalEarningsUSD: videoRewardsUSD + referralUSD + bonusesUSD,
+      },
+      recentActivity,
+    };
+  }
+
   private static async buildAccountContext(userId?: string | null): Promise<BotAccountContext | null> {
     if (!userId) return null;
     try {

@@ -1,5 +1,14 @@
 import prisma from '../lib/prisma.js';
 
+function escapeXml(str: string): string {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 function buildCertificateSvgDataUrl(opts: {
   badge: string;
   title: string;
@@ -8,32 +17,39 @@ function buildCertificateSvgDataUrl(opts: {
   licenseNumber: string;
   accent: string;
 }) {
+  const badge = escapeXml(opts.badge);
+  const title = escapeXml(opts.title);
+  const subtitle = escapeXml(opts.subtitle);
+  const authority = escapeXml(opts.authority);
+  const licenseNumber = escapeXml(opts.licenseNumber);
+  const accent = escapeXml(opts.accent);
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#f8fafc"/>
-      <stop offset="100%" stop-color="#ecfdf5"/>
+      <stop offset="100%" stop-color="#fff7ed"/>
     </linearGradient>
   </defs>
   <rect width="900" height="600" fill="url(#bg)"/>
-  <rect x="24" y="24" width="852" height="552" rx="18" fill="#ffffff" stroke="${opts.accent}" stroke-width="4"/>
+  <rect x="24" y="24" width="852" height="552" rx="18" fill="#ffffff" stroke="${accent}" stroke-width="4"/>
   <rect x="38" y="38" width="824" height="524" rx="12" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6 4"/>
-  <rect x="310" y="72" width="280" height="32" rx="16" fill="${opts.accent}" fill-opacity="0.12"/>
-  <text x="450" y="93" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="${opts.accent}" letter-spacing="2">${opts.badge}</text>
-  <text x="450" y="160" text-anchor="middle" font-family="Georgia, serif" font-size="30" font-weight="700" fill="#0f172a">${opts.title}</text>
-  <text x="450" y="200" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#475569">${opts.subtitle}</text>
+  <rect x="285" y="72" width="330" height="32" rx="16" fill="${accent}" fill-opacity="0.12"/>
+  <text x="450" y="93" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="${accent}" letter-spacing="2">${badge}</text>
+  <text x="450" y="160" text-anchor="middle" font-family="Georgia, serif" font-size="30" font-weight="700" fill="#0f172a">${title}</text>
+  <text x="450" y="200" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#475569">${subtitle}</text>
   <line x1="200" y1="230" x2="700" y2="230" stroke="#e2e8f0" stroke-width="2"/>
   <text x="450" y="275" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#64748b" letter-spacing="1.5">ISSUED TO</text>
-  <text x="450" y="318" text-anchor="middle" font-family="Georgia, serif" font-size="28" font-weight="700" fill="#059669">U-Ads Platform Technologies Ltd.</text>
+  <text x="450" y="318" text-anchor="middle" font-family="Georgia, serif" font-size="28" font-weight="700" fill="${accent}">U-Ads Platform Technologies Ltd.</text>
   <text x="450" y="355" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#334155">Verified Digital Media Engagement &amp; Audited USD Ledger Operations</text>
   <rect x="110" y="405" width="680" height="90" rx="12" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
   <text x="140" y="438" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="#64748b">ISSUING AUTHORITY</text>
-  <text x="140" y="465" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#0f172a">${opts.authority}</text>
+  <text x="140" y="465" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#0f172a">${authority}</text>
   <text x="580" y="438" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="#64748b">REGISTRATION / LICENSE NO.</text>
-  <text x="580" y="465" font-family="Courier New, monospace" font-size="15" font-weight="700" fill="${opts.accent}">${opts.licenseNumber}</text>
-  <circle cx="790" cy="120" r="38" fill="${opts.accent}" fill-opacity="0.12" stroke="${opts.accent}" stroke-width="2.5"/>
-  <text x="790" y="116" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="${opts.accent}">VERIFIED</text>
-  <text x="790" y="133" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="${opts.accent}">2026</text>
+  <text x="580" y="465" font-family="Courier New, monospace" font-size="15" font-weight="700" fill="${accent}">${licenseNumber}</text>
+  <circle cx="790" cy="120" r="38" fill="${accent}" fill-opacity="0.12" stroke="${accent}" stroke-width="2.5"/>
+  <text x="790" y="116" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="${accent}">VERIFIED</text>
+  <text x="790" y="133" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="${accent}">2026</text>
   <text x="450" y="538" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#94a3b8">Official U-Ads Registry Record • Validated Active Standing</text>
 </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
@@ -103,10 +119,23 @@ export class CompanyDocumentService {
       return;
     }
 
-    // Auto-upgrade any legacy stock Unsplash photo documents to official SVG certificates
+    // Auto-upgrade any legacy stock Unsplash photo documents OR broken SVG certificates with unescaped '&'
     for (let i = 0; i < existing.length; i++) {
       const doc = existing[i];
-      if (doc.fileUrl && doc.fileUrl.includes('images.unsplash.com')) {
+      const hasLegacyPhoto = Boolean(doc.fileUrl && doc.fileUrl.includes('images.unsplash.com'));
+      const hasBrokenSvg =
+        Boolean(doc.fileUrl && doc.fileUrl.startsWith('data:image/svg+xml')) &&
+        (() => {
+          try {
+            const decoded = decodeURIComponent(doc.fileUrl.split(',')[1] || '');
+            // Check for any unescaped '&' not followed by amp;/lt;/gt;/quot;/apos;/#
+            return /&(?!amp;|lt;|gt;|quot;|apos;|#)/.test(decoded);
+          } catch {
+            return true;
+          }
+        })();
+
+      if (hasLegacyPhoto || hasBrokenSvg) {
         const template = INITIAL_COMPANY_DOCUMENTS[i % INITIAL_COMPANY_DOCUMENTS.length];
         await prisma.companyDocument.update({
           where: { id: doc.id },

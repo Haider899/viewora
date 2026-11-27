@@ -36,6 +36,7 @@ export interface User {
   savedPayoutMethod?: string | null;
   savedAccountTitle?: string | null;
   savedAccountNumber?: string | null;
+  preferredTheme?: 'orange' | 'green' | null;
   accountLevel?: string;
   accountLockedUntil?: string | null;
   agentAvailability?: 'ONLINE' | 'BUSY' | 'OFFLINE';

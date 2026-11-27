@@ -1,6 +1,7 @@
 import { app } from './app.js';
 import { env } from './config/env.js';
 import { BootstrapService } from './services/bootstrap.service.js';
+import { ReferralService } from './services/referral.service.js';
 
 const server = app.listen(env.PORT, () => {
   console.log(`=========================================`);
@@ -12,7 +13,14 @@ const server = app.listen(env.PORT, () => {
 
   if (env.NODE_ENV !== 'test') {
     BootstrapService.ensurePlatformDefaults()
-      .then(() => console.log('✔ U-Ads platform defaults & seed data verified.'))
+      .then(() => {
+        console.log('✔ U-Ads platform defaults & seed data verified.');
+        // Settle any completed 24-hour daily referral commission cycle on startup & every 15 minutes (idempotent)
+        ReferralService.settleDailyReferralCommissions().catch(() => {});
+        setInterval(() => {
+          ReferralService.settleDailyReferralCommissions().catch(() => {});
+        }, 15 * 60 * 1000);
+      })
       .catch((err) => console.error('Bootstrap defaults warning:', err));
   }
 });

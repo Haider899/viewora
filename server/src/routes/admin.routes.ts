@@ -26,6 +26,7 @@ import { PackageService } from '../services/package.service.js';
 import { ReferralService } from '../services/referral.service.js';
 import { NotificationService } from '../services/notification.service.js';
 import { SupportService } from '../services/support.service.js';
+import { probeVideoDurationSeconds } from '../utils/videoDuration.js';
 
 const router = Router();
 
@@ -39,15 +40,15 @@ router.get(
   AdminController.getKpis
 );
 
-// User Management
+// User Management (Part 3 #1: Admin & Finance ONLY — Support Agents are strictly scoped to chatting member only!)
 router.get(
   '/users',
-  requireRole(UserRole.SUPER_ADMIN, UserRole.SUPPORT_AGENT, UserRole.FINANCE_ADMIN),
+  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN),
   AdminController.getUsers
 );
 router.get(
   '/users/ip-groups',
-  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN, UserRole.SUPPORT_AGENT),
+  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN),
   async (req, res, next) => {
     try {
       const search = req.query.search as string | undefined;
@@ -60,7 +61,7 @@ router.get(
 );
 router.post(
   '/users/:id/message',
-  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN, UserRole.SUPPORT_AGENT),
+  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN),
   async (req, res, next) => {
     try {
       const dm = await AdminService.sendDirectMessageToUser(
@@ -79,7 +80,7 @@ router.post(
 );
 router.get(
   '/users/:id/messages',
-  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN, UserRole.SUPPORT_AGENT),
+  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN),
   async (req, res, next) => {
     try {
       const msgs = await AdminService.getDirectMessagesForUser(req.params.id);
@@ -91,7 +92,7 @@ router.get(
 );
 router.get(
   '/users/:userId/financial-dossier',
-  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN, UserRole.SUPPORT_AGENT),
+  requireRole(UserRole.SUPER_ADMIN, UserRole.FINANCE_ADMIN),
   AdminController.getUserFinancialDossier
 );
 router.patch(
@@ -363,6 +364,67 @@ router.put('/support/agent-status', requireRole(UserRole.SUPER_ADMIN, UserRole.S
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
+
+// Part 3 #1: Scoped Read-Only Member Summary for the currently chatting member ONLY
+router.get(
+  '/support/conversations/:id/member-summary',
+  requireRole(UserRole.SUPER_ADMIN, UserRole.SUPPORT_AGENT),
+  async (req, res, next) => {
+    try {
+      const summary = await SupportService.getChattingMemberSummary(req.params.id);
+      res.json({ success: true, data: summary });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Part 2 #3: Super Admin Default Website Theme (orange | green)
+router.put('/default-theme', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const theme = req.body?.theme === 'green' ? 'green' : 'orange';
+    const result = await AdminService.updateDefaultTheme(req.user!.userId, theme);
+    res.json({ success: true, data: result, message: `Default platform theme updated to ${theme}.` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Part 4 #1: Trigger Daily 24h Referral Commission Settlement (idempotent per cycle)
+router.post('/referrals/settle-daily', requireRole(UserRole.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const result = await ReferralService.settleDailyReferralCommissions({
+      cycleKey: req.body?.cycleKey,
+      useCurrentCycle: Boolean(req.body?.useCurrentCycle),
+      executedById: req.user!.userId,
+    });
+    res.json({
+      success: true,
+      data: result,
+      message: `Daily referral commission settlement complete (${result.settledCount} payout(s)).`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Part 6: Server-side Video Duration Probe (MP4 mvhd / YouTube)
+router.post(
+  '/videos/probe-duration',
+  requireRole(UserRole.SUPER_ADMIN, UserRole.CONTENT_ADMIN),
+  async (req, res) => {
+    try {
+      const url = typeof req.body?.videoUrl === 'string' ? req.body.videoUrl.trim() : '';
+      if (!url) {
+        return res.status(400).json({ success: false, error: { message: 'videoUrl is required.' } });
+      }
+      const durationSeconds = await probeVideoDurationSeconds(url);
+      res.json({ success: true, data: { durationSeconds } });
+    } catch {
+      res.json({ success: true, data: { durationSeconds: null } });
+    }
+  }
+);
 
 // Video Management & User Assignments (Super Admin & Content Admin)
 router.get(
